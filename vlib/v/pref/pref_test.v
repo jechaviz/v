@@ -114,6 +114,20 @@ fn test_mac_is_alias_for_macos() {
 	assert !pref.OS.linux.is_target_of('mac')
 }
 
+fn test_kolibrios_os_target_is_recognized() {
+	os_kind := pref.os_from_string('kolibrios') or {
+		assert false, err.msg()
+		return
+	}
+	assert os_kind == .kolibrios
+	assert pref.os_from_string('kolibri') or { pref.OS._auto } == .kolibrios
+	assert pref.OS.kolibrios.lower() == 'kolibrios'
+	assert pref.OS.kolibrios.str() == 'KolibriOS'
+	assert pref.OS.kolibrios.is_target_of('kolibrios')
+	assert pref.OS.kolibrios.is_target_of('kolibri')
+	assert !pref.OS.linux.is_target_of('kolibrios')
+}
+
 fn test_bsd_target_matches_macos_and_bsd_systems() {
 	for os_kind in [pref.OS.macos, .freebsd, .openbsd, .netbsd, .dragonfly] {
 		assert os_kind.is_target_of('bsd')
@@ -242,6 +256,16 @@ fn test_bsd_specific_files_are_filtered_by_target_os() {
 	}
 	assert filtered_file_names_for_os(.linux, ['mod_bsd.c.v', 'mod_bsd.v']).len == 0
 	assert filtered_file_names_for_os(.windows, ['mod_bsd.c.v', 'mod_bsd.v']).len == 0
+}
+
+fn test_kolibrios_specific_files_are_filtered_by_target_os() {
+	files := ['main.v', 'mod_kolibrios.c.v', 'mod_kolibrios.v', 'mod_linux.c.v', 'mod_linux.v']
+	assert filtered_file_names_for_os(.kolibrios, files) == [
+		'main.v',
+		'mod_kolibrios.c.v',
+		'mod_kolibrios.v',
+	]
+	assert filtered_file_names_for_os(.linux, files) == ['main.v', 'mod_linux.c.v', 'mod_linux.v']
 }
 
 fn test_bsd_specific_files_prefer_more_specific_variants() {
