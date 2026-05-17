@@ -63,7 +63,12 @@ fn test_with_several_test_files() {
 	assert !res.output.contains('3 asserts'), res.output
 	assert res.output.contains('2 passed, 2 total'), res.output
 	assert res.output.count('OK') == 2, res.output
-	assert res.output.contains('on 2 parallel jobs'), res.output
+	expected_jobs := if os.user_os() == 'windows' {
+		'on 1 job'
+	} else {
+		'on 2 parallel jobs'
+	}
+	assert res.output.contains(expected_jobs), res.output
 }
 
 fn test_with_stats_and_several_test_files() {

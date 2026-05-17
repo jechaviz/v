@@ -292,14 +292,14 @@ pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Res
 	if show_cmd {
 		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
 	}
-	return os.execute(cmd)
+	return process_singleton_execute(cmd)
 }
 
 pub fn (mut ts TestSession) system(cmd string, mtc MessageThreadContext) int {
 	if show_cmd {
 		ts.append_message(.info, '> system cmd: ${cmd}', mtc)
 	}
-	return os.system(cmd)
+	return process_singleton_system(cmd)
 }
 
 pub fn new_test_session(_vargs string, will_compile bool) TestSession {
@@ -443,11 +443,13 @@ pub fn (mut ts TestSession) test() {
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
 	mut njobs := runtime.nr_jobs()
+	njobs = process_singleton_jobs(njobs)
 	if remaining_files.len < njobs {
 		njobs = remaining_files.len
 	}
 	ts.benchmark.njobs = njobs
 	mut pool_of_test_runners := pool.new_pool_processor(callback: worker_trunner)
+	pool_of_test_runners.set_max_jobs(njobs)
 	// ensure that the nmessages queue/channel, has enough capacity for handling many messages across threads, without blocking
 	ts.nmessages = chan LogMessage{cap: 10000}
 	ts.nmessage_idx = 0
