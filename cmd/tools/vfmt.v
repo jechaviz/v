@@ -33,6 +33,7 @@ mut:
 }
 
 const formatted_file_token = '\@\@\@' + 'FORMATTED_FILE: '
+const utf8_bom = '\xef\xbb\xbf'
 const vtmp_folder = os.vtmp_dir()
 const term_colors = term.can_show_color_on_stderr()
 const vfmt_only_flags = ['-backup', '-c', '-diff', '-inprocess', '-l', '-new_int', '-noerror',
@@ -173,7 +174,7 @@ fn main() {
 fn (foptions &FormatOptions) verify_file(prefs &pref.Preferences, fpath string) bool {
 	fcontent := foptions.formated_content_from_file(prefs, fpath) or { return false }
 	content := os.read_file(fpath) or { return false }
-	return fcontent == content
+	return formatted_content_with_original_bom(content, fcontent) == content
 }
 
 fn setup_preferences(args []string) &pref.Preferences {
@@ -272,9 +273,17 @@ fn (mut foptions FormatOptions) post_process_file(file string, formatted_file_pa
 		eprintln('File ${file} could not be read')
 		return
 	}
-	formatted_fc := os.read_file(formatted_file_path) or {
+	mut formatted_fc := os.read_file(formatted_file_path) or {
 		eprintln('File ${formatted_file_path} could not be read')
 		return
+	}
+	adjusted_formatted_fc := formatted_content_with_original_bom(fc, formatted_fc)
+	if adjusted_formatted_fc != formatted_fc {
+		formatted_fc = adjusted_formatted_fc
+		os.write_file(formatted_file_path, formatted_fc) or {
+			eprintln('File ${formatted_file_path} could not be updated')
+			return
+		}
 	}
 	is_formatted_different := fc != formatted_fc
 	if foptions.is_diff {
@@ -327,6 +336,13 @@ fn (mut foptions FormatOptions) post_process_file(file string, formatted_file_pa
 	}
 	print(formatted_fc)
 	flush_stdout()
+}
+
+fn formatted_content_with_original_bom(original string, formatted string) string {
+	if original.starts_with(utf8_bom) && !formatted.starts_with(utf8_bom) {
+		return utf8_bom + formatted
+	}
+	return formatted
 }
 
 @[noreturn]
