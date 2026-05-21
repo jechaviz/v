@@ -291,8 +291,9 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 		}
 	}
 	tlog('executing: ${tool_exe} with ${tool_args}')
+	// Delegate directly to the tool without an intermediate shell process.
 	$if windows {
-		cmd_system('${os.quoted_path(tool_exe)} ${tool_args}')
+		run_tool_process_and_exit(tool_exe, args)
 	} $else $if js {
 		// no way to implement os.execvp in JS backend
 		cmd_system('${tool_exe} ${tool_args}')
@@ -304,6 +305,20 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 		}
 	}
 	exit(2)
+}
+
+@[noreturn]
+fn run_tool_process_and_exit(tool_exe string, args []string) {
+	mut process := os.new_process(tool_exe)
+	process.set_args(args)
+	process.run()
+	if process.err != '' {
+		eprintln('> error while executing: ${tool_exe} ${args}')
+		eprintln('> ${process.err}')
+		exit(1)
+	}
+	process.wait()
+	exit(if process.code < 0 { 1 } else { process.code })
 }
 
 @[if trace_launch_tool ?]
