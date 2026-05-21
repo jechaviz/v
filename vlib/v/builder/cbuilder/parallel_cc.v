@@ -34,7 +34,9 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	defer {
 		eprint_time(sw_total, @METHOD)
 	}
-	cc_jobs := util.memory_backpressure_jobs('parallel_cc', util.nr_jobs)
+	cc_plan := util.memory_backpressure_plan('parallel_cc', util.nr_jobs)
+	cc_jobs := cc_plan.jobs
+	util.memory_backpressure_apply_plan(cc_plan)
 	c_files := int_max(1, cc_jobs)
 	eprintln('> c_files: ${c_files} | util.nr_jobs: ${util.nr_jobs} | memory_jobs: ${cc_jobs}')
 

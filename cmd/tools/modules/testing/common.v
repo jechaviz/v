@@ -443,11 +443,12 @@ pub fn (mut ts TestSession) test() {
 	remaining_files = vtest.filter_vtest_only(remaining_files, fix_slashes: false)
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
-	mut njobs := util.memory_backpressure_jobs('vtest', runtime.nr_jobs())
-	njobs = process_singleton_jobs(njobs)
+	memory_plan := util.memory_backpressure_plan('vtest', runtime.nr_jobs())
+	mut njobs := process_singleton_jobs(memory_plan.jobs)
 	if remaining_files.len < njobs {
 		njobs = remaining_files.len
 	}
+	util.memory_backpressure_apply_plan(util.memory_backpressure_plan_with_jobs(memory_plan, njobs))
 	ts.benchmark.njobs = njobs
 	mut pool_of_test_runners := pool.new_pool_processor(callback: worker_trunner)
 	pool_of_test_runners.set_max_jobs(njobs)

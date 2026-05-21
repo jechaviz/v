@@ -456,11 +456,14 @@ pub fn gen(files []&ast.File, mut table ast.Table, pref_ &pref.Preferences) GenO
 	util.timing_measure('cgen init')
 	global_g.tests_inited = false
 	global_g.file = files.last()
-	cgen_jobs := if pref_.no_parallel {
+	requested_cgen_jobs := if pref_.no_parallel {
 		1
 	} else {
-		util.memory_backpressure_jobs('cgen', util.nr_jobs)
+		util.nr_jobs
 	}
+	cgen_plan := util.memory_backpressure_plan('cgen', requested_cgen_jobs)
+	cgen_jobs := cgen_plan.jobs
+	util.memory_backpressure_apply_plan(cgen_plan)
 	if cgen_jobs > 1 {
 		util.timing_start('cgen parallel processing')
 		mut pp := pool.new_pool_processor(callback: cgen_process_one_file_cb)

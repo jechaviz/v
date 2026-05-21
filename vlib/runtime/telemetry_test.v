@@ -65,6 +65,26 @@ fn test_decide_memory_backpressure_throttles_before_hard_limit() {
 	assert decision.report().contains('runtime.backpressure.action=throttle')
 }
 
+fn test_decide_memory_backpressure_scales_jobs_by_headroom() {
+	policy := MemoryBackpressurePolicy{
+		max_memory_bytes: 1000
+		warn_percent:     80
+		hard_percent:     95
+		min_jobs:         2
+		max_jobs:         10
+	}
+	near_warn := decide_memory_backpressure(810, 190, policy)
+	mid_pressure := decide_memory_backpressure(900, 100, policy)
+	near_hard := decide_memory_backpressure(949, 51, policy)
+	critical := decide_memory_backpressure(950, 50, policy)
+	assert near_warn.pressure == .pressure
+	assert near_warn.recommended_jobs == 9
+	assert mid_pressure.recommended_jobs == 5
+	assert near_hard.recommended_jobs == 3
+	assert critical.pressure == .critical
+	assert critical.recommended_jobs == 2
+}
+
 fn test_decide_memory_backpressure_pauses_at_hard_limit() {
 	decision := decide_memory_backpressure(960, 40, MemoryBackpressurePolicy{
 		max_memory_bytes: 1000

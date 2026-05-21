@@ -157,7 +157,7 @@ pub fn decide_memory_backpressure(used_bytes u64, free_bytes u64, policy MemoryB
 	target := memory_target_bytes(policy)
 	warn := memory_warn_bytes(policy)
 	hard := memory_hard_bytes(policy)
-	pressure := classify_memory_pressure(used_bytes, warn, hard)
+	pressure := classify_memory_backpressure(used_bytes, warn, hard)
 	action := backpressure_action_for(pressure)
 	return MemoryBackpressureDecision{
 		observed_memory_bytes: used_bytes
@@ -171,7 +171,7 @@ pub fn decide_memory_backpressure(used_bytes u64, free_bytes u64, policy MemoryB
 		within_budget:         hard == 0 || used_bytes < hard
 		should_collect:        target > 0 && used_bytes >= target
 		should_defer_new_work: action == .serial || action == .pause
-		recommended_jobs:      memory_jobs_for_pressure(pressure, policy)
+		recommended_jobs:      memory_jobs_for_pressure(used_bytes, warn, hard, pressure, policy)
 		sleep_ms:              memory_sleep_ms_for_pressure(used_bytes, warn, hard, pressure,
 			policy)
 	}
@@ -291,6 +291,19 @@ pub fn classify_memory_pressure(used u64, target u64, max_memory u64) MemoryPres
 	return .normal
 }
 
+fn classify_memory_backpressure(used u64, warn u64, hard u64) MemoryPressure {
+	if used == 0 || warn == 0 || hard == 0 {
+		return .unknown
+	}
+	if used >= hard {
+		return .critical
+	}
+	if used >= warn {
+		return .pressure
+	}
+	return .normal
+}
+
 fn backpressure_action_for(pressure MemoryPressure) BackpressureAction {
 	match pressure {
 		.critical { return .pause }
@@ -341,14 +354,35 @@ fn normalized_memory_hard_percent(policy MemoryBackpressurePolicy) int {
 	return clamp_int(hard, 1, 100)
 }
 
-fn memory_jobs_for_pressure(pressure MemoryPressure, policy MemoryBackpressurePolicy) int {
+fn memory_jobs_for_pressure(used u64, warn u64, hard u64, pressure MemoryPressure, policy MemoryBackpressurePolicy) int {
 	min_jobs := normalized_memory_min_jobs(policy)
 	max_jobs := normalized_memory_max_jobs(policy)
 	match pressure {
-		.critical { return min_jobs }
-		.pressure { return clamp_int(max_jobs / 2, min_jobs, max_jobs) }
-		.normal { return max_jobs }
-		.unknown { return max_jobs }
+		.critical {
+			return min_jobs
+		}
+		.pressure {
+			if max_jobs <= min_jobs {
+				return max_jobs
+			}
+			if hard <= warn || used <= warn {
+				return clamp_int(max_jobs - 1, min_jobs, max_jobs)
+			}
+			span := hard - warn
+			over := min_u64(used - warn, span)
+			reducible_jobs := max_jobs - min_jobs
+			mut reduction := int(u64(reducible_jobs) * over / span)
+			if reduction < 1 {
+				reduction = 1
+			}
+			return clamp_int(max_jobs - reduction, min_jobs, max_jobs)
+		}
+		.normal {
+			return max_jobs
+		}
+		.unknown {
+			return max_jobs
+		}
 	}
 }
 

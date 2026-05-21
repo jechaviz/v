@@ -2,29 +2,101 @@ module util
 
 import os
 import runtime
+import time
 
 const memory_backpressure_bytes_per_kib = u64(1024)
 const memory_backpressure_bytes_per_mib = u64(1024 * 1024)
 const memory_backpressure_bytes_per_gib = u64(1024 * 1024 * 1024)
 
-pub fn memory_backpressure_jobs(_phase string, requested_jobs int) int {
+pub struct MemoryBackpressurePlan {
+pub:
+	phase          string
+	mode           string
+	requested_jobs int
+	jobs           int
+	sleep_ms       int
+	snapshot       runtime.HostTelemetry
+	policy         runtime.MemoryBackpressurePolicy
+	decision       runtime.MemoryBackpressureDecision
+}
+
+pub fn memory_backpressure_jobs(phase string, requested_jobs int) int {
+	return memory_backpressure_plan(phase, requested_jobs).jobs
+}
+
+pub fn memory_backpressure_plan(phase string, requested_jobs int) MemoryBackpressurePlan {
 	max_jobs := if requested_jobs > 0 { requested_jobs } else { runtime.nr_jobs() }
-	if max_jobs <= 1 || !memory_backpressure_enabled() {
-		return max_jobs
-	}
 	mode := memory_backpressure_mode()
-	if mode == 'warn' {
-		return max_jobs
+	if !memory_backpressure_enabled() {
+		return memory_backpressure_static_plan(phase, mode, max_jobs)
 	}
 	snapshot := runtime.collect_host_telemetry(os.getwd())
 	policy := memory_backpressure_policy(max_jobs)
 	decision := runtime.decide_runtime_backpressure(snapshot, policy)
-	return memory_backpressure_jobs_for_decision(mode, decision, policy, max_jobs)
+	if mode == 'warn' {
+		return MemoryBackpressurePlan{
+			phase:          phase
+			mode:           mode
+			requested_jobs: max_jobs
+			jobs:           max_jobs
+			snapshot:       snapshot
+			policy:         policy
+			decision:       decision
+		}
+	}
+	return MemoryBackpressurePlan{
+		phase:          phase
+		mode:           mode
+		requested_jobs: max_jobs
+		jobs:           memory_backpressure_jobs_for_decision(mode, decision, policy, max_jobs)
+		sleep_ms:       memory_backpressure_sleep_ms_for_decision(mode, decision)
+		snapshot:       snapshot
+		policy:         policy
+		decision:       decision
+	}
+}
+
+pub fn memory_backpressure_plan_with_jobs(plan MemoryBackpressurePlan, jobs int) MemoryBackpressurePlan {
+	if jobs <= 0 {
+		return MemoryBackpressurePlan{
+			...plan
+			jobs: jobs
+		}
+	}
+	max_jobs := if plan.requested_jobs > 0 { plan.requested_jobs } else { jobs }
+	return MemoryBackpressurePlan{
+		...plan
+		jobs: clamp_memory_jobs(jobs, 1, max_jobs)
+	}
 }
 
 pub fn memory_backpressure_decision(max_jobs int) runtime.MemoryBackpressureDecision {
 	snapshot := runtime.collect_host_telemetry(os.getwd())
 	return runtime.decide_runtime_backpressure(snapshot, memory_backpressure_policy(max_jobs))
+}
+
+pub fn memory_backpressure_pause(phase string, requested_jobs int) runtime.MemoryBackpressureDecision {
+	plan := memory_backpressure_plan(phase, requested_jobs)
+	memory_backpressure_apply_plan(plan)
+	return plan.decision
+}
+
+pub fn memory_backpressure_apply_plan(plan MemoryBackpressurePlan) {
+	if plan.sleep_ms > 0 {
+		time.sleep(i64(plan.sleep_ms) * time.millisecond)
+	}
+}
+
+pub fn (plan MemoryBackpressurePlan) report() string {
+	return [
+		'v.memory_backpressure.phase=${plan.phase}',
+		'v.memory_backpressure.mode=${plan.mode}',
+		'v.memory_backpressure.requested_jobs=${plan.requested_jobs}',
+		'v.memory_backpressure.jobs=${plan.jobs}',
+		'v.memory_backpressure.sleep_ms=${plan.sleep_ms}',
+		'v.memory_backpressure.sampled_unix_ms=${plan.snapshot.sampled_unix_ms}',
+		plan.decision.report(),
+	].join('\n')
 }
 
 pub fn memory_backpressure_policy(max_jobs int) runtime.MemoryBackpressurePolicy {
@@ -59,6 +131,15 @@ pub fn memory_backpressure_enabled() bool {
 
 fn memory_backpressure_mode() string {
 	return os.getenv('VMEM_BACKPRESSURE').trim_space().to_lower()
+}
+
+fn memory_backpressure_static_plan(phase string, mode string, max_jobs int) MemoryBackpressurePlan {
+	return MemoryBackpressurePlan{
+		phase:          phase
+		mode:           mode
+		requested_jobs: max_jobs
+		jobs:           max_jobs
+	}
 }
 
 fn memory_backpressure_limit_from_env() u64 {
@@ -129,6 +210,13 @@ fn memory_backpressure_jobs_for_decision(mode string, decision runtime.MemoryBac
 		return clamp_memory_jobs(policy.min_jobs, 1, max_jobs)
 	}
 	return clamp_memory_jobs(decision.recommended_jobs, 1, max_jobs)
+}
+
+fn memory_backpressure_sleep_ms_for_decision(mode string, decision runtime.MemoryBackpressureDecision) int {
+	if mode == 'warn' || decision.pressure == .unknown || decision.pressure == .normal {
+		return 0
+	}
+	return decision.sleep_ms
 }
 
 fn memory_backpressure_env_int(name string, fallback int) int {
