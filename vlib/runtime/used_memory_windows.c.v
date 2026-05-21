@@ -21,12 +21,17 @@ struct C.PROCESS_MEMORY_COUNTERS {
 
 fn C.K32GetProcessMemoryInfo(voidptr, &C.PROCESS_MEMORY_COUNTERS, u32) bool
 
-// used_memory retrieves the current physical memory usage of the process.
+// used_memory retrieves the current process memory pressure.
+// Prefer PagefileUsage on Windows because it tracks committed private memory,
+// which is the pressure reported before Windows exhausts its pagefile/commit.
 pub fn used_memory() !u64 {
 	mut pmc := C.PROCESS_MEMORY_COUNTERS{}
 	pmc.cb = u32(sizeof(pmc))
 	if C.K32GetProcessMemoryInfo(C.GetCurrentProcess(), &pmc, pmc.cb) {
+		if pmc.PagefileUsage > 0 {
+			return u64(pmc.PagefileUsage)
+		}
 		return u64(pmc.WorkingSetSize)
 	}
-	return 0
+	return error('used_memory: K32GetProcessMemoryInfo failed')
 }
