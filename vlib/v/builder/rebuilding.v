@@ -391,7 +391,11 @@ pub fn (mut b Builder) rebuild(backend_cb FnBackend) {
 		//
 		vlines_per_second := int(1_000_000.0 * f64(all_v_source_lines) / f64(compilation_time_micros))
 		svlines_per_second := util.bold(vlines_per_second.str())
-		used_cgen_threads := if b.pref.no_parallel { 1 } else { runtime.nr_jobs() }
+		used_cgen_threads := if b.pref.no_parallel {
+			1
+		} else {
+			util.memory_backpressure_jobs('cgen', runtime.nr_jobs())
+		}
 		println('compilation took: ${scompilation_time_ms} ms, compilation speed: ${svlines_per_second} vlines/s, cgen threads: ${used_cgen_threads}')
 	}
 }

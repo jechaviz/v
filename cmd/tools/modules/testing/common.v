@@ -9,6 +9,7 @@ import benchmark
 import sync
 import sync.pool
 import v.pref
+import v.util
 import v.util.vtest
 import v.util.vflags
 import runtime
@@ -442,7 +443,7 @@ pub fn (mut ts TestSession) test() {
 	remaining_files = vtest.filter_vtest_only(remaining_files, fix_slashes: false)
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
-	mut njobs := runtime.nr_jobs()
+	mut njobs := util.memory_backpressure_jobs('vtest', runtime.nr_jobs())
 	njobs = process_singleton_jobs(njobs)
 	if remaining_files.len < njobs {
 		njobs = remaining_files.len

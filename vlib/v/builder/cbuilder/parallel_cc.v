@@ -34,8 +34,9 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	defer {
 		eprint_time(sw_total, @METHOD)
 	}
-	c_files := int_max(1, util.nr_jobs)
-	eprintln('> c_files: ${c_files} | util.nr_jobs: ${util.nr_jobs}')
+	cc_jobs := util.memory_backpressure_jobs('parallel_cc', util.nr_jobs)
+	c_files := int_max(1, cc_jobs)
+	eprintln('> c_files: ${c_files} | util.nr_jobs: ${util.nr_jobs} | memory_jobs: ${cc_jobs}')
 
 	// Write generated stuff in `g.out` before and after the `out_fn_start_pos` locations,
 	// like the `int main()` to "out_0.c" and "out_x.c"
@@ -138,13 +139,13 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	mut failed := 0
 	sw := time.new_stopwatch()
 	mut pp := pool.new_pool_processor(callback: build_parallel_o_cb)
-	pp.set_max_jobs(util.nr_jobs)
+	pp.set_max_jobs(cc_jobs)
 	pp.work_on_items(cmds)
 	for x in pp.get_results[os.Result]() {
 		failed += if x.exit_code == 0 { 0 } else { 1 }
 	}
 	eprint_time(sw,
-		'C compilation on ${util.nr_jobs} thread(s), processing ${cmds.len} commands, failed: ${failed}')
+		'C compilation on ${cc_jobs} thread(s), processing ${cmds.len} commands, failed: ${failed}')
 	if failed > 0 {
 		return error_with_code('failed parallel C compilation', failed)
 	}
