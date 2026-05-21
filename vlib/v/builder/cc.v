@@ -1585,7 +1585,27 @@ pub fn (mut v Builder) cc() {
 		// Run
 		ccompiler_label := 'C ${os.file_name(ccompiler):3}'
 		util.timing_start(ccompiler_label)
-		res := os.execute(cmd)
+		mut res := os.Result{}
+		$if windows {
+			if v.pref.show_c_output {
+				res = os.execute(cmd)
+			} else {
+				cc_log_path := '${v.out_name_c}.cc.log'
+				exit_code := os.system('${cmd} > ${os.quoted_path(cc_log_path)} 2>&1')
+				output := if exit_code == 0 { '' } else { os.read_file(cc_log_path) or { '' } }
+				if exit_code == 0 {
+					os.rm(cc_log_path) or {}
+				} else {
+					v.pref.cleanup_files << cc_log_path
+				}
+				res = os.Result{
+					exit_code: exit_code
+					output:    output
+				}
+			}
+		} $else {
+			res = os.execute(cmd)
+		}
 		util.timing_measure(ccompiler_label)
 		if v.pref.show_c_output {
 			v.show_c_compiler_output(ccompiler, res)

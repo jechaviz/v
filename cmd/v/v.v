@@ -137,14 +137,14 @@ fn main() {
 	match command {
 		'run', 'crun', 'build', 'build-module' {
 			rebuild(prefs)
-			return
+			exit(0)
 		}
 		'help' {
 			invoke_help_and_exit(args)
 		}
 		'version' {
 			println(version.full_v_version(prefs.is_verbose))
-			return
+			exit(0)
 		}
 		'new', 'init' {
 			util.launch_tool(prefs.is_verbose, 'vcreate', os.args[1..])
@@ -176,7 +176,7 @@ fn main() {
 				// println('command')
 				// println(prefs.path)
 				rebuild(prefs)
-				return
+				exit(0)
 			}
 		}
 	}

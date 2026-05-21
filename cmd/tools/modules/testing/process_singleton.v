@@ -40,10 +40,11 @@ fn process_singleton_execute(cmd string) os.Result {
 	}
 	old_held := os.getenv(process_singleton_held_env)
 	os.setenv(process_singleton_held_env, '1', true)
-	res := os.execute(cmd)
-	gate.release()
-	process_singleton_restore_env(process_singleton_held_env, old_held)
-	return res
+	defer {
+		gate.release()
+		process_singleton_restore_env(process_singleton_held_env, old_held)
+	}
+	return os.execute(cmd)
 }
 
 fn process_singleton_system(cmd string) int {
@@ -56,10 +57,11 @@ fn process_singleton_system(cmd string) int {
 	}
 	old_held := os.getenv(process_singleton_held_env)
 	os.setenv(process_singleton_held_env, '1', true)
-	code := os.system(cmd)
-	gate.release()
-	process_singleton_restore_env(process_singleton_held_env, old_held)
-	return code
+	defer {
+		gate.release()
+		process_singleton_restore_env(process_singleton_held_env, old_held)
+	}
+	return os.system(cmd)
 }
 
 fn process_singleton_held() bool {

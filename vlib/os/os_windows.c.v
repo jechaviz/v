@@ -473,7 +473,59 @@ pub fn execute(cmd string) Result {
 			output:    '&&, || and \\n are not allowed in shell commands'
 		}
 	}
+	if args := windows_direct_execute_args(cmd) {
+		return exec(args)
+	}
 	return unsafe { raw_execute(cmd) }
+}
+
+fn windows_direct_execute_args(cmd string) ?[]string {
+	mut direct_args := []string{}
+	mut current := []u8{cap: cmd.len}
+	mut in_double_quotes := false
+	mut token_started := false
+	for i := 0; i < cmd.len; i++ {
+		ch := cmd[i]
+		if ch == `"` {
+			in_double_quotes = !in_double_quotes
+			token_started = true
+			continue
+		}
+		if !in_double_quotes {
+			if ch == ` ` || ch == `\t` {
+				if token_started {
+					direct_args << current.bytestr().clone()
+					current.clear()
+					token_started = false
+				}
+				continue
+			}
+			if ch in [`|`, `<`, `>`, `&`, `\n`, `\r`, `%`, `!`] {
+				return none
+			}
+		}
+		current << ch
+		token_started = true
+	}
+	if in_double_quotes {
+		return none
+	}
+	if token_started {
+		direct_args << current.bytestr().clone()
+	}
+	if direct_args.len == 0 || !windows_can_direct_execute_program(direct_args[0]) {
+		return none
+	}
+	return direct_args
+}
+
+fn windows_can_direct_execute_program(program string) bool {
+	program_lc := program.to_lower_ascii()
+	if program_lc.ends_with('.bat') || program_lc.ends_with('.cmd') {
+		return false
+	}
+	return is_abs_path(program) || program.contains('\\') || program.contains('/')
+		|| (program_lc.ends_with('.exe') && exists(program))
 }
 
 // exec starts the specified command with arguments, waits for it to complete, and returns its output.
@@ -560,6 +612,8 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 	if !set_handle_info_ok {
 		error_num := int(C.GetLastError())
 		error_msg := get_error_msg(error_num)
+		C.CloseHandle(child_stdout_read)
+		C.CloseHandle(child_stdout_write)
 		return Result{
 			exit_code: error_num
 			output:    'exec failed (SetHandleInformation): ${error_msg}'
@@ -593,6 +647,8 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 	if !create_process_ok {
 		error_num := int(C.GetLastError())
 		error_msg := get_error_msg(error_num)
+		C.CloseHandle(child_stdout_read)
+		C.CloseHandle(child_stdout_write)
 		return Result{
 			exit_code: error_num
 			output:    'exec failed (CreateProcess) with code ${error_num}: ${error_msg} cmd: ${display_cmd}'
@@ -618,6 +674,7 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 	exit_code := u32(0)
 	C.WaitForSingleObject(proc_info.h_process, C.INFINITE)
 	C.GetExitCodeProcess(proc_info.h_process, voidptr(&exit_code))
+	C.CloseHandle(child_stdout_read)
 	C.CloseHandle(proc_info.h_process)
 	C.CloseHandle(proc_info.h_thread)
 	return Result{

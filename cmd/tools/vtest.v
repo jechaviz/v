@@ -72,6 +72,7 @@ fn main() {
 	if ts.failed_cmds.len > 0 {
 		exit(1)
 	}
+	exit(0)
 }
 
 fn show_usage() {
