@@ -237,7 +237,7 @@ fn (mut g Gen) autofree_var_call(free_fn_name string, v ast.Var) {
 	}
 	mut af := strings.new_builder(128)
 	if v.typ.is_ptr() && v.typ.idx() != ast.u8_type_idx {
-		if !v.is_auto_heap && !g.table.sym(v.typ).has_method('free') {
+		if !v.is_auto_heap && !g.table.sym(v.typ).has_method_with_generic_parent('free') {
 			return
 		}
 		af.write_string('\t')
