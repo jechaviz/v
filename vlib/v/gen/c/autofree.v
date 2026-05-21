@@ -207,7 +207,8 @@ fn (mut g Gen) autofree_variable(v ast.Var) {
 			g.print_autofree_var(v, 'user reference type, use -experimental to autofree those')
 		}
 	}
-	if sym.has_method('free') {
+	if free_method := sym.find_method_with_generic_parent('free') {
+		free_fn = g.specialized_method_name_from_receiver(free_method, base_typ, free_fn)
 		g.autofree_var_call(free_fn, v)
 	}
 }

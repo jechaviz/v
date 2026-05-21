@@ -3843,7 +3843,7 @@ fn (g &Gen) should_autofree_discarded_call_result(typ ast.Type) bool {
 	if sym.kind in [.array, .string] {
 		return true
 	}
-	if sym.has_method('free') {
+	if sym.has_method_with_generic_parent('free') {
 		return true
 	}
 	sym_name := sym.name.after('.')
