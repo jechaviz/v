@@ -293,6 +293,16 @@ pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Res
 	if show_cmd {
 		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
 	}
+	if pressure_result := process_guard_wait_for_host_memory('vtest_compile', cmd) {
+		if pressure_result != '' && show_cmd {
+			ts.append_message(.info, pressure_result, mtc)
+		}
+	} else {
+		return os.Result{
+			exit_code: process_guard_host_pressure_exit_code
+			output:    err.msg()
+		}
+	}
 	return process_guard_with_silent_diagnostics(cmd, process_singleton_execute(cmd))
 }
 

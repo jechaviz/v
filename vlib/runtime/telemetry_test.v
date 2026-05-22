@@ -85,6 +85,22 @@ fn test_decide_memory_backpressure_scales_jobs_by_headroom() {
 	assert critical.recommended_jobs == 2
 }
 
+fn test_decide_memory_backpressure_caps_normal_jobs_by_reserved_headroom() {
+	decision := decide_memory_backpressure(100, 700, MemoryBackpressurePolicy{
+		max_memory_bytes:  1000
+		job_reserve_bytes: 150
+		warn_percent:      80
+		hard_percent:      95
+		min_jobs:          1
+		max_jobs:          8
+	})
+	assert decision.pressure == .normal
+	assert decision.headroom_bytes == 650
+	assert decision.headroom_jobs == 4
+	assert decision.recommended_jobs == 4
+	assert decision.report().contains('runtime.backpressure.memory.headroom_jobs=4')
+}
+
 fn test_decide_memory_backpressure_pauses_at_hard_limit() {
 	decision := decide_memory_backpressure(960, 40, MemoryBackpressurePolicy{
 		max_memory_bytes: 1000

@@ -101,17 +101,18 @@ pub fn (plan MemoryBackpressurePlan) report() string {
 
 pub fn memory_backpressure_policy(max_jobs int) runtime.MemoryBackpressurePolicy {
 	return runtime.MemoryBackpressurePolicy{
-		max_memory_bytes: memory_backpressure_limit_from_env()
-		target_percent:   memory_backpressure_env_int('VMEM_TARGET_PERCENT',
+		max_memory_bytes:  memory_backpressure_limit_from_env()
+		job_reserve_bytes: memory_backpressure_job_reserve_from_env()
+		target_percent:    memory_backpressure_env_int('VMEM_TARGET_PERCENT',
 			runtime_default_memory_target_percent())
-		warn_percent:     memory_backpressure_env_int('VMEM_WARN_PERCENT',
+		warn_percent:      memory_backpressure_env_int('VMEM_WARN_PERCENT',
 			runtime_default_memory_warn_percent())
-		hard_percent:     memory_backpressure_env_int('VMEM_HARD_PERCENT',
+		hard_percent:      memory_backpressure_env_int('VMEM_HARD_PERCENT',
 			runtime_default_memory_hard_percent())
-		min_jobs:         memory_backpressure_env_int('VMEM_MIN_JOBS', 1)
-		max_jobs:         max_jobs
-		base_sleep_ms:    memory_backpressure_env_int('VMEM_BASE_SLEEP_MS', 25)
-		max_sleep_ms:     memory_backpressure_env_int('VMEM_MAX_SLEEP_MS', 1000)
+		min_jobs:          memory_backpressure_env_int('VMEM_MIN_JOBS', 1)
+		max_jobs:          max_jobs
+		base_sleep_ms:     memory_backpressure_env_int('VMEM_BASE_SLEEP_MS', 25)
+		max_sleep_ms:      memory_backpressure_env_int('VMEM_MAX_SLEEP_MS', 1000)
 	}
 }
 
@@ -154,6 +155,25 @@ fn memory_backpressure_limit_from_env() u64 {
 	limit_mb := os.getenv('VMEM_LIMIT_MB').trim_space()
 	if limit_mb != '' {
 		return parse_memory_backpressure_size(limit_mb + 'm')
+	}
+	return 0
+}
+
+fn memory_backpressure_job_reserve_from_env() u64 {
+	limit_bytes := os.getenv('VMEM_JOB_RESERVE_BYTES').trim_space()
+	if limit_bytes != '' {
+		return parse_memory_backpressure_size(limit_bytes)
+	}
+	limit := os.getenv('VMEM_JOB_RESERVE').trim_space()
+	if limit != '' {
+		return parse_memory_backpressure_size(limit)
+	}
+	limit_mb := os.getenv('VMEM_JOB_RESERVE_MB').trim_space()
+	if limit_mb != '' {
+		return parse_memory_backpressure_size(limit_mb + 'm')
+	}
+	if os.user_os() == 'windows' {
+		return memory_backpressure_bytes_per_gib
 	}
 	return 0
 }

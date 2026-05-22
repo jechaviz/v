@@ -26,13 +26,25 @@ fn test_memory_backpressure_limit_prefers_bytes_env() {
 
 fn test_memory_backpressure_policy_uses_mb_env() {
 	with_memory_env({
-		'VMEM_LIMIT_MB': '64'
-		'VMEM_MIN_JOBS': '2'
+		'VMEM_LIMIT_MB':       '64'
+		'VMEM_MIN_JOBS':       '2'
+		'VMEM_JOB_RESERVE_MB': '3'
 	}, fn () {
 		policy := memory_backpressure_policy(8)
 		assert policy.max_memory_bytes == 64 * memory_backpressure_bytes_per_mib
+		assert policy.job_reserve_bytes == 3 * memory_backpressure_bytes_per_mib
 		assert policy.min_jobs == 2
 		assert policy.max_jobs == 8
+	})
+}
+
+fn test_memory_backpressure_job_reserve_prefers_bytes_env() {
+	with_memory_env({
+		'VMEM_JOB_RESERVE_BYTES': '4096'
+		'VMEM_JOB_RESERVE':       '8m'
+		'VMEM_JOB_RESERVE_MB':    '64'
+	}, fn () {
+		assert memory_backpressure_job_reserve_from_env() == 4096
 	})
 }
 
@@ -137,6 +149,9 @@ fn with_memory_env(values map[string]string, body fn ()) {
 		'VMEM_LIMIT_BYTES',
 		'VMEM_LIMIT',
 		'VMEM_LIMIT_MB',
+		'VMEM_JOB_RESERVE_BYTES',
+		'VMEM_JOB_RESERVE',
+		'VMEM_JOB_RESERVE_MB',
 		'VMEM_TARGET_PERCENT',
 		'VMEM_WARN_PERCENT',
 		'VMEM_HARD_PERCENT',

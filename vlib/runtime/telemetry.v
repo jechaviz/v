@@ -65,14 +65,15 @@ pub:
 
 pub struct MemoryBackpressurePolicy {
 pub:
-	max_memory_bytes u64
-	target_percent   int
-	warn_percent     int
-	hard_percent     int
-	min_jobs         int
-	max_jobs         int
-	base_sleep_ms    int
-	max_sleep_ms     int
+	max_memory_bytes  u64
+	job_reserve_bytes u64
+	target_percent    int
+	warn_percent      int
+	hard_percent      int
+	min_jobs          int
+	max_jobs          int
+	base_sleep_ms     int
+	max_sleep_ms      int
 }
 
 pub struct MemoryBackpressureDecision {
@@ -83,6 +84,7 @@ pub:
 	hard_memory_bytes     u64
 	free_memory_bytes     u64
 	headroom_bytes        u64
+	headroom_jobs         int
 	pressure              MemoryPressure
 	action                BackpressureAction
 	within_budget         bool
@@ -174,20 +176,23 @@ pub fn decide_memory_backpressure(used_bytes u64, free_bytes u64, policy MemoryB
 		policy.max_memory_bytes)
 	pressure := strongest_memory_pressure(used_pressure, free_pressure)
 	action := backpressure_action_for(pressure)
+	headroom := memory_effective_headroom(used_bytes, free_bytes, hard, policy.max_memory_bytes)
+	headroom_jobs := memory_headroom_jobs(headroom, policy)
 	return MemoryBackpressureDecision{
 		observed_memory_bytes: used_bytes
 		target_memory_bytes:   target
 		warn_memory_bytes:     warn
 		hard_memory_bytes:     hard
 		free_memory_bytes:     free_bytes
-		headroom_bytes:        memory_effective_headroom(used_bytes, free_bytes, hard,
-			policy.max_memory_bytes)
+		headroom_bytes:        headroom
+		headroom_jobs:         headroom_jobs
 		pressure:              pressure
 		action:                action
 		within_budget:         (hard == 0 || used_bytes < hard) && free_pressure != .critical
 		should_collect:        target > 0 && used_bytes >= target
 		should_defer_new_work: action == .serial || action == .pause
-		recommended_jobs:      memory_jobs_for_pressure(used_bytes, warn, hard, pressure, policy)
+		recommended_jobs:      memory_jobs_for_pressure(used_bytes, warn, hard, pressure,
+			headroom_jobs, policy)
 		sleep_ms:              memory_sleep_ms_for_pressure(used_bytes, warn, hard, pressure,
 			policy)
 	}
@@ -279,6 +284,7 @@ pub fn (decision MemoryBackpressureDecision) report() string {
 		'runtime.backpressure.memory.hard_bytes=${decision.hard_memory_bytes}',
 		'runtime.backpressure.memory.free_bytes=${decision.free_memory_bytes}',
 		'runtime.backpressure.memory.headroom_bytes=${decision.headroom_bytes}',
+		'runtime.backpressure.memory.headroom_jobs=${decision.headroom_jobs}',
 		'runtime.backpressure.pressure=${decision.pressure}',
 		'runtime.backpressure.action=${decision.action}',
 		'runtime.backpressure.within=${decision.within_budget}',
@@ -376,36 +382,50 @@ fn normalized_memory_hard_percent(policy MemoryBackpressurePolicy) int {
 	return clamp_int(hard, 1, 100)
 }
 
-fn memory_jobs_for_pressure(used u64, warn u64, hard u64, pressure MemoryPressure, policy MemoryBackpressurePolicy) int {
+fn memory_jobs_for_pressure(used u64, warn u64, hard u64, pressure MemoryPressure, headroom_jobs int, policy MemoryBackpressurePolicy) int {
 	min_jobs := normalized_memory_min_jobs(policy)
 	max_jobs := normalized_memory_max_jobs(policy)
-	match pressure {
+	pressure_jobs := match pressure {
 		.critical {
-			return min_jobs
+			min_jobs
 		}
 		.pressure {
 			if max_jobs <= min_jobs {
-				return max_jobs
+				max_jobs
+			} else if hard <= warn || used <= warn {
+				clamp_int(max_jobs - 1, min_jobs, max_jobs)
+			} else {
+				span := hard - warn
+				over := min_u64(used - warn, span)
+				reducible_jobs := max_jobs - min_jobs
+				mut reduction := int(u64(reducible_jobs) * over / span)
+				if reduction < 1 {
+					reduction = 1
+				}
+				clamp_int(max_jobs - reduction, min_jobs, max_jobs)
 			}
-			if hard <= warn || used <= warn {
-				return clamp_int(max_jobs - 1, min_jobs, max_jobs)
-			}
-			span := hard - warn
-			over := min_u64(used - warn, span)
-			reducible_jobs := max_jobs - min_jobs
-			mut reduction := int(u64(reducible_jobs) * over / span)
-			if reduction < 1 {
-				reduction = 1
-			}
-			return clamp_int(max_jobs - reduction, min_jobs, max_jobs)
 		}
 		.normal {
-			return max_jobs
+			max_jobs
 		}
 		.unknown {
-			return max_jobs
+			max_jobs
 		}
 	}
+
+	if headroom_jobs <= 0 {
+		return pressure_jobs
+	}
+	return clamp_int(min_int(pressure_jobs, headroom_jobs), min_jobs, max_jobs)
+}
+
+fn memory_headroom_jobs(headroom u64, policy MemoryBackpressurePolicy) int {
+	max_jobs := normalized_memory_max_jobs(policy)
+	if policy.job_reserve_bytes == 0 || headroom == 0 {
+		return max_jobs
+	}
+	jobs := int(headroom / policy.job_reserve_bytes)
+	return clamp_int(jobs, 1, max_jobs)
 }
 
 fn memory_sleep_ms_for_pressure(used u64, warn u64, hard u64, pressure MemoryPressure, policy MemoryBackpressurePolicy) int {

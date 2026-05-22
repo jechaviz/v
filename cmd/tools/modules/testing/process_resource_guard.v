@@ -4,13 +4,17 @@ import os
 import runtime
 import strings
 import time
+import v.util
 
 const process_guard_env = 'VTEST_CHILD_MEMORY_GUARD'
 const process_guard_limit_env = 'VTEST_CHILD_MAX_MEMORY'
 const process_guard_limit_mb_env = 'VTEST_CHILD_MAX_MEMORY_MB'
 const process_guard_output_limit_env = 'VTEST_CHILD_OUTPUT_LIMIT'
+const process_guard_spawn_wait_env = 'VTEST_MEMORY_BACKPRESSURE_WAIT_MS'
 const process_guard_default_limit = u64(2) * process_guard_bytes_per_gib
 const process_guard_default_output_limit = 4 * 1024 * 1024
+const process_guard_default_spawn_wait_ms = 120_000
+const process_guard_host_pressure_exit_code = 102
 const process_guard_bytes_per_kib = u64(1024)
 const process_guard_bytes_per_mib = u64(1024) * process_guard_bytes_per_kib
 const process_guard_bytes_per_gib = u64(1024) * process_guard_bytes_per_mib
@@ -58,6 +62,14 @@ fn process_guard_executable(generated_binary_fpath string, run_js bool) !string 
 }
 
 fn process_guard_execute(executable string, args []string, display_cmd string) os.Result {
+	if pressure_result := process_guard_wait_for_host_memory('vtest_run', display_cmd) {
+		_ = pressure_result
+	} else {
+		return os.Result{
+			exit_code: process_guard_host_pressure_exit_code
+			output:    err.msg()
+		}
+	}
 	mut process := os.new_process(executable)
 	process.set_args(args)
 	process.set_redirect_stdio()
@@ -103,6 +115,30 @@ fn process_guard_execute(executable string, args []string, display_cmd string) o
 	}
 }
 
+fn process_guard_wait_for_host_memory(phase string, display_cmd string) !string {
+	wait_limit_ms := process_guard_spawn_wait_ms()
+	mut waited_ms := 0
+	mut last_plan := util.MemoryBackpressurePlan{}
+	for {
+		plan := util.memory_backpressure_plan(phase, runtime.nr_jobs())
+		last_plan = plan
+		if !plan.decision.should_defer_new_work {
+			util.memory_backpressure_apply_plan(plan)
+			if waited_ms > 0 {
+				return process_guard_wait_message(display_cmd, waited_ms, plan)
+			}
+			return ''
+		}
+		if waited_ms >= wait_limit_ms {
+			return error(process_guard_host_pressure_message(display_cmd, waited_ms, last_plan))
+		}
+		sleep_ms := process_guard_spawn_sleep_ms(plan)
+		time.sleep(i64(sleep_ms) * time.millisecond)
+		waited_ms += sleep_ms
+	}
+	return error(process_guard_host_pressure_message(display_cmd, waited_ms, last_plan))
+}
+
 fn process_guard_with_silent_diagnostics(display_cmd string, result os.Result) os.Result {
 	if result.exit_code == 0 || result.output.trim_space() != '' {
 		return result
@@ -121,6 +157,26 @@ fn process_guard_silent_failure_message(display_cmd string, exit_code int) strin
 		'vtest.process.command=${display_cmd}',
 		'vtest.process.advice=The child process failed without stderr/stdout. Check the memory and virtual-memory telemetry below; rerun with VTEST_SHOW_CMD=1, VTEST_CHILD_MEMORY_GUARD=1, or lower VTEST_CHILD_MAX_MEMORY_MB to isolate runaway allocations.',
 		snapshot.report(),
+	].join('\n')
+}
+
+fn process_guard_wait_message(display_cmd string, waited_ms int, plan util.MemoryBackpressurePlan) string {
+	return [
+		'vtest.resource.waited_for_host_memory=true',
+		'vtest.resource.wait_ms=${waited_ms}',
+		'vtest.resource.command=${display_cmd}',
+		plan.report(),
+	].join('\n')
+}
+
+fn process_guard_host_pressure_message(display_cmd string, waited_ms int, plan util.MemoryBackpressurePlan) string {
+	return [
+		'vtest.resource.blocked=true',
+		'vtest.resource.reason=host_memory_pressure',
+		'vtest.resource.wait_ms=${waited_ms}',
+		'vtest.resource.command=${display_cmd}',
+		'vtest.resource.advice=V did not start another compiler/test process because Windows memory or commit headroom stayed critical. Redesign the workload to stream, chunk, cap allocations, reuse data, or lower VJOBS; set VMEM_BACKPRESSURE=strict for more conservative scheduling or VTEST_MEMORY_BACKPRESSURE_WAIT_MS to tune the wait window.',
+		plan.report(),
 	].join('\n')
 }
 
@@ -215,6 +271,25 @@ fn process_guard_output_limit() int {
 		return int(limit)
 	}
 	return process_guard_default_output_limit
+}
+
+fn process_guard_spawn_wait_ms() int {
+	raw := os.getenv(process_guard_spawn_wait_env).trim_space()
+	if raw == '' {
+		return process_guard_default_spawn_wait_ms
+	}
+	value := raw.int()
+	if value < 0 {
+		return process_guard_default_spawn_wait_ms
+	}
+	return value
+}
+
+fn process_guard_spawn_sleep_ms(plan util.MemoryBackpressurePlan) int {
+	if plan.sleep_ms > 0 {
+		return plan.sleep_ms
+	}
+	return 250
 }
 
 fn process_guard_parse_size(raw string) u64 {

@@ -1,6 +1,7 @@
 module testing
 
 import os
+import v.util
 
 fn test_process_guard_default_policy_matches_host() {
 	with_process_guard_env({}, fn () {
@@ -57,12 +58,36 @@ fn test_process_guard_silent_failure_gets_telemetry() {
 	assert result.output.contains('VTEST_CHILD_MEMORY_GUARD')
 }
 
+fn test_process_guard_host_pressure_message_is_actionable() {
+	message :=
+		process_guard_host_pressure_message('v test hot.v', 1200, util.MemoryBackpressurePlan{})
+	assert message.contains('vtest.resource.blocked=true')
+	assert message.contains('vtest.resource.reason=host_memory_pressure')
+	assert message.contains('stream, chunk, cap allocations')
+	assert message.contains('VMEM_BACKPRESSURE=strict')
+	assert message.contains('VTEST_MEMORY_BACKPRESSURE_WAIT_MS')
+}
+
+fn test_process_guard_spawn_wait_ms_env() {
+	with_process_guard_env({
+		process_guard_spawn_wait_env: '25'
+	}, fn () {
+		assert process_guard_spawn_wait_ms() == 25
+	})
+	with_process_guard_env({
+		process_guard_spawn_wait_env: '-1'
+	}, fn () {
+		assert process_guard_spawn_wait_ms() == process_guard_default_spawn_wait_ms
+	})
+}
+
 fn with_process_guard_env(values map[string]string, body fn ()) {
 	names := [
 		process_guard_env,
 		process_guard_limit_env,
 		process_guard_limit_mb_env,
 		process_guard_output_limit_env,
+		process_guard_spawn_wait_env,
 	]
 	mut old := map[string]string{}
 	for name in names {
