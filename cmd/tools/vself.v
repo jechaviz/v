@@ -284,7 +284,7 @@ fn compose_v_cmd(vexe string, args []string, source string) string {
 fn run_cmd(cmd string) ! {
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		return error(result.output)
+		return error(vself_command_failure('command', cmd, result))
 	}
 	if result.output.len > 0 {
 		println(result.output.trim_space())
@@ -294,12 +294,26 @@ fn run_cmd(cmd string) ! {
 fn try_compile(cmd string) bool {
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
+		eprintln(vself_command_failure('regular self build', cmd, result))
 		return false
 	}
 	if result.output.len > 0 {
 		println(result.output.trim_space())
 	}
 	return true
+}
+
+fn vself_command_failure(label string, cmd string, result os.Result) string {
+	mut lines := []string{cap: 4}
+	lines << 'v self ${label} failed: exit_code=${result.exit_code}'
+	lines << 'cmd: ${cmd}'
+	output := result.output.trim_space()
+	if output == '' {
+		lines << 'no stdout/stderr captured'
+	} else {
+		lines << output
+	}
+	return lines.join('\n')
 }
 
 fn compile_with_pgo(vroot string, vexe string, args []string, out_binary string, cc_kind string) bool {
