@@ -216,6 +216,25 @@ fn test_empty_local_dir_does_not_shadow_vlib_module() {
 	assert res.output.trim_space() == 'true'
 }
 
+fn test_local_command_dir_does_not_shadow_vlib_prelude_imports() {
+	os.chdir(test_path)!
+	project_dir := os.join_path(test_path, 'run_stats_local_benchmark_shadow')
+	defer {
+		os.chdir(test_path) or {}
+	}
+	os.mkdir_all(os.join_path(project_dir, 'tools', 'cmd', 'benchmark'))!
+	os.write_file(os.join_path(project_dir, 'main_test.v'),
+		'module main\n\nfn test_shadow_free_stats() {\n\tassert true\n}\n')!
+	os.write_file(os.join_path(project_dir, 'tools', 'cmd', 'benchmark', 'main.v'),
+		'module main\n\nfn main() {}\n')!
+	os.chdir(project_dir)!
+
+	res := os.execute('${os.quoted_path(vexe)} -stats test main_test.v')
+
+	assert res.exit_code == 0, res.output
+	assert res.output.contains('test_shadow_free_stats')
+}
+
 fn test_removed_src_layout_error_mentions_vmod_subdirs() {
 	os.chdir(test_path)!
 	project_dir := os.join_path(test_path, 'run_removed_src_project')

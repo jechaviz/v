@@ -919,8 +919,16 @@ pub fn (b &Builder) find_module_path(mod string, fpath string) !string {
 	}
 	mod_path := module_path(mod)
 	mut module_lookup_paths := []string{}
+	vlib_root := os.real_path(os.join_path(b.pref.vroot, 'vlib'))
+	if resolved_fpath == vlib_root || resolved_fpath.starts_with(vlib_root + os.path_separator) {
+		module_lookup_paths << vlib_root
+	}
 	if b.path_belongs_to_lookup_path(resolved_fpath) {
-		module_lookup_paths << b.pref.lookup_path
+		for lookup_path in b.pref.lookup_path {
+			if comparable_real_path(lookup_path) != comparable_real_path(vlib_root) {
+				module_lookup_paths << lookup_path
+			}
+		}
 	}
 	if vmod_file_location.vmod_file.len != 0
 		&& vmod_file_location.vmod_folder !in b.module_search_paths {
