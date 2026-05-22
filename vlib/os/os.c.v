@@ -127,6 +127,9 @@ fn find_cfile_size(fp &C.FILE) !int {
 
 const buf_size = 4096
 
+// Exit code used when the command runner itself could not start the command.
+pub const system_spawn_failed_exit_code = 125
+
 // slurp_file_in_builder reads an entire file into a strings.Builder chunk by chunk, without relying on its file size.
 // It is intended for reading 0 sized files, or a dynamic files in a virtual filesystem like /proc/cpuinfo.
 // For these, we can not allocate all memory in advance (since we do not know the final size), and so we have no choice
@@ -442,8 +445,18 @@ pub fn system(cmd string) int {
 		wcmd := if cmd.len > 1 && cmd[0] == `"` && cmd[1] != `"` { '"${cmd}"' } else { cmd }
 		flush_stdout()
 		flush_stderr()
+		mut system_errno := 0
+		mut system_win_error := 0
 		unsafe {
 			ret = C._wsystem(wcmd.to_wide())
+			if ret == -1 {
+				system_errno = C.errno
+				system_win_error = int(C.GetLastError())
+			}
+		}
+		if ret == -1 {
+			eprintln(windows_system_failure_message(cmd, system_errno, system_win_error))
+			return system_spawn_failed_exit_code
 		}
 	} $else {
 		$if ios {

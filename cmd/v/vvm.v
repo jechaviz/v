@@ -50,7 +50,10 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 	envs['VEXE'] = vversion_exe
 	process.set_environment(envs)
 	process.wait()
-	exit_code := if process.code == -1 { 1 } else { process.code }
+	if process.code == -1 && process.err != '' {
+		eprintln(process.err)
+	}
+	exit_code := if process.code == -1 { os.system_spawn_failed_exit_code } else { process.code }
 	process.close()
 	exit(exit_code)
 }
