@@ -1,8 +1,36 @@
 module testing
 
 import os
-import os.filelock
+import os.process_singleton
 import time
+
+const process_singleton_helper_mode_env = 'VTEST_PROCESS_SINGLETON_TEST_HELPER_MODE'
+const process_singleton_helper_lock_env = 'VTEST_PROCESS_SINGLETON_TEST_HELPER_LOCK'
+
+fn testsuite_begin() {
+	if os.getenv(process_singleton_helper_mode_env) != '' {
+		process_singleton_run_helper()
+	}
+}
+
+fn process_singleton_run_helper() {
+	match os.getenv(process_singleton_helper_mode_env) {
+		'hold' {
+			mut gate := process_singleton_hold_gate(os.getenv(process_singleton_helper_lock_env)) or {
+				eprintln(err.msg())
+				exit(2)
+			}
+			println('locked')
+			os.flush()
+			time.sleep(500 * time.millisecond)
+			gate.release()
+			exit(0)
+		}
+		else {
+			exit(3)
+		}
+	}
+}
 
 fn test_process_singleton_default_policy_matches_host() {
 	old_mode := os.getenv(process_singleton_env)
@@ -67,10 +95,13 @@ fn test_process_singleton_busy_lock_fails_closed() {
 	os.setenv(process_singleton_lock_env, lock_path, true)
 	os.setenv(process_singleton_wait_env, '25', true)
 	os.unsetenv(process_singleton_held_env)
-	mut gate := filelock.new(lock_path)
-	assert gate.wait_acquire(100 * time.millisecond)
+	mut helper := process_singleton_start_hold_helper(lock_path)
+	process_singleton_wait_for_helper(mut helper)
 	defer {
-		gate.release()
+		helper.wait()
+		assert helper.stderr_slurp().trim_space() == ''
+		assert helper.code == 0
+		helper.close()
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
@@ -97,10 +128,13 @@ fn test_process_singleton_system_busy_lock_fails_closed() {
 	os.setenv(process_singleton_lock_env, lock_path, true)
 	os.setenv(process_singleton_wait_env, '25', true)
 	os.unsetenv(process_singleton_held_env)
-	mut gate := filelock.new(lock_path)
-	assert gate.wait_acquire(100 * time.millisecond)
+	mut helper := process_singleton_start_hold_helper(lock_path)
+	process_singleton_wait_for_helper(mut helper)
 	defer {
-		gate.release()
+		helper.wait()
+		assert helper.stderr_slurp().trim_space() == ''
+		assert helper.code == 0
+		helper.close()
 	}
 
 	assert process_singleton_system('${os.quoted_path(@VEXE)} version') == -1
@@ -125,10 +159,13 @@ fn test_process_singleton_held_flag_keeps_nested_execute_reentrant() {
 	os.setenv(process_singleton_lock_env, lock_path, true)
 	os.setenv(process_singleton_wait_env, '25', true)
 	os.setenv(process_singleton_held_env, '1', true)
-	mut gate := filelock.new(lock_path)
-	assert gate.wait_acquire(100 * time.millisecond)
+	mut helper := process_singleton_start_hold_helper(lock_path)
+	process_singleton_wait_for_helper(mut helper)
 	defer {
-		gate.release()
+		helper.wait()
+		assert helper.stderr_slurp().trim_space() == ''
+		assert helper.code == 0
+		helper.close()
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
@@ -152,10 +189,13 @@ fn test_process_singleton_can_be_disabled_even_when_lock_is_busy() {
 	os.setenv(process_singleton_env, '0', true)
 	os.setenv(process_singleton_lock_env, lock_path, true)
 	os.setenv(process_singleton_wait_env, '25', true)
-	mut gate := filelock.new(lock_path)
-	assert gate.wait_acquire(100 * time.millisecond)
+	mut helper := process_singleton_start_hold_helper(lock_path)
+	process_singleton_wait_for_helper(mut helper)
 	defer {
-		gate.release()
+		helper.wait()
+		assert helper.stderr_slurp().trim_space() == ''
+		assert helper.code == 0
+		helper.close()
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
@@ -178,4 +218,42 @@ fn process_singleton_remove_lock(path string) {
 	if os.exists(path) {
 		os.rm(path) or {}
 	}
+}
+
+fn process_singleton_hold_gate(lock_path string) !process_singleton.Guard {
+	return process_singleton.acquire_with_options(
+		name:      'vtest'
+		lock_path: lock_path
+		wait_ms:   100
+	)
+}
+
+fn process_singleton_start_hold_helper(lock_path string) &os.Process {
+	mut p := os.new_process(os.executable())
+	mut env := os.environ()
+	env[process_singleton_helper_mode_env] = 'hold'
+	env[process_singleton_helper_lock_env] = lock_path
+	p.set_environment(env)
+	p.set_redirect_stdio()
+	p.run()
+	return p
+}
+
+fn process_singleton_wait_for_helper(mut p os.Process) {
+	mut output := ''
+	for _ in 0 .. 50 {
+		if p.is_pending(.stdout) {
+			output += p.stdout_read()
+			if output.contains('locked') {
+				return
+			}
+		}
+		if !p.is_alive() {
+			break
+		}
+		time.sleep(10 * time.millisecond)
+	}
+	p.wait()
+	stderr := p.stderr_slurp().trim_space()
+	assert false, 'helper failed to acquire V test process singleton; exit=${p.code} stdout="${output.trim_space()}" stderr="${stderr}"'
 }

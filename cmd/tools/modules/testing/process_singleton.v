@@ -1,8 +1,7 @@
 module testing
 
 import os
-import os.filelock
-import time
+import os.process_singleton
 
 const process_singleton_env = 'VTEST_PROCESS_SINGLETON'
 const process_singleton_lock_env = 'VTEST_PROCESS_SINGLETON_LOCK'
@@ -68,17 +67,16 @@ fn process_singleton_held() bool {
 	return os.getenv(process_singleton_held_env) == '1'
 }
 
-fn process_singleton_acquire() !filelock.FileLock {
+fn process_singleton_acquire() !process_singleton.Guard {
 	lock_path := process_singleton_lock_path()
-	os.mkdir_all(os.dir(lock_path)) or {
-		return error('could not create V test process singleton lock directory ${os.dir(lock_path)}: ${err}')
-	}
-	mut gate := filelock.new(lock_path)
 	wait_ms := process_singleton_wait_ms()
-	if !gate.wait_acquire(wait_ms * time.millisecond) {
-		return error('timed out after ${wait_ms}ms waiting for V test process singleton ${lock_path}')
+	return process_singleton.acquire_with_options(
+		name:      'vtest'
+		lock_path: lock_path
+		wait_ms:   wait_ms
+	) or {
+		error('timed out after ${wait_ms}ms waiting for V test process singleton ${lock_path}: ${err}')
 	}
-	return gate
 }
 
 fn process_singleton_lock_path() string {
