@@ -125,8 +125,19 @@ fn process_guard_silent_failure_message(display_cmd string, exit_code int) strin
 }
 
 fn process_guard_drain(mut process os.Process, mut output ProcessGuardOutput, output_limit int) {
-	for chunk in [process.stdout_read(), process.stderr_read()] {
-		process_guard_append(mut output, chunk, output_limit)
+	for {
+		mut drained := false
+		if chunk := process.pipe_read(.stdout) {
+			process_guard_append(mut output, chunk, output_limit)
+			drained = true
+		}
+		if chunk := process.pipe_read(.stderr) {
+			process_guard_append(mut output, chunk, output_limit)
+			drained = true
+		}
+		if !drained {
+			break
+		}
 	}
 }
 
