@@ -463,25 +463,6 @@ pub fn get_error_msg(code int) string {
 	return msg
 }
 
-fn windows_system_failure_message(cmd string, c_errno int, win_error int) string {
-	mut details := []string{cap: 5}
-	details << 'os.system failed to start command on Windows; returning ${system_spawn_failed_exit_code} instead of -1.'
-	if c_errno == 0 {
-		details << 'errno=0'
-	} else {
-		errno_msg := posix_get_error_msg(c_errno).trim_space()
-		details << 'errno=${c_errno} (${errno_msg})'
-	}
-	if win_error == 0 {
-		details << 'win_error=0'
-	} else {
-		win_error_msg := get_error_msg(win_error).trim_space()
-		details << 'win_error=${win_error} (${win_error_msg})'
-	}
-	details << 'cmd: ${cmd}'
-	return details.join(' ')
-}
-
 // execute starts the specified command, waits for it to complete, and returns its output.
 // In opposition to `raw_execute` this function rejects `&&`, `||`, and linefeeds when they appear
 // outside double-quoted strings before delegating to `cmd.exe`.

@@ -34,7 +34,7 @@ fn process_singleton_execute(cmd string) os.Result {
 	}
 	mut gate := process_singleton_acquire() or {
 		return os.Result{
-			exit_code: os.system_spawn_failed_exit_code
+			exit_code: -1
 			output:    err.msg()
 		}
 	}
@@ -53,7 +53,7 @@ fn process_singleton_system(cmd string) int {
 	}
 	mut gate := process_singleton_acquire() or {
 		eprintln(err.msg())
-		return os.system_spawn_failed_exit_code
+		return -1
 	}
 	old_held := os.getenv(process_singleton_held_env)
 	os.setenv(process_singleton_held_env, '1', true)

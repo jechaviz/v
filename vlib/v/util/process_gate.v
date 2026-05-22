@@ -12,21 +12,16 @@ const process_gate_wait_env = 'V_PROCESS_GATE_WAIT_MS'
 const process_gate_lock_dir_env = 'V_PROCESS_GATE_LOCK_DIR'
 const process_gate_held_env = 'V_PROCESS_GATE_HELD'
 const process_gate_trace_env = 'V_PROCESS_GATE_TRACE'
-const process_gate_strict_memory_env = 'V_PROCESS_GATE_STRICT_MEMORY'
 const process_gate_ram_per_slot_mb_env = 'V_PROCESS_GATE_RAM_PER_SLOT_MB'
 const process_gate_virtual_per_slot_mb_env = 'V_PROCESS_GATE_VIRTUAL_PER_SLOT_MB'
 const process_gate_reserve_ram_mb_env = 'V_PROCESS_GATE_RESERVE_RAM_MB'
 const process_gate_reserve_virtual_mb_env = 'V_PROCESS_GATE_RESERVE_VIRTUAL_MB'
-const process_gate_default_wait_ms = 30_000
+const process_gate_default_wait_ms = 600_000
 const process_gate_bytes_per_mib = u64(1024 * 1024)
 const process_gate_default_ram_per_slot_mb = 6144
 const process_gate_default_virtual_per_slot_mb = 24576
 const process_gate_default_reserve_ram_mb = 6144
 const process_gate_default_reserve_virtual_mb = 24576
-const process_gate_adaptive_min_ram_mb = 384
-const process_gate_adaptive_min_virtual_mb = 4096
-const process_gate_low_memory_report_ms = 2_000
-const process_gate_low_memory_report_every_ms = 5_000
 const process_gate_default_max_slots = 2
 
 @[params]
@@ -64,18 +59,10 @@ pub fn acquire_process_gate(config ProcessGateConfig) !ProcessGate {
 	deadline := time.now().add(wait_ms * time.millisecond)
 	mut last_path := ''
 	mut last_status := ''
-	started := time.now()
-	mut next_low_memory_report := started.add(process_gate_low_memory_report_ms * time.millisecond)
 	for time.now() < deadline {
-		now := time.now()
 		ready, status := process_gate_host_status()
 		last_status = status
 		if !ready {
-			if now >= next_low_memory_report {
-				eprintln('v.process_gate: waiting for host memory before ${config.phase} ${config.path} ${config.out_name}; ${status}')
-				next_low_memory_report =
-					now.add(process_gate_low_memory_report_every_ms * time.millisecond)
-			}
 			time.sleep(250 * time.millisecond)
 			continue
 		}
@@ -176,53 +163,20 @@ fn process_gate_host_status() (bool, string) {
 		return true, 'host memory budget ready'
 	}
 	snapshot := runtime.collect_host_telemetry(os.getwd())
-	return process_gate_host_budget_status(snapshot.free_memory_bytes, snapshot.total_memory_bytes,
-		snapshot.free_virtual_memory_bytes, snapshot.total_virtual_memory_bytes)
-}
-
-fn process_gate_host_budget_status(free_ram u64, total_ram u64, free_virtual u64, total_virtual u64) (bool, string) {
-	reserve_ram, ram_policy := process_gate_host_reserve(free_ram, total_ram,
-		process_gate_reserve_ram_mb_env, process_gate_adaptive_min_ram_mb)
-	reserve_virtual, virtual_policy := process_gate_host_reserve(free_virtual, total_virtual,
-		process_gate_reserve_virtual_mb_env, process_gate_adaptive_min_virtual_mb)
-	free_ram_mb := free_ram / process_gate_bytes_per_mib
-	free_virtual_mb := free_virtual / process_gate_bytes_per_mib
+	reserve_ram := process_gate_env_mb(process_gate_reserve_ram_mb_env,
+		process_gate_default_reserve_ram_mb)
+	reserve_virtual := process_gate_env_mb(process_gate_reserve_virtual_mb_env,
+		process_gate_default_reserve_virtual_mb)
+	free_ram_mb := snapshot.free_memory_bytes / process_gate_bytes_per_mib
+	free_virtual_mb := snapshot.free_virtual_memory_bytes / process_gate_bytes_per_mib
 	reserve_ram_mb := reserve_ram / process_gate_bytes_per_mib
 	reserve_virtual_mb := reserve_virtual / process_gate_bytes_per_mib
-	status := 'free_ram_mb=${free_ram_mb} reserve_ram_mb=${reserve_ram_mb}(${ram_policy}) free_virtual_mb=${free_virtual_mb} reserve_virtual_mb=${reserve_virtual_mb}(${virtual_policy})'
-	if process_gate_strict_memory_enabled() {
-		if free_virtual < reserve_virtual {
-			return false, 'host memory budget low: ${status}'
-		}
-		if free_ram < reserve_ram && free_virtual < reserve_virtual * 2 {
-			return false, 'host memory budget low: ${status}'
-		}
+	status := 'free_ram_mb=${free_ram_mb} reserve_ram_mb=${reserve_ram_mb} free_virtual_mb=${free_virtual_mb} reserve_virtual_mb=${reserve_virtual_mb}'
+	if snapshot.free_memory_bytes < reserve_ram
+		|| snapshot.free_virtual_memory_bytes < reserve_virtual {
+		return false, 'host memory budget low: ${status}'
 	}
 	return true, 'host memory budget ready: ${status}'
-}
-
-fn process_gate_strict_memory_enabled() bool {
-	mode := os.getenv(process_gate_strict_memory_env).trim_space().to_lower()
-	return mode in ['1', 'true', 'on', 'yes', 'strict', 'enabled']
-}
-
-fn process_gate_host_reserve(free_bytes u64, total_bytes u64, env_name string, adaptive_min_mb int) (u64, string) {
-	if env_value := process_gate_env_mb_opt(env_name) {
-		return env_value, 'env'
-	}
-	adaptive_min := u64(adaptive_min_mb) * process_gate_bytes_per_mib
-	if total_bytes == 0 {
-		return adaptive_min, 'adaptive'
-	}
-	percent_floor := total_bytes / 64
-	mut reserve := percent_floor
-	if adaptive_min < reserve {
-		reserve = adaptive_min
-	}
-	if free_bytes < reserve && free_bytes >= adaptive_min {
-		return adaptive_min, 'adaptive'
-	}
-	return reserve, 'adaptive'
 }
 
 fn process_gate_headroom(free_bytes u64, reserve_bytes u64) u64 {
@@ -242,14 +196,6 @@ fn process_gate_slots_for_headroom(headroom_bytes u64, bytes_per_slot u64) int {
 
 fn process_gate_env_mb(name string, fallback int) u64 {
 	value := process_gate_env_int(name, fallback)
-	return u64(value) * process_gate_bytes_per_mib
-}
-
-fn process_gate_env_mb_opt(name string) ?u64 {
-	value := os.getenv(name).trim_space().int()
-	if value <= 0 {
-		return none
-	}
 	return u64(value) * process_gate_bytes_per_mib
 }
 

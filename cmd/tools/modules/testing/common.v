@@ -704,17 +704,8 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 			if res.output.contains(': error: ') {
 				ts.append_message(.cannot_compile, 'Cannot compile file ${file}', mtc)
 			}
-			stats_failure := command_failure_context('stats', normalised_relative_file, cmd,
-				status, cmd_duration)
-			if res.output.trim_space() == '' {
-				ts.append_message(.stats_error, stats_failure + '\nno stdout/stderr captured', mtc)
-			}
 			ts.benchmark.fail()
 			tls_bench.fail()
-			ts.append_message_with_duration(.fail, tls_bench.step_message_with_label_and_duration(benchmark.b_fail,
-				'${normalised_relative_file}\n${stats_failure}', cmd_duration,
-				preparation: 0
-			), cmd_duration, mtc)
 			ts.add_failed_cmd(reproduce_cmd)
 			return pool.no_result
 		}
@@ -736,12 +727,10 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		}
 		ts.append_message_with_duration(.compile_end, compile_r.output, compile_cmd_duration, mtc)
 		if compile_r.exit_code != 0 {
-			compile_failure := command_output_or_diagnostic('compile', normalised_relative_file,
-				cmd, compile_r.exit_code, compile_r.output, compile_cmd_duration)
 			ts.benchmark.fail()
 			tls_bench.fail()
 			ts.append_message_with_duration(.fail, tls_bench.step_message_with_label_and_duration(benchmark.b_fail,
-				'${normalised_relative_file}\n>> compilation failed:\n${compile_failure}',
+				'${normalised_relative_file}\n>> compilation failed:\n${compile_r.output}',
 				cmd_duration,
 				preparation: compile_cmd_duration
 			), cmd_duration, mtc)
@@ -776,8 +765,7 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				failure_output.write_string(separator)
 				failure_output.writeln(' retry: 0 ; max_retry: ${details.retry} ; r.exit_code: ${r.exit_code} ; trimmed_output.len: ${trimmed_output.len}')
 			}
-			failure_output.writeln(command_output_or_diagnostic('run', normalised_relative_file,
-				run_cmd, r.exit_code, trimmed_output, cmd_duration))
+			failure_output.writeln(trimmed_output)
 			os.setenv('VTEST_RETRY_MAX', '${details.retry}', true)
 			for retry = 1; retry <= details.retry; retry++ {
 				if !details.hide_retries {
@@ -800,8 +788,7 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				trimmed_output = r.output.trim_space()
 				failure_output.write_string(separator)
 				failure_output.writeln(' retry: ${retry} ; max_retry: ${details.retry} ; r.exit_code: ${r.exit_code} ; trimmed_output.len: ${trimmed_output.len}')
-				failure_output.writeln(command_output_or_diagnostic('run',
-					normalised_relative_file, run_cmd, r.exit_code, trimmed_output, cmd_duration))
+				failure_output.writeln(trimmed_output)
 				time.sleep(fail_retry_delay_ms)
 			}
 			full_failure_output := failure_output.str().trim_space()

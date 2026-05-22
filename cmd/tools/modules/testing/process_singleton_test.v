@@ -74,7 +74,7 @@ fn test_process_singleton_busy_lock_fails_closed() {
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
-	assert res.exit_code == os.system_spawn_failed_exit_code
+	assert res.exit_code == -1
 	assert res.output.contains('timed out after 25ms waiting for V test process singleton')
 }
 
@@ -103,7 +103,7 @@ fn test_process_singleton_system_busy_lock_fails_closed() {
 		gate.release()
 	}
 
-	assert process_singleton_system('${os.quoted_path(@VEXE)} version') == os.system_spawn_failed_exit_code
+	assert process_singleton_system('${os.quoted_path(@VEXE)} version') == -1
 }
 
 fn test_process_singleton_held_flag_keeps_nested_execute_reentrant() {

@@ -271,11 +271,8 @@ fn run_v_command_with_exe(vexe string, work_dir string, args []string, envs map[
 	process.set_environment(envs)
 	process.set_redirect_stdio()
 	process.wait()
-	mut output := process.stdout_slurp() + process.stderr_slurp()
-	if process.code == -1 && process.err != '' {
-		output += process.err
-	}
-	exit_code := if process.code == -1 { os.system_spawn_failed_exit_code } else { process.code }
+	output := process.stdout_slurp() + process.stderr_slurp()
+	exit_code := if process.code == -1 { 1 } else { process.code }
 	process.close()
 	return CmdResult{
 		exit_code: exit_code
