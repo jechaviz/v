@@ -15,8 +15,13 @@ const vexe = os.getenv_opt('VEXE') or { @VEXE }
 const vroot = os.dir(vexe)
 const vself_flags_with_values = ['-o', '-os', '-cc', '-gc', '-cf', '-cflags', '-d', '-define']
 const vself_lock_timeout_seconds = 900
+const windows_replace_arg = '--windows-replace'
 
 fn main() {
+	if args_.len == 5 && args_[1] == windows_replace_arg {
+		windows_replace_after_launcher_exits(args_[2], args_[3], args_[4])
+		return
+	}
 	// make testing `v up` easier, by providing a way to force `v self` to fail,
 	// to test the fallback logic:
 	if os.getenv('VSELF_SHOULD_FAIL') != '' {
@@ -62,6 +67,7 @@ fn main() {
 	options := if args.len > 0 { '(${sargs})' } else { '' }
 	final_binary := if obinary != '' { obinary } else { 'v2' }
 	pgo_cc_kind := pgo_compiler_kind(args)
+	mut installed_now := true
 	for run_idx in 0 .. repeat_count {
 		run_label := if repeat_count > 1 { ' [${run_idx + 1}/${repeat_count}]' } else { '' }
 		println('V self compiling${run_label} ${options}...')
@@ -82,13 +88,19 @@ fn main() {
 			}
 		}
 		if obinary == '' {
-			backup_old_version_and_rename_newer(short_v_name) or { panic(err.msg()) }
+			installed_now = backup_old_version_and_rename_newer(short_v_name) or {
+				panic(err.msg())
+			}
 		}
 	}
 	if obinary != '' {
 		return
 	}
-	println('V built successfully as executable "${vexe_name}".')
+	if installed_now {
+		println('V built successfully as executable "${vexe_name}".')
+	} else {
+		println('V built successfully; Windows replacement will finish after the launcher exits.')
+	}
 }
 
 fn acquire_vself_lock(short_v_name string) !filelock.FileLock {
@@ -431,6 +443,10 @@ fn backup_old_version_and_rename_newer(short_v_name string) !bool {
 	v2_file := os.real_path(short_v2_file)
 	bak_file := os.real_path(short_bak_file)
 
+	if os.user_os() == 'windows' {
+		return backup_old_version_and_rename_newer_windows(short_v_name, v_file, v2_file, bak_file)!
+	}
+
 	list_folder(short_v_name, 'before:', 'removing ${bak_file} ...')
 	if os.exists(bak_file) {
 		os.rm(bak_file) or { errors << 'failed removing ${bak_file}: ${err.msg()}' }
@@ -451,4 +467,63 @@ fn backup_old_version_and_rename_newer(short_v_name string) !bool {
 		eprintln('backup errors:\n  >>  ' + errors.join('\n  >>  '))
 	}
 	return true
+}
+
+fn backup_old_version_and_rename_newer_windows(short_v_name string, v_file string, v2_file string, bak_file string) !bool {
+	mut errors := []string{}
+	list_folder(short_v_name, 'before:', 'removing ${bak_file} ...')
+	if os.exists(bak_file) {
+		os.rm(bak_file) or { errors << 'failed removing ${bak_file}: ${err.msg()}' }
+	}
+	list_folder(short_v_name, '', 'moving ${v_file} to ${bak_file} ...')
+	os.mv(v_file, bak_file) or {
+		if os.exists(v_file) {
+			launch_windows_deferred_replace(v_file, v2_file, bak_file)!
+			eprintln('v self: `${v_file}` is still locked by the launcher; replacement has been scheduled.')
+			return false
+		}
+		errors << err.msg()
+	}
+	list_folder(short_v_name, '', 'moving ${v2_file} to ${v_file} ...')
+	os.mv_by_cp(v2_file, v_file)!
+	list_folder(short_v_name, 'after:', '')
+	if errors.len > 0 {
+		eprintln('backup errors:\n  >>  ' + errors.join('\n  >>  '))
+	}
+	return true
+}
+
+fn launch_windows_deferred_replace(v_file string, v2_file string, bak_file string) ! {
+	mut process := os.new_process(os.executable())
+	process.set_args([windows_replace_arg, v_file, v2_file, bak_file])
+	process.run()
+	if process.err != '' {
+		return error(process.err)
+	}
+}
+
+fn windows_replace_after_launcher_exits(v_file string, v2_file string, bak_file string) {
+	for attempt in 0 .. 60 {
+		if os.exists(bak_file) {
+			os.rm(bak_file) or {}
+		}
+		if os.exists(v_file) {
+			os.mv(v_file, bak_file) or {
+				if attempt % 5 == 4 {
+					eprintln('v self: waiting for Windows to release `${v_file}`: ${err.msg()}')
+				}
+				time.sleep(1 * time.second)
+				continue
+			}
+		}
+		os.mv_by_cp(v2_file, v_file) or {
+			eprintln('v self replacement failed: could not install `${v2_file}` as `${v_file}`: ${err.msg()}')
+			exit(1)
+		}
+		os.rm(v2_file) or {}
+		println('V built successfully as executable "${os.file_name(v_file)}".')
+		return
+	}
+	eprintln('v self replacement failed: Windows did not release `${v_file}` in time.')
+	exit(1)
 }
