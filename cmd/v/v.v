@@ -5,9 +5,7 @@ module main
 
 import hash
 import os
-import os.filelock
 import term
-import time
 import v.help
 import v.pref
 import v.util
@@ -68,7 +66,6 @@ const external_tools = [
 	'where',
 ]
 const delegated_v2_exe_env = 'V_V2_EXE'
-const delegated_v2_lock_timeout_seconds = 600
 
 @[unsafe]
 fn timers_pointer(p &util.Timers) &util.Timers {
@@ -248,13 +245,6 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 			eprintln('cannot create `${v2_exe_dir}`: ${err}')
 			exit(1)
 		}
-		mut v2_lock := acquire_delegated_v2_lock(v2_exe) or {
-			eprintln(err.msg())
-			exit(1)
-		}
-		defer {
-			v2_lock.release()
-		}
 		if util.should_recompile_tool(vexe, v2_cmd_dir, tool_name, v2_exe)
 			|| util.should_recompile_tool(vexe, v2_vlib_dir, tool_name, v2_exe) {
 			d_flag := if is_ownership { '-d ownership ' } else { '' }
@@ -291,18 +281,6 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 		}
 	}
 	exit(2)
-}
-
-fn acquire_delegated_v2_lock(v2_exe string) !filelock.FileLock {
-	lock_path := v2_exe + '.lock'
-	os.mkdir_all(os.dir(lock_path)) or {
-		return error('cannot create delegated V2 lock directory `${os.dir(lock_path)}`: ${err}')
-	}
-	mut gate := filelock.new(lock_path)
-	if !gate.wait_acquire(delegated_v2_lock_timeout_seconds * time.second) {
-		return error('timed out waiting for delegated V2 compiler lock `${lock_path}`')
-	}
-	return gate
 }
 
 fn cached_v2_executable_path(vroot string, is_ownership bool) string {

@@ -1,15 +1,11 @@
 module cbuilder
 
 import os
-import os.filelock
 import strings
-import time
 import v.pref
 import v.util
 import v.builder
 import v.gen.c
-
-const reuse_tmpc_lock_wait_ms = 600_000
 
 pub fn start() {
 	mut args_and_flags := util.join_env_vflags_and_os_args()[1..]
@@ -56,33 +52,10 @@ You can also seek #help on Discord: https://discord.gg/vlang
 	if b.pref.is_shared {
 		out_name_c = b.get_vtmp_filename(b.pref.out_name, '.tmp.so.c')
 	}
-	if b.pref.reuse_tmpc {
-		mut tmpc_lock := acquire_reuse_tmpc_lock(out_name_c) or { builder.verror(err.msg()) }
-		defer {
-			tmpc_lock.release()
-		}
-		build_c(mut b, files, out_name_c)
-		if !b.pref.parallel_cc {
-			b.cc()
-		}
-		return
-	}
 	build_c(mut b, files, out_name_c)
 	if !b.pref.parallel_cc {
 		b.cc()
 	}
-}
-
-fn acquire_reuse_tmpc_lock(out_name_c string) !filelock.FileLock {
-	lock_path := out_name_c + '.lock'
-	os.mkdir_all(os.dir(lock_path)) or {
-		return error('could not create -keepc lock directory `${os.dir(lock_path)}`: ${err}')
-	}
-	mut gate := filelock.new(lock_path)
-	if !gate.wait_acquire(reuse_tmpc_lock_wait_ms * time.millisecond) {
-		return error('timed out waiting for -keepc build artifact lock `${lock_path}`')
-	}
-	return gate
 }
 
 pub fn build_c(mut b builder.Builder, v_files []string, out_file string) {

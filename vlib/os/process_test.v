@@ -279,21 +279,6 @@ fn test_run() {
 	p.close()
 }
 
-fn test_missing_windows_process_sets_error_without_exiting_parent() {
-	$if !windows {
-		return
-	}
-	missing_exe := os.join_path(os.vtmp_dir(), 'missing_process_${os.getpid()}.exe')
-	os.rm(missing_exe) or {}
-	mut p := os.new_process(missing_exe)
-	p.run()
-	assert p.status == .aborted
-	assert p.code == -1
-	assert p.err.contains('CreateProcess'), p.err
-	assert p.err.contains('Windows error code'), p.err
-	p.close()
-}
-
 fn test_wait() {
 	eprintln(@FN)
 	mut p := os.new_process(test_os_process)

@@ -32,11 +32,6 @@ pub fn compile(command string, pref_ &pref.Preferences, backend_cb FnBackend) {
 	}
 	mut pref_ref := unsafe { pref_ }
 	pref_ref.ccompiler_type = resolve_ccompiler_type(pref_ref.ccompiler, pref_ref.ccompiler_type)
-	mut process_gate := util.acquire_process_gate(
-		phase:    command
-		path:     pref_.path
-		out_name: pref_.out_name
-	) or { verror(err.msg()) }
 	// Construct the V object from command line arguments
 	mut b := new_builder(pref_)
 	if b.should_rebuild() {
@@ -45,7 +40,6 @@ pub fn compile(command string, pref_ &pref.Preferences, backend_cb FnBackend) {
 	b.exit_on_invalid_syntax()
 	// running does not require the parsers anymore
 	unsafe { b.myfree() }
-	process_gate.release()
 	b.run_compiled_executable_and_exit()
 }
 

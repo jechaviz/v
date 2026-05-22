@@ -20,6 +20,16 @@ fn ntdll_fn(name &char) FN_NTSuspendResume {
 	return the_fn
 }
 
+fn failed_cfn_report_error(ok bool, label string) {
+	if ok {
+		return
+	}
+	error_num := int(C.GetLastError())
+	error_msg := get_error_msg(error_num)
+	eprintln('failed ${label}: ${error_msg}')
+	exit(1)
+}
+
 fn close_valid_handle(p voidptr) {
 	h := &&u32(p)
 	if *h != &u32(unsafe { nil }) {
@@ -42,36 +52,6 @@ pub mut:
 
 	child_stderr_read  &u32 = unsafe { nil }
 	child_stderr_write &u32 = unsafe { nil }
-}
-
-fn win_last_process_error(label string) string {
-	error_num := int(C.GetLastError())
-	error_msg := get_error_msg(error_num)
-	if error_msg == '' {
-		return 'failed ${label} with Windows error code ${error_num}'
-	}
-	return 'failed ${label} with Windows error code ${error_num}: ${error_msg}'
-}
-
-fn (mut p Process) win_close_spawn_handles() {
-	if p.wdata == 0 {
-		return
-	}
-	mut wdata := unsafe { &WProcess(p.wdata) }
-	close_valid_handle(&wdata.child_stdin_read)
-	close_valid_handle(&wdata.child_stdin_write)
-	close_valid_handle(&wdata.child_stdout_read)
-	close_valid_handle(&wdata.child_stdout_write)
-	close_valid_handle(&wdata.child_stderr_read)
-	close_valid_handle(&wdata.child_stderr_write)
-	close_valid_handle(&wdata.proc_info.h_process)
-	close_valid_handle(&wdata.proc_info.h_thread)
-}
-
-fn (mut p Process) win_spawn_failed(label string) int {
-	p.err = win_last_process_error(label)
-	p.win_close_spawn_handles()
-	return -1
 }
 
 @[manualfree]
@@ -108,34 +88,22 @@ fn (mut p Process) win_spawn_process() int {
 
 		create_pipe_ok0 := C.CreatePipe(voidptr(&wdata.child_stdin_read),
 			voidptr(&wdata.child_stdin_write), voidptr(&sa), 65536)
-		if !create_pipe_ok0 {
-			return p.win_spawn_failed('CreatePipe stdin')
-		}
+		failed_cfn_report_error(create_pipe_ok0, 'CreatePipe stdin')
 		set_handle_info_ok0 := C.SetHandleInformation(wdata.child_stdin_write,
 			C.HANDLE_FLAG_INHERIT, 0)
-		if !set_handle_info_ok0 {
-			return p.win_spawn_failed('SetHandleInformation stdin')
-		}
+		failed_cfn_report_error(set_handle_info_ok0, 'SetHandleInformation')
 		create_pipe_ok1 := C.CreatePipe(voidptr(&wdata.child_stdout_read),
 			voidptr(&wdata.child_stdout_write), voidptr(&sa), 65536)
-		if !create_pipe_ok1 {
-			return p.win_spawn_failed('CreatePipe stdout')
-		}
+		failed_cfn_report_error(create_pipe_ok1, 'CreatePipe stdout')
 		set_handle_info_ok1 := C.SetHandleInformation(wdata.child_stdout_read,
 			C.HANDLE_FLAG_INHERIT, 0)
-		if !set_handle_info_ok1 {
-			return p.win_spawn_failed('SetHandleInformation stdout')
-		}
+		failed_cfn_report_error(set_handle_info_ok1, 'SetHandleInformation')
 		create_pipe_ok2 := C.CreatePipe(voidptr(&wdata.child_stderr_read),
 			voidptr(&wdata.child_stderr_write), voidptr(&sa), 65536)
-		if !create_pipe_ok2 {
-			return p.win_spawn_failed('CreatePipe stderr')
-		}
+		failed_cfn_report_error(create_pipe_ok2, 'CreatePipe stderr')
 		set_handle_info_ok2 := C.SetHandleInformation(wdata.child_stderr_read,
 			C.HANDLE_FLAG_INHERIT, 0)
-		if !set_handle_info_ok2 {
-			return p.win_spawn_failed('SetHandleInformation stderr')
-		}
+		failed_cfn_report_error(set_handle_info_ok2, 'SetHandleInformation stderr')
 		start_info.h_std_input = wdata.child_stdin_read
 		start_info.h_std_output = wdata.child_stdout_write
 		start_info.h_std_error = wdata.child_stderr_write
@@ -210,9 +178,7 @@ fn (mut p Process) win_spawn_process() int {
 	} else {
 		0
 	}, work_folder_ptr, voidptr(&start_info), voidptr(&wdata.proc_info))
-	if !create_process_ok {
-		return p.win_spawn_failed('CreateProcess')
-	}
+	failed_cfn_report_error(create_process_ok, 'CreateProcess')
 	if p.use_stdio_ctl {
 		close_valid_handle(&wdata.child_stdin_read)
 		close_valid_handle(&wdata.child_stdout_write)
