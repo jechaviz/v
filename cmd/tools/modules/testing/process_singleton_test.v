@@ -32,17 +32,13 @@ fn process_singleton_run_helper() {
 	}
 }
 
-fn test_process_singleton_default_policy_matches_host() {
+fn test_process_singleton_default_policy_is_opt_in() {
 	old_mode := os.getenv(process_singleton_env)
 	os.unsetenv(process_singleton_env)
 	defer {
 		process_singleton_restore_env(process_singleton_env, old_mode)
 	}
-	$if windows {
-		assert process_singleton_enabled()
-	} $else {
-		assert !process_singleton_enabled()
-	}
+	assert !process_singleton_enabled()
 }
 
 fn test_process_singleton_env_overrides_default_policy() {

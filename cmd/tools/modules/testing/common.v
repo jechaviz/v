@@ -293,7 +293,7 @@ pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Res
 	if show_cmd {
 		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
 	}
-	return process_singleton_execute(cmd)
+	return process_guard_with_silent_diagnostics(cmd, process_singleton_execute(cmd))
 }
 
 pub fn (mut ts TestSession) system(cmd string, mtc MessageThreadContext) int {
@@ -749,7 +749,7 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		mut failure_output := strings.new_builder(1024)
 		ts.append_message(.cmd_begin, run_cmd, mtc)
 		d_cmd := time.new_stopwatch()
-		mut r := ts.execute(run_cmd, mtc)
+		mut r := execute_test_binary(generated_binary_fpath, run_js, run_cmd)
 		cmd_duration = d_cmd.elapsed()
 		ts.append_message_with_duration(.cmd_end, r.output, cmd_duration, mtc)
 		if ts.show_asserts && r.exit_code == 0 {
@@ -776,7 +776,7 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				os.setenv('VTEST_RETRY', '${retry}', true)
 				ts.append_message(.cmd_begin, run_cmd, mtc)
 				d_cmd_2 := time.new_stopwatch()
-				r = ts.execute(run_cmd, mtc)
+				r = execute_test_binary(generated_binary_fpath, run_js, run_cmd)
 				cmd_duration = d_cmd_2.elapsed()
 				ts.append_message_with_duration(.cmd_end, r.output, cmd_duration, mtc)
 
