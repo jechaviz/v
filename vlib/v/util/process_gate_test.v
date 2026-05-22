@@ -4,6 +4,17 @@ import os
 import os.filelock
 import time
 
+fn test_process_gate_default_lock_dir_is_shared_across_sessions() {
+	old_lock_dir := os.getenv(process_gate_lock_dir_env)
+	defer {
+		process_gate_restore_env(process_gate_lock_dir_env, old_lock_dir)
+	}
+	os.unsetenv(process_gate_lock_dir_env)
+
+	assert process_gate_lock_dir() == os.join_path(os.temp_dir(), 'v_process_gate')
+	assert !process_gate_lock_dir().starts_with(os.vtmp_dir())
+}
+
 fn test_process_gate_disabled_returns_inactive_guard() {
 	old_mode := os.getenv(process_gate_env)
 	defer {
@@ -46,12 +57,16 @@ fn test_process_gate_busy_slot_reports_timeout() {
 	old_wait := os.getenv(process_gate_wait_env)
 	old_lock_dir := os.getenv(process_gate_lock_dir_env)
 	old_held := os.getenv(process_gate_held_env)
+	old_reserve_ram := os.getenv(process_gate_reserve_ram_mb_env)
+	old_reserve_virtual := os.getenv(process_gate_reserve_virtual_mb_env)
 	defer {
 		process_gate_restore_env(process_gate_env, old_mode)
 		process_gate_restore_env(process_gate_slots_env, old_slots)
 		process_gate_restore_env(process_gate_wait_env, old_wait)
 		process_gate_restore_env(process_gate_lock_dir_env, old_lock_dir)
 		process_gate_restore_env(process_gate_held_env, old_held)
+		process_gate_restore_env(process_gate_reserve_ram_mb_env, old_reserve_ram)
+		process_gate_restore_env(process_gate_reserve_virtual_mb_env, old_reserve_virtual)
 		os.rmdir_all(lock_dir) or {}
 	}
 
@@ -59,6 +74,8 @@ fn test_process_gate_busy_slot_reports_timeout() {
 	os.setenv(process_gate_slots_env, '1', true)
 	os.setenv(process_gate_wait_env, '25', true)
 	os.setenv(process_gate_lock_dir_env, lock_dir, true)
+	os.setenv(process_gate_reserve_ram_mb_env, '1', true)
+	os.setenv(process_gate_reserve_virtual_mb_env, '1', true)
 	os.unsetenv(process_gate_held_env)
 	lock_path := os.join_path(lock_dir, 'v_process_gate_0.lock')
 	mut held_gate := filelock.new(lock_path)
