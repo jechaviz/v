@@ -2,6 +2,8 @@ module main
 
 import os
 import os.cmdline
+import os.filelock
+import time
 import v.util.recompilation
 
 const args_ = arguments()
@@ -12,6 +14,7 @@ const vexe = os.getenv_opt('VEXE') or { @VEXE }
 
 const vroot = os.dir(vexe)
 const vself_flags_with_values = ['-o', '-os', '-cc', '-gc', '-cf', '-cflags', '-d', '-define']
+const vself_lock_timeout_seconds = 900
 
 fn main() {
 	// make testing `v up` easier, by providing a way to force `v self` to fail,
@@ -27,6 +30,13 @@ fn main() {
 		'Please install V from source, to use `${vexe_name} self` .')
 	os.chdir(vroot)!
 	os.setenv('VCOLORS', 'always', true)
+	mut self_lock := acquire_vself_lock(short_v_name) or {
+		eprintln(err.msg())
+		exit(1)
+	}
+	defer {
+		self_lock.release()
+	}
 	repeat_count, mut args := extract_repeat_count(args_[1..].filter(it != 'self'))
 	if args.len == 0 || ('-cc' !in args && '-prod' !in args && '-parallel-cc' !in args) {
 		// compiling by default, i.e. `v self`:
@@ -79,6 +89,15 @@ fn main() {
 		return
 	}
 	println('V built successfully as executable "${vexe_name}".')
+}
+
+fn acquire_vself_lock(short_v_name string) !filelock.FileLock {
+	lock_path := os.real_path(os.join_path(vroot, '.${short_v_name}.self.lock'))
+	mut gate := filelock.new(lock_path)
+	if !gate.wait_acquire(vself_lock_timeout_seconds * time.second) {
+		return error('timed out waiting for V self build lock `${lock_path}`')
+	}
+	return gate
 }
 
 fn repeat_count_arg(arg string) int {

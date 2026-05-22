@@ -1,6 +1,7 @@
 module cbuilder
 
 import os
+import rand
 import time
 import v.util
 import v.builder
@@ -29,9 +30,16 @@ fn parallel_cc_uses_tcc(cc_kind builder.CC, ccompiler string) bool {
 }
 
 fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
-	tmp_dir := os.vtmp_dir()
+	tmp_dir := os.join_path(os.vtmp_dir(), 'parallel_cc_${os.getpid()}_${rand.ulid()}')
+	os.mkdir_all(tmp_dir) or {
+		return error('could not create parallel C temp directory `${tmp_dir}`: ${err}')
+	}
+	mut keep_tmp_dir := b.pref.reuse_tmpc || os.getenv('V_NO_RM_CLEANUP_FILES') != ''
 	sw_total := time.new_stopwatch()
 	defer {
+		if !keep_tmp_dir {
+			os.rmdir_all(tmp_dir) or {}
+		}
 		eprint_time(sw_total, @METHOD)
 	}
 	cc_plan := util.memory_backpressure_plan('parallel_cc', util.nr_jobs)
@@ -149,7 +157,9 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	eprint_time(sw,
 		'C compilation on ${cc_jobs} thread(s), processing ${cmds.len} commands, failed: ${failed}')
 	if failed > 0 {
-		return error_with_code('failed parallel C compilation', failed)
+		keep_tmp_dir = true
+		return error_with_code('failed parallel C compilation; temp files kept in ${tmp_dir}',
+			failed)
 	}
 
 	mut ofiles := []string{}
@@ -179,7 +189,9 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	// so detect that pattern and treat it as a link failure too.
 	link_failed_with_tcc_dup := b.ccoptions.cc == .tcc && link_res.output.contains('defined twice')
 	if link_res.exit_code != 0 || link_failed_with_tcc_dup {
-		return error_with_code('failed to link after parallel C compilation', 1)
+		keep_tmp_dir = true
+		return error_with_code('failed to link after parallel C compilation; temp files kept in ${tmp_dir}',
+			1)
 	}
 }
 

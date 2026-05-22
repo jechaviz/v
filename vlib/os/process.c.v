@@ -115,6 +115,15 @@ fn (mut p Process) _spawn() int {
 	} $else {
 		pid = p.unix_spawn_process()
 	}
+	if pid < 0 {
+		if p.err == '' {
+			p.err = 'failed to start process `${p.filename}`'
+		}
+		p.pid = pid
+		p.code = -1
+		p.status = .aborted
+		return -1
+	}
 	p.pid = pid
 	p.status = .running
 	return 0
