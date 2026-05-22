@@ -26,19 +26,24 @@ const default_memory_max_sleep_ms = 1000
 
 pub struct HostTelemetry {
 pub:
-	os_name            string
-	arch               string
-	logical_cpus       int
-	total_memory_bytes u64
-	free_memory_bytes  u64
-	used_memory_bytes  u64
-	memory_complete    bool
-	disk_path          string
-	disk_total_bytes   u64
-	disk_free_bytes    u64
-	disk_used_bytes    u64
-	disk_complete      bool
-	sampled_unix_ms    i64
+	os_name                    string
+	arch                       string
+	logical_cpus               int
+	total_memory_bytes         u64
+	free_memory_bytes          u64
+	used_memory_bytes          u64
+	memory_complete            bool
+	total_virtual_memory_bytes u64
+	free_virtual_memory_bytes  u64
+	used_virtual_memory_bytes  u64
+	available_memory_bytes     u64
+	virtual_memory_complete    bool
+	disk_path                  string
+	disk_total_bytes           u64
+	disk_free_bytes            u64
+	disk_used_bytes            u64
+	disk_complete              bool
+	sampled_unix_ms            i64
 }
 
 pub struct ResourceBudget {
@@ -110,22 +115,29 @@ pub fn collect_host_telemetry(path string) HostTelemetry {
 	total_memory, total_ok := read_total_memory()
 	free_memory, free_ok := read_free_memory()
 	used_memory, used_ok := read_used_memory()
+	total_virtual, total_virtual_ok := read_total_virtual_memory()
+	free_virtual, free_virtual_ok := read_free_virtual_memory()
 	disk_path := telemetry_disk_path(path)
 	disk, disk_ok := read_disk_usage(disk_path)
 	return HostTelemetry{
-		os_name:            os.user_os()
-		arch:               host_arch()
-		logical_cpus:       nr_cpus()
-		total_memory_bytes: total_memory
-		free_memory_bytes:  free_memory
-		used_memory_bytes:  used_memory
-		memory_complete:    total_ok && free_ok && used_ok
-		disk_path:          disk_path
-		disk_total_bytes:   disk.total
-		disk_free_bytes:    disk.available
-		disk_used_bytes:    disk.used
-		disk_complete:      disk_ok
-		sampled_unix_ms:    time.now().unix_milli()
+		os_name:                    os.user_os()
+		arch:                       host_arch()
+		logical_cpus:               nr_cpus()
+		total_memory_bytes:         total_memory
+		free_memory_bytes:          free_memory
+		used_memory_bytes:          used_memory
+		memory_complete:            total_ok && free_ok && used_ok
+		total_virtual_memory_bytes: total_virtual
+		free_virtual_memory_bytes:  free_virtual
+		used_virtual_memory_bytes:  used_virtual_memory(total_virtual, free_virtual)
+		available_memory_bytes:     available_memory(free_memory, free_virtual)
+		virtual_memory_complete:    total_virtual_ok && free_virtual_ok
+		disk_path:                  disk_path
+		disk_total_bytes:           disk.total
+		disk_free_bytes:            disk.available
+		disk_used_bytes:            disk.used
+		disk_complete:              disk_ok
+		sampled_unix_ms:            time.now().unix_milli()
 	}
 }
 
@@ -157,7 +169,10 @@ pub fn decide_memory_backpressure(used_bytes u64, free_bytes u64, policy MemoryB
 	target := memory_target_bytes(policy)
 	warn := memory_warn_bytes(policy)
 	hard := memory_hard_bytes(policy)
-	pressure := classify_memory_backpressure(used_bytes, warn, hard)
+	used_pressure := classify_memory_backpressure(used_bytes, warn, hard)
+	free_pressure := classify_free_memory_backpressure(free_bytes, warn, hard,
+		policy.max_memory_bytes)
+	pressure := strongest_memory_pressure(used_pressure, free_pressure)
 	action := backpressure_action_for(pressure)
 	return MemoryBackpressureDecision{
 		observed_memory_bytes: used_bytes
@@ -165,10 +180,11 @@ pub fn decide_memory_backpressure(used_bytes u64, free_bytes u64, policy MemoryB
 		warn_memory_bytes:     warn
 		hard_memory_bytes:     hard
 		free_memory_bytes:     free_bytes
-		headroom_bytes:        memory_headroom(used_bytes, hard)
+		headroom_bytes:        memory_effective_headroom(used_bytes, free_bytes, hard,
+			policy.max_memory_bytes)
 		pressure:              pressure
 		action:                action
-		within_budget:         hard == 0 || used_bytes < hard
+		within_budget:         (hard == 0 || used_bytes < hard) && free_pressure != .critical
 		should_collect:        target > 0 && used_bytes >= target
 		should_defer_new_work: action == .serial || action == .pause
 		recommended_jobs:      memory_jobs_for_pressure(used_bytes, warn, hard, pressure, policy)
@@ -178,16 +194,17 @@ pub fn decide_memory_backpressure(used_bytes u64, free_bytes u64, policy MemoryB
 }
 
 pub fn decide_runtime_backpressure(snapshot HostTelemetry, policy MemoryBackpressurePolicy) MemoryBackpressureDecision {
+	max_memory := runtime_backpressure_max_memory(snapshot, policy)
 	effective_policy := if policy.max_memory_bytes > 0 {
 		policy
 	} else {
 		MemoryBackpressurePolicy{
 			...policy
-			max_memory_bytes: snapshot.total_memory_bytes
+			max_memory_bytes: max_memory
 		}
 	}
-	return decide_memory_backpressure(snapshot.used_memory_bytes, snapshot.free_memory_bytes,
-		effective_policy)
+	return decide_memory_backpressure(snapshot.used_memory_bytes,
+		runtime_available_memory(snapshot), effective_policy)
 }
 
 pub fn performance_sample(label string, started_unix_ms i64, snapshot HostTelemetry) PerformanceSample {
@@ -230,6 +247,11 @@ pub fn (snapshot HostTelemetry) report() string {
 		'runtime.telemetry.memory.free_bytes=${snapshot.free_memory_bytes}',
 		'runtime.telemetry.memory.used_bytes=${snapshot.used_memory_bytes}',
 		'runtime.telemetry.memory.complete=${snapshot.memory_complete}',
+		'runtime.telemetry.virtual_memory.total_bytes=${snapshot.total_virtual_memory_bytes}',
+		'runtime.telemetry.virtual_memory.free_bytes=${snapshot.free_virtual_memory_bytes}',
+		'runtime.telemetry.virtual_memory.used_bytes=${snapshot.used_virtual_memory_bytes}',
+		'runtime.telemetry.memory.available_bytes=${runtime_available_memory(snapshot)}',
+		'runtime.telemetry.virtual_memory.complete=${snapshot.virtual_memory_complete}',
 		'runtime.telemetry.disk.path=${snapshot.disk_path}',
 		'runtime.telemetry.disk.total_bytes=${snapshot.disk_total_bytes}',
 		'runtime.telemetry.disk.free_bytes=${snapshot.disk_free_bytes}',
@@ -458,6 +480,16 @@ fn read_total_memory() (u64, bool) {
 
 fn read_free_memory() (u64, bool) {
 	value := free_memory() or { return 0, false }
+	return u64(value), true
+}
+
+fn read_total_virtual_memory() (u64, bool) {
+	value := total_virtual_memory() or { return 0, false }
+	return u64(value), value > 0
+}
+
+fn read_free_virtual_memory() (u64, bool) {
+	value := free_virtual_memory() or { return 0, false }
 	return u64(value), true
 }
 

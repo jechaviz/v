@@ -105,6 +105,22 @@ fn test_decide_memory_backpressure_pauses_at_hard_limit() {
 	assert decision.headroom_bytes == 0
 }
 
+fn test_decide_memory_backpressure_escalates_on_low_free_memory() {
+	decision := decide_memory_backpressure(100, 40, MemoryBackpressurePolicy{
+		max_memory_bytes: 1000
+		warn_percent:     80
+		hard_percent:     95
+		min_jobs:         2
+		max_jobs:         8
+		max_sleep_ms:     250
+	})
+	assert decision.pressure == .critical
+	assert decision.action == .pause
+	assert !decision.within_budget
+	assert decision.recommended_jobs == 2
+	assert decision.headroom_bytes == 0
+}
+
 fn test_decide_runtime_backpressure_uses_total_memory_as_default_limit() {
 	snapshot := HostTelemetry{
 		total_memory_bytes: 1000
@@ -119,6 +135,30 @@ fn test_decide_runtime_backpressure_uses_total_memory_as_default_limit() {
 	assert decision.hard_memory_bytes == 950
 	assert decision.pressure == .pressure
 	assert decision.recommended_jobs == 4
+}
+
+fn test_decide_runtime_backpressure_uses_low_virtual_headroom() {
+	snapshot := HostTelemetry{
+		total_memory_bytes:         1000
+		free_memory_bytes:          700
+		used_memory_bytes:          100
+		total_virtual_memory_bytes: 1000
+		free_virtual_memory_bytes:  40
+		available_memory_bytes:     40
+		memory_complete:            true
+		virtual_memory_complete:    true
+	}
+	decision := decide_runtime_backpressure(snapshot, MemoryBackpressurePolicy{
+		warn_percent: 80
+		hard_percent: 95
+		min_jobs:     1
+		max_jobs:     8
+		max_sleep_ms: 300
+	})
+	assert decision.pressure == .critical
+	assert decision.action == .pause
+	assert decision.recommended_jobs == 1
+	assert decision.free_memory_bytes == 40
 }
 
 fn test_lower_is_better_gate() {
@@ -136,5 +176,6 @@ fn test_collect_host_telemetry_report_shape() {
 	assert snapshot.logical_cpus > 0
 	assert report.contains('runtime.telemetry.cpus=')
 	assert report.contains('runtime.telemetry.memory.')
+	assert report.contains('runtime.telemetry.virtual_memory.')
 	assert report.contains('runtime.telemetry.disk.')
 }

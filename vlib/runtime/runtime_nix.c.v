@@ -33,3 +33,15 @@ pub fn total_memory() !usize {
 pub fn free_memory() !usize {
 	return free_memory_impl()!
 }
+
+// total_virtual_memory returns the best portable host memory ceiling.
+// On POSIX platforms without a cheap commit-limit API, this falls back to RAM.
+pub fn total_virtual_memory() !usize {
+	return total_memory()!
+}
+
+// free_virtual_memory returns the best portable host allocation headroom.
+// On POSIX platforms without a cheap commit-limit API, this falls back to RAM.
+pub fn free_virtual_memory() !usize {
+	return free_memory()!
+}
