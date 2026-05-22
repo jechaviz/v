@@ -18,11 +18,11 @@ const process_gate_reserve_ram_mb_env = 'V_PROCESS_GATE_RESERVE_RAM_MB'
 const process_gate_reserve_virtual_mb_env = 'V_PROCESS_GATE_RESERVE_VIRTUAL_MB'
 const process_gate_default_wait_ms = 600_000
 const process_gate_bytes_per_mib = u64(1024 * 1024)
-const process_gate_default_ram_per_slot_mb = 6144
-const process_gate_default_virtual_per_slot_mb = 24576
-const process_gate_default_reserve_ram_mb = 6144
-const process_gate_default_reserve_virtual_mb = 24576
-const process_gate_default_max_slots = 2
+const process_gate_default_ram_per_slot_mb = 4096
+const process_gate_default_virtual_per_slot_mb = 16384
+const process_gate_default_reserve_ram_mb = 4096
+const process_gate_default_reserve_virtual_mb = 16384
+const process_gate_default_max_slots = 4
 
 @[params]
 pub struct ProcessGateConfig {
@@ -58,14 +58,7 @@ pub fn acquire_process_gate(config ProcessGateConfig) !ProcessGate {
 	}
 	deadline := time.now().add(wait_ms * time.millisecond)
 	mut last_path := ''
-	mut last_status := ''
 	for time.now() < deadline {
-		ready, status := process_gate_host_status()
-		last_status = status
-		if !ready {
-			time.sleep(250 * time.millisecond)
-			continue
-		}
 		for slot in 0 .. slots {
 			lock_path := os.join_path(lock_dir, 'v_process_gate_${slot}.lock')
 			mut gate := filelock.new(lock_path)
@@ -85,8 +78,7 @@ pub fn acquire_process_gate(config ProcessGateConfig) !ProcessGate {
 		}
 		time.sleep(25 * time.millisecond)
 	}
-	status_suffix := if last_status == '' { '' } else { '; ${last_status}' }
-	return error('timed out after ${wait_ms}ms waiting for V process gate (${slots} slot(s)); last lock `${last_path}`${status_suffix}')
+	return error('timed out after ${wait_ms}ms waiting for V process gate (${slots} slot(s)); last lock `${last_path}`')
 }
 
 pub fn (mut gate ProcessGate) release() bool {
@@ -141,7 +133,7 @@ fn process_gate_lock_dir() string {
 	if env_dir != '' {
 		return os.norm_path(env_dir)
 	}
-	return os.join_path(os.temp_dir(), 'v_process_gate')
+	return os.join_path(os.vtmp_dir(), 'v_process_gate')
 }
 
 fn process_gate_restore_env(name string, value string) {
@@ -156,27 +148,6 @@ fn process_gate_trace(message string) {
 	if os.getenv(process_gate_trace_env) == '1' {
 		eprintln('v.process_gate: ${message}')
 	}
-}
-
-fn process_gate_host_status() (bool, string) {
-	if os.user_os() != 'windows' {
-		return true, 'host memory budget ready'
-	}
-	snapshot := runtime.collect_host_telemetry(os.getwd())
-	reserve_ram := process_gate_env_mb(process_gate_reserve_ram_mb_env,
-		process_gate_default_reserve_ram_mb)
-	reserve_virtual := process_gate_env_mb(process_gate_reserve_virtual_mb_env,
-		process_gate_default_reserve_virtual_mb)
-	free_ram_mb := snapshot.free_memory_bytes / process_gate_bytes_per_mib
-	free_virtual_mb := snapshot.free_virtual_memory_bytes / process_gate_bytes_per_mib
-	reserve_ram_mb := reserve_ram / process_gate_bytes_per_mib
-	reserve_virtual_mb := reserve_virtual / process_gate_bytes_per_mib
-	status := 'free_ram_mb=${free_ram_mb} reserve_ram_mb=${reserve_ram_mb} free_virtual_mb=${free_virtual_mb} reserve_virtual_mb=${reserve_virtual_mb}'
-	if snapshot.free_memory_bytes < reserve_ram
-		|| snapshot.free_virtual_memory_bytes < reserve_virtual {
-		return false, 'host memory budget low: ${status}'
-	}
-	return true, 'host memory budget ready: ${status}'
 }
 
 fn process_gate_headroom(free_bytes u64, reserve_bytes u64) u64 {
