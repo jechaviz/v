@@ -1045,11 +1045,42 @@ pub fn (a &array) clone() array {
 }
 
 // concat returns a new array with the contents of `a` followed by `b`.
+// The result is a detached contiguous array, so non-empty concatenation copies
+// the live elements from both operands.
 // It is used by the compiler for `left + right` array concatenation.
 @[markused]
 pub fn (a &array) concat(b array) array {
-	mut res := a.clone()
-	unsafe { res.push_many(b.data, b.len) }
+	if a.len < 0 || b.len < 0 {
+		panic('array.concat: negative len')
+	}
+	new_len := i64(a.len) + i64(b.len)
+	if new_len > max_int {
+		panic('array.concat: new len exceeds max_int')
+	}
+	if new_len == 0 {
+		return array{
+			element_size: a.element_size
+			flags:        .managed
+		}
+	}
+	res_len := int(new_len)
+	use_noscan_data := a.uses_noscan_data()
+	total_size := u64(res_len) * u64(a.element_size)
+	mut res := array{
+		element_size: a.element_size
+		data:         a.alloc_array_data_like_uninit(total_size)
+		len:          res_len
+		cap:          res_len
+		flags:        if use_noscan_data { .managed | .noscan_data } else { .managed }
+	}
+	a_size := u64(a.len) * u64(a.element_size)
+	if a.data != unsafe { nil } && a_size > 0 {
+		unsafe { vmemcpy(res.data, a.data, a_size) }
+	}
+	b_size := u64(b.len) * u64(b.element_size)
+	if b.data != unsafe { nil } && b_size > 0 {
+		unsafe { vmemcpy(&u8(res.data) + a_size, b.data, b_size) }
+	}
 	return res
 }
 
