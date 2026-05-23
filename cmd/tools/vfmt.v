@@ -128,9 +128,8 @@ fn main() {
 		worker_result := os.execute(worker_cmd)
 		// Guard against a possibly crashing worker process.
 		if worker_result.exit_code != 0 {
-			eprintln(worker_result.output)
+			report_worker_failure(file, fpath, worker_cmd, worker_result)
 			if worker_result.exit_code == 1 {
-				eprintln('Internal vfmt error while formatting file: ${file}.')
 				has_internal_error = true
 				continue
 			}
@@ -149,6 +148,7 @@ fn main() {
 				continue
 			}
 		}
+		report_worker_missing_result(file, fpath, worker_cmd, worker_result)
 		errors++
 	}
 	if has_internal_error {
@@ -169,6 +169,70 @@ fn main() {
 		}
 	}
 	exit(0)
+}
+
+fn report_worker_failure(file string, fpath string, worker_cmd string, worker_result os.Result) {
+	output := worker_result.output.trim_space()
+	if output != '' {
+		eprintln(output)
+	}
+	eprintln('vfmt worker failed while formatting file: ${file}')
+	eprintln('  path: ${fpath}')
+	eprintln('  exit_code: ${worker_result.exit_code} (${worker_exit_description(worker_result.exit_code)})')
+	eprintln('  origin_pid: ${os.getpid()}')
+	eprintln('  cwd: ${os.getwd()}')
+	eprintln('  command: ${worker_cmd}')
+	if output == '' {
+		eprintln('  output: <empty>')
+	}
+	eprintln('  advice: ${worker_failure_advice(worker_result)}')
+}
+
+fn report_worker_missing_result(file string, fpath string, worker_cmd string, worker_result os.Result) {
+	output := worker_result.output.trim_space()
+	eprintln('vfmt worker did not return a formatted-file marker for: ${file}')
+	eprintln('  path: ${fpath}')
+	eprintln('  exit_code: ${worker_result.exit_code} (${worker_exit_description(worker_result.exit_code)})')
+	eprintln('  origin_pid: ${os.getpid()}')
+	eprintln('  cwd: ${os.getwd()}')
+	eprintln('  command: ${worker_cmd}')
+	if output == '' {
+		eprintln('  output: <empty>')
+	} else {
+		eprintln('  output_preview: ${limit_worker_output(output, 2000)}')
+	}
+	eprintln('  advice: ${worker_failure_advice(worker_result)}')
+}
+
+fn worker_exit_description(code int) string {
+	return match code {
+		0 { 'worker finished but did not emit its formatted output path' }
+		1 { 'internal formatter failure or process crash' }
+		2 { 'source parse or usage failure' }
+		-1 { 'host process failure or process ended before a usable exit status was produced' }
+		else { 'worker failed with an unmapped exit status' }
+	}
+}
+
+fn worker_failure_advice(worker_result os.Result) string {
+	output := worker_result.output.to_lower()
+	if worker_result.exit_code == -1 || output.trim_space() == '' {
+		return 'rerun this single file with `v fmt -w <path>`; if it repeats, inspect concurrent v.exe processes, memory/pagefile pressure, and the command above.'
+	}
+	if output.contains('access is denied') || output.contains('used by another process') {
+		return 'a Windows file lock is likely; close the process holding the file and rerun this single file.'
+	}
+	if output.contains('out of memory') || output.contains('pagefile') || output.contains('memory') {
+		return 'the host reported memory pressure; reduce parallel V commands and rerun this single file.'
+	}
+	return 'fix the diagnostic above, then rerun this single file before formatting the whole directory.'
+}
+
+fn limit_worker_output(output string, max_chars int) string {
+	if output.len <= max_chars {
+		return output
+	}
+	return output[..max_chars] + '\n<truncated>'
 }
 
 fn (foptions &FormatOptions) verify_file(prefs &pref.Preferences, fpath string) bool {
