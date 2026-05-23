@@ -37,6 +37,20 @@ fn test_array_plus_chains_and_accepts_empty_right_literal() {
 	base := [1]
 	joined := base + [2, 3] + []int{} + [4]
 	assert joined == [1, 2, 3, 4]
+	assert joined.cap == joined.len
+}
+
+fn test_array_plus_chains_are_detached_from_inputs() {
+	mut left := [1]
+	middle := [2]
+	right := [3]
+	mut joined := left + middle + right
+	joined[0] = 10
+	left[0] = 20
+	assert joined == [10, 2, 3]
+	assert left == [20]
+	assert middle == [2]
+	assert right == [3]
 }
 
 fn test_array_alias_plus_concatenates() {

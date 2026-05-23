@@ -1084,6 +1084,60 @@ pub fn (a &array) concat(b array) array {
 	return res
 }
 
+// concat_many returns a new array with the contents of all input arrays in order.
+// It is used by the compiler for chained `a + b + c` array concatenation, so the
+// chain is materialized once instead of creating temporary intermediate arrays.
+@[direct_array_access; markused]
+fn array_concat_many(input_len int, input_base &array) array {
+	if input_len <= 0 {
+		return array{}
+	}
+	if input_base == unsafe { nil } {
+		panic('array.concat_many: nil input base')
+	}
+	first := unsafe { input_base[0] }
+	mut new_len := i64(0)
+	for i := 0; i < input_len; i++ {
+		part := unsafe { input_base[i] }
+		if part.len < 0 {
+			panic('array.concat_many: negative len')
+		}
+		if part.element_size != first.element_size {
+			panic('array.concat_many: mismatched element size')
+		}
+		new_len += i64(part.len)
+		if new_len > max_int {
+			panic('array.concat_many: new len exceeds max_int')
+		}
+	}
+	if new_len == 0 {
+		return array{
+			element_size: first.element_size
+			flags:        .managed
+		}
+	}
+	res_len := int(new_len)
+	use_noscan_data := first.uses_noscan_data()
+	total_size := u64(res_len) * u64(first.element_size)
+	mut res := array{
+		element_size: first.element_size
+		data:         first.alloc_array_data_like_uninit(total_size)
+		len:          res_len
+		cap:          res_len
+		flags:        if use_noscan_data { .managed | .noscan_data } else { .managed }
+	}
+	mut offset := u64(0)
+	for i := 0; i < input_len; i++ {
+		part := unsafe { input_base[i] }
+		part_size := u64(part.len) * u64(part.element_size)
+		if part.data != unsafe { nil } && part_size > 0 {
+			unsafe { vmemcpy(&u8(res.data) + offset, part.data, part_size) }
+		}
+		offset += part_size
+	}
+	return res
+}
+
 // recursively clone given array - `unsafe` when called directly because depth is not checked
 @[unsafe]
 pub fn (a &array) clone_to_depth(depth int) array {

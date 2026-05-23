@@ -1315,6 +1315,9 @@ fn (mut g Gen) infix_expr_arithmetic_op(node ast.InfixExpr) {
 	left_type := g.resolved_expr_type(node.left, node.left_type)
 	right_type := g.resolved_expr_type(node.right, node.right_type)
 	if node.op == .plus && g.is_array_concat_infix(left_type, right_type) {
+		if g.gen_array_concat_many(node, left_type) {
+			return
+		}
 		g.gen_array_concat_expr(node, left_type, right_type)
 		return
 	}
@@ -1419,6 +1422,53 @@ fn (mut g Gen) is_array_concat_infix(left_type ast.Type, right_type ast.Type) bo
 	left_unaliased := g.table.fully_unaliased_type(g.unwrap_generic(left_type).clear_flags())
 	right_unaliased := g.table.fully_unaliased_type(g.unwrap_generic(right_type).clear_flags())
 	return left_unaliased == right_unaliased
+}
+
+fn (mut g Gen) collect_array_concat_parts(expr ast.Expr, concat_type ast.Type, mut parts []ast.Expr) {
+	match expr {
+		ast.InfixExpr {
+			left_type := g.resolved_expr_type(expr.left, expr.left_type)
+			right_type := g.resolved_expr_type(expr.right, expr.right_type)
+			left_unaliased :=
+				g.table.fully_unaliased_type(g.unwrap_generic(left_type).clear_flags())
+			concat_unaliased :=
+				g.table.fully_unaliased_type(g.unwrap_generic(concat_type).clear_flags())
+			if expr.op == .plus && g.is_array_concat_infix(left_type, right_type)
+				&& left_unaliased == concat_unaliased {
+				g.collect_array_concat_parts(expr.left, concat_type, mut parts)
+				g.collect_array_concat_parts(expr.right, concat_type, mut parts)
+				return
+			}
+		}
+		ast.ParExpr {
+			g.collect_array_concat_parts(expr.expr, concat_type, mut parts)
+			return
+		}
+		else {}
+	}
+
+	parts << expr
+}
+
+fn (mut g Gen) gen_array_concat_many(node ast.InfixExpr, left_type ast.Type) bool {
+	mut parts := []ast.Expr{}
+	g.collect_array_concat_parts(ast.Expr(node), left_type, mut parts)
+	if parts.len < 3 {
+		return false
+	}
+	left_styp := g.styp(left_type.clear_option_and_result().clear_flags(.shared_f))
+	g.write('(${left_styp})builtin__array_concat_many(${parts.len}, _MOV((array[${parts.len}]){')
+	for i, part in parts {
+		part_type := g.resolved_expr_type(part, left_type)
+		g.write('*(array*)ADDR(${left_styp}, ')
+		g.expr_with_cast(part, part_type, left_type)
+		g.write(')')
+		if i < parts.len - 1 {
+			g.write(', ')
+		}
+	}
+	g.write('}))')
+	return true
 }
 
 fn (mut g Gen) gen_array_concat_expr(node ast.InfixExpr, left_type ast.Type, right_type ast.Type) {

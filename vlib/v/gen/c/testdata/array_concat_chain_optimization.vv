@@ -1,0 +1,19 @@
+type Numbers = []int
+
+fn join_three(a []int, b []int, c []int) []int {
+	return a + b + c
+}
+
+fn join_four_alias(a Numbers, b Numbers, c Numbers, d Numbers) Numbers {
+	return a + b + c + d
+}
+
+fn main() {
+	assert join_three([1], [2], [3]) == [1, 2, 3]
+	assert join_four_alias(Numbers([1]), Numbers([2]), Numbers([3]), Numbers([4])) == Numbers([
+		1,
+		2,
+		3,
+		4,
+	])
+}
