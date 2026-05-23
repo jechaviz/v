@@ -1314,6 +1314,10 @@ fn (mut g Gen) infix_expr_arithmetic_op(node ast.InfixExpr) {
 	}
 	left_type := g.resolved_expr_type(node.left, node.left_type)
 	right_type := g.resolved_expr_type(node.right, node.right_type)
+	if node.op == .plus && g.is_array_concat_infix(left_type, right_type) {
+		g.gen_array_concat_expr(node, left_type, right_type)
+		return
+	}
 	$if trace_ci_fixes ? {
 		left_str := g.table.type_to_str(left_type)
 		right_str := g.table.type_to_str(right_type)
@@ -1401,6 +1405,29 @@ fn (mut g Gen) infix_expr_arithmetic_op(node ast.InfixExpr) {
 			g.write('.ret_arr')
 		}
 	}
+}
+
+fn (mut g Gen) is_array_concat_infix(left_type ast.Type, right_type ast.Type) bool {
+	if left_type.has_option_or_result() || right_type.has_option_or_result() {
+		return false
+	}
+	left_sym := g.table.final_sym(g.unwrap_generic(left_type).clear_flags())
+	right_sym := g.table.final_sym(g.unwrap_generic(right_type).clear_flags())
+	if left_sym.kind != .array || right_sym.kind != .array {
+		return false
+	}
+	left_unaliased := g.table.fully_unaliased_type(g.unwrap_generic(left_type).clear_flags())
+	right_unaliased := g.table.fully_unaliased_type(g.unwrap_generic(right_type).clear_flags())
+	return left_unaliased == right_unaliased
+}
+
+fn (mut g Gen) gen_array_concat_expr(node ast.InfixExpr, left_type ast.Type, right_type ast.Type) {
+	left_styp := g.styp(left_type.clear_option_and_result().clear_flags(.shared_f))
+	g.write('(${left_styp})builtin__array_concat((array*)ADDR(${left_styp}, ')
+	g.expr_with_cast(node.left, left_type, left_type)
+	g.write('), ')
+	g.expr_with_cast(node.right, right_type, left_type)
+	g.write(')')
 }
 
 // infix_expr_left_shift_op generates code for the `<<` operator

@@ -42,6 +42,17 @@ fn (c &Checker) is_string_concat_pair(left ast.Type, right ast.Type) bool {
 		&& (c.is_string_like_type(left) || c.is_string_like_type(right))
 }
 
+fn (mut c Checker) is_array_concat_pair(left ast.Type, right ast.Type) bool {
+	if left.has_option_or_result() || right.has_option_or_result() {
+		return false
+	}
+	left_type := c.table.fully_unaliased_type(c.unwrap_generic(left).clear_flags())
+	right_type := c.table.fully_unaliased_type(c.unwrap_generic(right).clear_flags())
+	left_sym := c.table.final_sym(left_type)
+	right_sym := c.table.final_sym(right_type)
+	return left_sym.kind == .array && right_sym.kind == .array && left_type == right_type
+}
+
 fn has_matching_reference_operator_overload(sym &ast.TypeSymbol, op string, receiver_type ast.Type, operand_type ast.Type) bool {
 	method := sym.find_method_with_generic_parent(op) or { return false }
 	return method.params.len == 2 && method.params[0].typ == receiver_type
@@ -229,6 +240,15 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 			}
 		}
 	}
+	if node.op == .plus && c.table.final_sym(c.unwrap_generic(left_type)).kind == .array {
+		if mut node.right is ast.ArrayInit {
+			if node.right.exprs.len == 0 && node.right.elem_type == ast.void_type {
+				info := c.table.final_sym(c.unwrap_generic(left_type)).array_info()
+				node.right.elem_type = info.elem_type
+				c.expected_type = info.elem_type
+			}
+		}
+	}
 	if !check_right_type_first_for_left_short_enum {
 		right_type = c.expr(mut node.right)
 		if right_type == ast.no_type {
@@ -330,6 +350,10 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 	mut return_type := left_type
 	if node.op == .plus && c.is_string_concat_pair(left_type, right_type) {
 		return_type = ast.string_type
+	}
+	is_array_concat := node.op == .plus && c.is_array_concat_pair(left_type, right_type)
+	if is_array_concat {
+		return_type = left_type
 	}
 	left_is_explicit_ptr := left_type.is_any_kind_of_pointer() && !node.left.is_auto_deref_var()
 		&& left_final_sym.kind != .voidptr
@@ -531,7 +555,7 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 				&& unwrapped_left_type.is_any_kind_of_pointer()
 				&& unwrapped_right_type.is_any_kind_of_pointer() {
 				return_type = left_type
-			} else if !c.pref.translated && left_sym.info is ast.Alias
+			} else if !c.pref.translated && left_sym.info is ast.Alias && !is_array_concat
 				&& !left_final_sym.is_primitive() {
 				if left_sym.has_method(op_str) {
 					if method := left_sym.find_method(op_str) {
@@ -556,7 +580,7 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 							left_right_pos)
 					}
 				}
-			} else if !c.pref.translated && right_sym.info is ast.Alias
+			} else if !c.pref.translated && right_sym.info is ast.Alias && !is_array_concat
 				&& !right_final_sym.is_primitive() {
 				if right_sym.has_method(op_str) {
 					if method := right_sym.find_method(op_str) {
@@ -601,7 +625,7 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 				c.error('infix `${node.op}` is not defined for pointer values', left_right_pos)
 			}
 
-			if !c.pref.translated && !left_is_explicit_ptr
+			if !c.pref.translated && !left_is_explicit_ptr && !is_array_concat
 				&& left_sym.kind in [.array, .array_fixed, .map, .struct] {
 				if left_sym.has_method_with_generic_parent(op_str) {
 					if method := left_sym.find_method_with_generic_parent(op_str) {
@@ -627,7 +651,7 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 							left_right_pos)
 					}
 				}
-			} else if !c.pref.translated && !right_is_explicit_ptr
+			} else if !c.pref.translated && !right_is_explicit_ptr && !is_array_concat
 				&& right_sym.kind in [.array, .array_fixed, .map, .struct] {
 				if right_sym.has_method_with_generic_parent(op_str) {
 					if method := right_sym.find_method_with_generic_parent(op_str) {
@@ -1164,7 +1188,8 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 			right_sym = c.table.sym(right_type)
 		}
 		is_string_concat := node.op == .plus && c.is_string_concat_pair(left_type, right_type)
-		types_match := is_string_concat || (c.symmetric_check(left_type, right_type)
+		types_match := is_string_concat || is_array_concat
+			|| (c.symmetric_check(left_type, right_type)
 			&& c.symmetric_check(right_type, left_type))
 		left_allows_auto_deref := infix_expr_allows_auto_deref(node.left)
 		right_allows_auto_deref := infix_expr_allows_auto_deref(node.right)

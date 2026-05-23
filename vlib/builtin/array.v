@@ -1044,6 +1044,15 @@ pub fn (a &array) clone() array {
 	return unsafe { a.clone_to_depth(0) }
 }
 
+// concat returns a new array with the contents of `a` followed by `b`.
+// It is used by the compiler for `left + right` array concatenation.
+@[markused]
+pub fn (a &array) concat(b array) array {
+	mut res := a.clone()
+	unsafe { res.push_many(b.data, b.len) }
+	return res
+}
+
 // recursively clone given array - `unsafe` when called directly because depth is not checked
 @[unsafe]
 pub fn (a &array) clone_to_depth(depth int) array {
