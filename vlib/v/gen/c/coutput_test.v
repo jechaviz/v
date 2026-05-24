@@ -19,12 +19,36 @@ const user_os = os.user_os()
 
 const gcc_path = os.find_abs_path_of_executable('gcc') or { '' }
 
+const clang_path = os.find_abs_path_of_executable('clang') or { '' }
+
+const clang_can_compile_basic_c = c_compiler_can_compile_inttypes(clang_path)
+
 fn mm(s string) string {
 	return term.colorize(term.magenta, s)
 }
 
 fn mj(input ...string) string {
 	return mm(input.filter(it.len > 0).join(' '))
+}
+
+fn c_compiler_can_compile_inttypes(compiler string) bool {
+	if compiler == '' {
+		return false
+	}
+	probe_prefix := os.join_path(os.vtmp_dir(), 'v_coutput_probe_${os.getpid()}')
+	probe_source := '${probe_prefix}.c'
+	probe_output := '${probe_prefix}.exe'
+	os.write_file(probe_source,
+		'#include <inttypes.h>\nint main(void) { return (int)sizeof(intmax_t) == 0; }\n') or {
+		return false
+	}
+	defer {
+		os.rm(probe_source) or {}
+		os.rm(probe_output) or {}
+	}
+	cmd := '${os.quoted_path(compiler)} ${os.quoted_path(probe_source)} -o ${os.quoted_path(probe_output)}'
+	res := os.execute(cmd)
+	return res.exit_code == 0
 }
 
 fn test_out_files() {
@@ -885,9 +909,19 @@ fn should_skip(relpath string) bool {
 			return true
 		}
 	}
+	test_path := os.join_path(vroot, relpath)
+	file_options := get_file_options(test_path)
+	if file_options.vflags.contains('-cc clang') {
+		if clang_path == '' {
+			eprintln('> skipping ${relpath} since its vflags require clang, which is not detected')
+			return true
+		}
+		if !clang_can_compile_basic_c {
+			eprintln('> skipping ${relpath} since the detected clang cannot compile basic C headers')
+			return true
+		}
+	}
 	if github_job in ['tcc-windows', 'msvc-windows'] {
-		test_path := os.join_path(vroot, relpath)
-		file_options := get_file_options(test_path)
 		if file_options.vflags.contains('-cc clang') {
 			// The Windows runner's clang toolchain produces V binaries that
 			// crash at startup on this CI; the test is still exercised by
