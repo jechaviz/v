@@ -58,6 +58,18 @@ fn test_process_guard_silent_failure_gets_telemetry() {
 	assert result.output.contains('VTEST_CHILD_MEMORY_GUARD')
 }
 
+fn test_process_guard_execute_command_rejects_empty_command() {
+	result := process_guard_execute_command('')
+	assert result.exit_code == -1
+	assert result.output.contains('vtest.resource.spawn_error=true')
+	assert result.output.contains('empty command')
+}
+
+fn test_vtest_no_parallel_requested_is_explicit() {
+	assert vtest_no_parallel_requested('-nocache -no-parallel')
+	assert !vtest_no_parallel_requested('-nocache')
+}
+
 fn test_process_guard_host_pressure_message_is_actionable() {
 	message :=
 		process_guard_host_pressure_message('v test hot.v', 1200, util.MemoryBackpressurePlan{})

@@ -74,6 +74,13 @@ fn assert_vtest_job_label_matches_host_policy(output string) {
 	assert output.contains('on 2 parallel jobs'), output
 }
 
+fn test_no_parallel_forces_single_vtest_worker() {
+	res :=
+		os.execute_or_exit('${os.quoted_path(mytest_exe)} -no-parallel test ${os.quoted_path(tpath_passing)}')
+	assert res.output.contains('on 1 job'), res.output
+	assert !res.output.contains('parallel jobs'), res.output
+}
+
 fn test_with_stats_and_several_test_files() {
 	// There should be more OKs here, since the output will have the inner OKs for each individual test fn:
 	res :=

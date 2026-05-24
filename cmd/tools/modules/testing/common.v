@@ -293,6 +293,9 @@ pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Res
 	if show_cmd {
 		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
 	}
+	if process_guard_enabled() {
+		return process_guard_with_silent_diagnostics(cmd, process_guard_execute_command(cmd))
+	}
 	if pressure_result := process_guard_wait_for_host_memory('vtest_compile', cmd) {
 		if pressure_result != '' && show_cmd {
 			ts.append_message(.info, pressure_result, mtc)
@@ -454,7 +457,11 @@ pub fn (mut ts TestSession) test() {
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
 	memory_plan := util.memory_backpressure_plan('vtest', runtime.nr_jobs())
-	mut njobs := process_singleton_jobs(memory_plan.jobs)
+	mut njobs := if vtest_no_parallel_requested(ts.vargs) {
+		1
+	} else {
+		process_singleton_jobs(memory_plan.jobs)
+	}
 	if remaining_files.len < njobs {
 		njobs = remaining_files.len
 	}
@@ -490,6 +497,10 @@ pub fn (mut ts TestSession) test() {
 	if os.ls(ts.vtmp_dir) or { [] }.len == 0 {
 		os.rmdir_all(ts.vtmp_dir) or {}
 	}
+}
+
+fn vtest_no_parallel_requested(vargs string) bool {
+	return '-no-parallel' in vflags.tokenize_to_args(vargs)
 }
 
 fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {

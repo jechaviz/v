@@ -5,6 +5,7 @@ import runtime
 import strings
 import time
 import v.util
+import v.util.vflags
 
 const process_guard_env = 'VTEST_CHILD_MEMORY_GUARD'
 const process_guard_limit_env = 'VTEST_CHILD_MAX_MEMORY'
@@ -113,6 +114,32 @@ fn process_guard_execute(executable string, args []string, display_cmd string) o
 		exit_code: exit_code
 		output:    result_output
 	}
+}
+
+fn process_guard_execute_command(cmd string) os.Result {
+	args := vflags.tokenize_to_args(cmd)
+	if args.len == 0 {
+		return os.Result{
+			exit_code: -1
+			output:    process_guard_spawn_error(cmd, 'empty command')
+		}
+	}
+	if process_singleton_enabled() && !process_singleton_held() {
+		mut gate := process_singleton_acquire() or {
+			return os.Result{
+				exit_code: -1
+				output:    err.msg()
+			}
+		}
+		old_held := os.getenv(process_singleton_held_env)
+		os.setenv(process_singleton_held_env, '1', true)
+		defer {
+			gate.release()
+			process_singleton_restore_env(process_singleton_held_env, old_held)
+		}
+		return process_guard_execute(args[0], args[1..], cmd)
+	}
+	return process_guard_execute(args[0], args[1..], cmd)
 }
 
 fn process_guard_wait_for_host_memory(phase string, display_cmd string) !string {
