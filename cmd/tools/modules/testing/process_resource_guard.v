@@ -125,7 +125,7 @@ fn process_guard_execute_command(cmd string) os.Result {
 		}
 	}
 	if process_singleton_enabled() && !process_singleton_held() {
-		mut gate := process_singleton_acquire() or {
+		mut gate := process_singleton_acquire_for_command(cmd) or {
 			return os.Result{
 				exit_code: -1
 				output:    err.msg()

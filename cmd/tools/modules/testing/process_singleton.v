@@ -17,7 +17,7 @@ fn process_singleton_enabled() bool {
 	if mode in ['1', 'true', 'on', 'yes', 'always', 'enabled'] {
 		return true
 	}
-	return false
+	return os.user_os() == 'windows'
 }
 
 fn process_singleton_jobs(requested int) int {
@@ -31,7 +31,7 @@ fn process_singleton_execute(cmd string) os.Result {
 	if !process_singleton_enabled() || process_singleton_held() {
 		return os.execute(cmd)
 	}
-	mut gate := process_singleton_acquire() or {
+	mut gate := process_singleton_acquire_for_command(cmd) or {
 		return os.Result{
 			exit_code: -1
 			output:    err.msg()
@@ -50,7 +50,7 @@ fn process_singleton_system(cmd string) int {
 	if !process_singleton_enabled() || process_singleton_held() {
 		return os.system(cmd)
 	}
-	mut gate := process_singleton_acquire() or {
+	mut gate := process_singleton_acquire_for_command(cmd) or {
 		eprintln(err.msg())
 		return -1
 	}
@@ -79,6 +79,26 @@ fn process_singleton_acquire() !process_singleton.Guard {
 	}
 }
 
+fn process_singleton_acquire_for_command(cmd string) !process_singleton.Guard {
+	lock_path := process_singleton_lock_path()
+	mut guard := process_singleton.acquire_with_options(
+		name:      'vtest'
+		lock_path: lock_path
+		wait_ms:   0
+	) or {
+		wait_ms := process_singleton_wait_ms()
+		eprintln(process_singleton_queue_wait_message(cmd, lock_path, wait_ms))
+		guard_after_wait := process_singleton.acquire_with_options(
+			name:      'vtest'
+			lock_path: lock_path
+			wait_ms:   wait_ms
+		) or { return error(process_singleton_queue_timeout_message(cmd, lock_path, wait_ms)) }
+		eprintln(process_singleton_queue_start_message(cmd, lock_path))
+		return guard_after_wait
+	}
+	return guard
+}
+
 fn process_singleton_lock_path() string {
 	env_path := os.getenv(process_singleton_lock_env).trim_space()
 	if env_path != '' {
@@ -105,4 +125,36 @@ fn process_singleton_restore_env(name string, value string) {
 		return
 	}
 	os.setenv(name, value, true)
+}
+
+fn process_singleton_queue_wait_message(cmd string, lock_path string, wait_ms int) string {
+	return [
+		'vtest.process.queue=waiting',
+		'vtest.process.queue_message=otra instancia de V/VTest esta activa o cerrandose; esta ejecucion queda formada y no arrancara hasta obtener turno',
+		'vtest.process.queue_timeout_ms=${wait_ms}',
+		'vtest.process.lock_path=${lock_path}',
+		'vtest.process.command=${cmd}',
+		'vtest.process.advice=No lance instancias simultaneas salvo que el flujo declare explicitamente VTEST_PROCESS_SINGLETON=0 y tenga diseno seguro para concurrencia.',
+	].join('\n')
+}
+
+fn process_singleton_queue_start_message(cmd string, lock_path string) string {
+	return [
+		'vtest.process.queue=starting',
+		'vtest.process.queue_message=la instancia previa libero el turno; iniciando ahora',
+		'vtest.process.lock_path=${lock_path}',
+		'vtest.process.command=${cmd}',
+	].join('\n')
+}
+
+fn process_singleton_queue_timeout_message(cmd string, lock_path string, wait_ms int) string {
+	return [
+		'vtest.process.queue=timeout',
+		'vtest.process.exit_code=-1',
+		'vtest.process.reason=process-instance-queue-timeout',
+		'vtest.process.queue_timeout_ms=${wait_ms}',
+		'vtest.process.lock_path=${lock_path}',
+		'vtest.process.command=${cmd}',
+		'vtest.process.advice=No se lanzo otra instancia simultanea. Revise si la instancia previa esta colgada, reduzca paralelismo o use VTEST_PROCESS_SINGLETON=0 solo para flujos disenados para multiples instancias.',
+	].join('\n')
 }

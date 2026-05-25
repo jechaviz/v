@@ -32,13 +32,17 @@ fn process_singleton_run_helper() {
 	}
 }
 
-fn test_process_singleton_default_policy_is_opt_in() {
+fn test_process_singleton_default_policy_matches_host() {
 	old_mode := os.getenv(process_singleton_env)
 	os.unsetenv(process_singleton_env)
 	defer {
 		process_singleton_restore_env(process_singleton_env, old_mode)
 	}
-	assert !process_singleton_enabled()
+	$if windows {
+		assert process_singleton_enabled()
+	} $else {
+		assert !process_singleton_enabled()
+	}
 }
 
 fn test_process_singleton_env_overrides_default_policy() {
@@ -102,7 +106,8 @@ fn test_process_singleton_busy_lock_fails_closed() {
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
 	assert res.exit_code == -1
-	assert res.output.contains('timed out after 25ms waiting for V test process singleton')
+	assert res.output.contains('vtest.process.queue=timeout')
+	assert res.output.contains('process-instance-queue-timeout')
 }
 
 fn test_process_singleton_system_busy_lock_fails_closed() {
