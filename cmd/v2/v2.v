@@ -79,10 +79,15 @@ fn run_ast_command(args []string) {
 	if !os.exists(vast2_path) {
 		eprintln('Building vast2 tool...')
 		vast2_source := os.join_path(vroot, 'cmd', 'tools', 'vast2', 'vast2.v')
-		build_result := os.execute('${@VEXE} ${vast2_source}')
+		build_cmd := '${@VEXE} ${vast2_source}'
+		build_result := os.execute(build_cmd)
 		if build_result.exit_code != 0 {
-			eprintln('Failed to build vast2 tool:')
-			eprintln(build_result.output)
+			eprintln(build_result.command_failure_report('v2.command',
+				reason:  'vast2_build_failed'
+				action:  'inspect_tool_build_output'
+				message: 'Failed to build vast2 tool.'
+				command: build_cmd
+			))
 			exit(1)
 		}
 	}
@@ -208,6 +213,11 @@ fn run_test_self() {
 			failed++
 			failed_files << short_name
 			eprintln(' FAIL  [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms  ${short_name}')
+			eprintln(os.process_command_failure_report('v2.test_self.compile', compile_ret,
+				reason:  'test_compile_failed'
+				action:  'rerun_without_output_redirection'
+				command: compile_cmd
+			))
 			os.rm(out_bin) or {}
 			os.rm('${out_bin}.c') or {}
 			continue
@@ -222,6 +232,11 @@ fn run_test_self() {
 			failed++
 			failed_files << short_name
 			eprintln(' FAIL  [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms, R: ${run_ms:7.1} ms  ${short_name}')
+			eprintln(os.process_command_failure_report('v2.test_self.run', run_ret,
+				reason:  'test_binary_failed'
+				action:  'rerun_without_output_redirection'
+				command: out_bin + ' > /dev/null 2>&1'
+			))
 		} else {
 			passed++
 			eprintln('OK    [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms, R: ${run_ms:7.1} ms  ${short_name}')
@@ -268,6 +283,11 @@ fn run_test_self() {
 		ms := f64(time.since(ts)) / f64(time.millisecond)
 		if ret != 0 || !os.exists(out) {
 			eprintln(' FAIL  ${label}  (${ms:.1} ms)')
+			eprintln(os.process_command_failure_report('v2.self_compile', ret,
+				reason:  'self_compile_failed'
+				action:  'rerun_without_output_redirection'
+				command: cmd
+			))
 			// Clean up
 			for bin in [v3_bin, v4_bin, v5_bin] {
 				os.rm(bin) or {}
@@ -281,6 +301,13 @@ fn run_test_self() {
 	// Verify that v3 runs and produces expected output
 	result := os.execute('${v3_bin} 2>&1')
 	expected := 'At least 1 .v file expected'
+	if result.exit_code != 0 {
+		eprintln(result.command_failure_report('v2.self_compile',
+			reason:  'v3_probe_failed'
+			action:  'inspect_probe_output'
+			command: '${v3_bin} 2>&1'
+		))
+	}
 	if !result.output.contains(expected) {
 		eprintln("FAIL  v3 output check: expected '${expected}', got:")
 		eprintln(result.output)

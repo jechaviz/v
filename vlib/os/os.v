@@ -1164,35 +1164,23 @@ pub mut:
 	machine  string
 }
 
-fn os_report_value(value string) string {
-	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
-}
-
 fn execute_failure_report(prefix string, reason string, action string, message string, cmd string, res Result) string {
-	mut lines := [
-		'${prefix}.failed=true',
-		'${prefix}.reason=${reason}',
-		'${prefix}.action=${action}',
-		'${prefix}.message=${os_report_value(message)}',
-		'${prefix}.exit_code=${res.exit_code}',
-		'${prefix}.command=${os_report_value(cmd)}',
-	]
-	output := res.output.trim_space()
-	if output == '' {
-		lines << '${prefix}.output_empty=true'
-	} else {
-		lines << '${prefix}.output=${os_report_value(output)}'
-	}
-	return lines.join('\n')
+	return res.command_failure_report(prefix,
+		reason:  reason
+		action:  action
+		message: message
+		command: cmd
+	)
 }
 
 // execute_or_panic returns the os.Result of executing `cmd`, or panic with its output on failure.
 pub fn execute_or_panic(cmd string) Result {
 	res := execute(cmd)
 	if res.exit_code != 0 {
-		eprintln(execute_failure_report('os.execute', 'child_exit_nonzero',
-			'panic_with_child_output', 'command exited with a non-zero status', cmd, res))
-		panic(res.output)
+		report := execute_failure_report('os.execute', 'child_exit_nonzero',
+			'panic_with_child_output', 'command exited with a non-zero status', cmd, res)
+		eprintln(report)
+		panic(report)
 	}
 	return res
 }
@@ -1212,7 +1200,8 @@ pub fn execute_or_exit(cmd string) Result {
 pub fn execute_opt(cmd string) !Result {
 	res := execute(cmd)
 	if res.exit_code != 0 {
-		return error(res.output)
+		return error(execute_failure_report('os.execute', 'child_exit_nonzero',
+			'return_error_with_exit_code', 'command exited with a non-zero status', cmd, res))
 	}
 	return res
 }

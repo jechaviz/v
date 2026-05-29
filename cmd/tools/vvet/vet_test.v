@@ -43,10 +43,10 @@ fn check_path(vexe string, dir string, tests []string) int {
 		program := path
 		print(path + ' ')
 		file_options := get_file_options(path)
-		res :=
-			os.execute('${os.quoted_path(vexe)} vet -nocolor ${file_options.vflags} ${os.quoted_path(program)}')
+		cmd := '${os.quoted_path(vexe)} vet -nocolor ${file_options.vflags} ${os.quoted_path(program)}'
+		res := os.execute(cmd)
 		if res.exit_code < 0 {
-			panic(res.output)
+			panic(res.exit_code_diagnostics('>= 0', label: @FN, command: cmd))
 		}
 		mut expected := os.read_file(program.replace('.vv', '') + '.out') or { panic(err) }
 		expected = clean_line_endings(expected)

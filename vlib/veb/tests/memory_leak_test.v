@@ -26,9 +26,13 @@ fn testsuite_end() {
 }
 
 fn test_server_compiles() {
-	did_compile :=
-		os.system('${os.quoted_path(vexe)} -o ${os.quoted_path(serverexe)} vlib/veb/tests/memory_leak_test_server.v')
-	assert did_compile == 0
+	compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(serverexe)} vlib/veb/tests/memory_leak_test_server.v'
+	did_compile := os.execute(compile_cmd)
+	assert did_compile.exit_code == 0, did_compile.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	assert os.exists(serverexe)
 }
 

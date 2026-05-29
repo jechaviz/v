@@ -37,8 +37,13 @@ fn main() {
 	}
 	println('Extracting `${tloc}/${fname}` to `${tloc}/wabt` ...')
 	cmd := 'tar -xvf ${saveloc} --directory ${tloc}'
-	if os.system(cmd) != 0 {
-		eprintln('`${cmd}` exited with a non zero exit code')
+	exit_code := os.system(cmd)
+	if exit_code != 0 {
+		eprintln(os.process_command_failure_report('install_wabt.command', exit_code,
+			reason:  'archive_extract_failed'
+			action:  'inspect_tar_command_output'
+			command: cmd
+		))
 		exit(1)
 	}
 	println(cmd)

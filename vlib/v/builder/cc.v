@@ -1684,19 +1684,32 @@ pub fn (mut v Builder) cc() {
 	}
 	v.apply_windows_icon_to_executable() or { verror(err.msg()) }
 	if v.pref.compress {
-		ret := os.system('strip ${os.quoted_path(v.pref.out_name)}')
-		if ret != 0 {
-			println('strip failed')
+		strip_cmd := 'strip ${os.quoted_path(v.pref.out_name)}'
+		strip_res := os.execute(strip_cmd)
+		if strip_res.exit_code != 0 {
+			println(strip_res.command_failure_report('v.builder.cc.command',
+				stage:   'strip'
+				reason:  'strip_failed'
+				action:  'inspect_strip_output'
+				command: strip_cmd
+			))
 			return
 		}
 		// Note: upx --lzma can sometimes fail with NotCompressibleException
 		// See https://github.com/vlang/v/pull/3528
-		mut ret2 := os.system('upx --lzma -qqq ${os.quoted_path(v.pref.out_name)}')
-		if ret2 != 0 {
-			ret2 = os.system('upx -qqq ${os.quoted_path(v.pref.out_name)}')
+		mut upx_cmd := 'upx --lzma -qqq ${os.quoted_path(v.pref.out_name)}'
+		mut upx_res := os.execute(upx_cmd)
+		if upx_res.exit_code != 0 {
+			upx_cmd = 'upx -qqq ${os.quoted_path(v.pref.out_name)}'
+			upx_res = os.execute(upx_cmd)
 		}
-		if ret2 != 0 {
-			println('upx failed')
+		if upx_res.exit_code != 0 {
+			println(upx_res.command_failure_report('v.builder.cc.command',
+				stage:   'upx'
+				reason:  'upx_failed'
+				action:  'install_upx_or_disable_compression'
+				command: upx_cmd
+			))
 			$if macos {
 				println('install upx with `brew install upx`')
 			}
@@ -1767,7 +1780,12 @@ fn git_repo_tracked_symlink_paths(repo string) ![]string {
 	git_cmd := 'git -C ${os.quoted_path(repo)} ls-files -s'
 	res := os.execute(git_cmd)
 	if res.exit_code != 0 {
-		return error('`${git_cmd}` failed: ${res.output.trim_space()}')
+		return error(res.command_failure_report('v.builder.cc.command',
+			stage:   'git_symlink_scan'
+			reason:  'git_ls_files_failed'
+			action:  'inspect_git_output'
+			command: git_cmd
+		))
 	}
 	mut paths := []string{}
 	for line in res.output.split_into_lines() {
@@ -1980,7 +1998,12 @@ fn (mut b Builder) cc_linux_cross() {
 		src_res := os.execute(src_cmd)
 		if src_res.exit_code != 0 {
 			println('Cross compilation for Linux failed (extra source ${src}).')
-			verror(src_res.output)
+			verror(src_res.command_failure_report('v.builder.cc.command',
+				stage:   'linux_cross_extra_source'
+				reason:  'cross_compile_failed'
+				action:  'inspect_compiler_output'
+				command: src_cmd
+			))
 			return
 		}
 		extra_objs << src_obj
@@ -2003,7 +2026,12 @@ fn (mut b Builder) cc_linux_cross() {
 	cc_res := os.execute(cc_cmd)
 	if cc_res.exit_code != 0 {
 		println('Cross compilation for Linux failed (first step, cc). Make sure you have clang installed.')
-		verror(cc_res.output)
+		verror(cc_res.command_failure_report('v.builder.cc.command',
+			stage:   'linux_cross_cc'
+			reason:  'cross_compile_failed'
+			action:  'inspect_compiler_output'
+			command: cc_cmd
+		))
 		return
 	}
 	if b.pref.build_mode == .build_module {
@@ -2019,6 +2047,12 @@ fn (mut b Builder) cc_linux_cross() {
 		builtins_res := os.execute(builtins_cmd)
 		if builtins_res.exit_code != 0 {
 			println('Warning: failed to compile compiler builtins for cross compilation.')
+			println(builtins_res.command_failure_report('v.builder.cc.command',
+				stage:   'linux_cross_compiler_builtins'
+				reason:  'compiler_builtins_compile_failed'
+				action:  'inspect_compiler_output'
+				command: builtins_cmd
+			))
 		}
 	}
 	mut linker_args := [
@@ -2070,7 +2104,12 @@ fn (mut b Builder) cc_linux_cross() {
 	res := os.execute(linker_cmd)
 	if res.exit_code != 0 {
 		println('Cross compilation for Linux failed (second step, lld).')
-		verror(res.output)
+		verror(res.command_failure_report('v.builder.cc.command',
+			stage:   'linux_cross_link'
+			reason:  'cross_link_failed'
+			action:  'inspect_linker_output'
+			command: linker_cmd
+		))
 		return
 	}
 	println(out_name + ' has been successfully cross compiled for linux.')
@@ -2117,7 +2156,12 @@ fn (mut b Builder) cc_freebsd_cross() {
 	cc_res := os.execute(cc_cmd)
 	if cc_res.exit_code != 0 {
 		println('Cross compilation for FreeBSD failed (first step, cc). Make sure you have clang installed.')
-		verror(cc_res.output)
+		verror(cc_res.command_failure_report('v.builder.cc.command',
+			stage:   'freebsd_cross_cc'
+			reason:  'cross_compile_failed'
+			action:  'inspect_compiler_output'
+			command: cc_cmd
+		))
 		return
 	}
 	mut linker_args := [
@@ -2151,7 +2195,12 @@ fn (mut b Builder) cc_freebsd_cross() {
 	res := os.execute(linker_cmd)
 	if res.exit_code != 0 {
 		println('Cross compilation for FreeBSD failed (second step, lld).')
-		verror(res.output)
+		verror(res.command_failure_report('v.builder.cc.command',
+			stage:   'freebsd_cross_link'
+			reason:  'cross_link_failed'
+			action:  'inspect_linker_output'
+			command: linker_cmd
+		))
 		return
 	}
 	println(out_name + ' has been successfully cross compiled for FreeBSD.')
@@ -2189,8 +2238,15 @@ fn (mut c Builder) cc_windows_cross() {
 	if c.pref.is_verbose || c.pref.show_cc {
 		println(cmd)
 	}
-	if os.system(cmd) != 0 {
+	res := os.execute(cmd)
+	if res.exit_code != 0 {
 		println('Cross compilation for Windows failed. Make sure you have mingw-w64 installed.')
+		println(res.command_failure_report('v.builder.cc.command',
+			stage:   'windows_cross_compile'
+			reason:  'cross_compile_failed'
+			action:  'inspect_compiler_output'
+			command: cmd
+		))
 		$if macos {
 			println('brew install mingw-w64')
 		}
@@ -2314,7 +2370,13 @@ fn (v &Builder) fixup_tcc_macos_comma_path_flags(mut ccoptions CcompilerOptions)
 			os.execute('install_name_tool -id ${os.quoted_path(cache_dylib)} ${os.quoted_path(cache_dylib)}')
 		if idres.exit_code != 0 {
 			if v.pref.is_verbose {
-				eprintln('install_name_tool -id for ${cache_dylib} failed: ${idres.output.trim_space()}')
+				cmd := 'install_name_tool -id ${os.quoted_path(cache_dylib)} ${os.quoted_path(cache_dylib)}'
+				eprintln(idres.command_failure_report('v.builder.cc.command',
+					stage:   'install_name_tool'
+					reason:  'install_name_tool_failed'
+					action:  'inspect_install_name_tool_output'
+					command: cmd
+				))
 			}
 			return
 		}
@@ -2470,7 +2532,12 @@ fn (mut v Builder) build_thirdparty_obj_file(mod string, path string, moduleflag
 		eprintln('> wd before cmd: ${current_folder}')
 		eprintln('> getwd for cmd: ${v.pref.vroot}')
 		eprintln('>           cmd: ${cmd}')
-		verror(res.output)
+		verror(res.command_failure_report('v.builder.cc.command',
+			stage:   'thirdparty_object_compile'
+			reason:  'thirdparty_object_compile_failed'
+			action:  'inspect_compiler_output'
+			command: cmd
+		))
 		return
 	}
 	v.pref.cache_manager.mod_save(mod, '.thirdparty.description.txt', obj_path,

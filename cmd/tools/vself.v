@@ -253,7 +253,10 @@ fn compose_v_cmd(vexe string, args []string, source string) string {
 fn run_cmd(cmd string) ! {
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		return error(result.output)
+		return error(result.command_failure_report('vself.command',
+			action:  'return_error_with_exit_code'
+			command: cmd
+		))
 	}
 	if result.output.len > 0 {
 		println(result.output.trim_space())
@@ -263,6 +266,10 @@ fn run_cmd(cmd string) ! {
 fn try_compile(cmd string) bool {
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
+		eprintln(result.command_failure_report('vself.command',
+			action:  'report_failure_and_try_next_path'
+			command: cmd
+		))
 		return false
 	}
 	if result.output.len > 0 {

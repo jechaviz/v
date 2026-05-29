@@ -90,7 +90,11 @@ fn compile_c_runner() !string {
 	compile_cmd := '${cc} -O3 -std=c99 ${os.quoted_path(c_src)} -o ${os.quoted_path(bin_path)}'
 	compile_res := os.execute(compile_cmd)
 	if compile_res.exit_code != 0 {
-		return error('C compile failed: ${compile_res.output.trim_space()}')
+		return error(compile_res.command_failure_report('lz_interop.command',
+			reason:  'c_runner_compile_failed'
+			action:  'inspect_c_compiler_output'
+			command: compile_cmd
+		))
 	}
 	return bin_path
 }
@@ -116,17 +120,25 @@ fn cross_validate_v_c(c_bin string, original []u8, input_path string, tmp_dir st
 	v_stream := lz.compress_lz77(original)!
 	os.write_file_array(v_encoded, v_stream)!
 
-	mut res :=
-		os.execute('${os.quoted_path(c_bin)} decompress ${os.quoted_path(v_encoded)} ${os.quoted_path(c_decoded)}')
+	mut cmd := '${os.quoted_path(c_bin)} decompress ${os.quoted_path(v_encoded)} ${os.quoted_path(c_decoded)}'
+	mut res := os.execute(cmd)
 	if res.exit_code != 0 {
-		return error('C decompress(V output) failed: ${res.output.trim_space()}')
+		return error(res.command_failure_report('lz_interop.command',
+			reason:  'c_decompress_failed'
+			action:  'inspect_c_runner_output'
+			command: cmd
+		))
 	}
 	validate_equal_files(input_path, c_decoded, 'V->C')!
 
-	res =
-		os.execute('${os.quoted_path(c_bin)} compress ${os.quoted_path(input_path)} ${os.quoted_path(c_encoded)}')
+	cmd = '${os.quoted_path(c_bin)} compress ${os.quoted_path(input_path)} ${os.quoted_path(c_encoded)}'
+	res = os.execute(cmd)
 	if res.exit_code != 0 {
-		return error('C compress failed: ${res.output.trim_space()}')
+		return error(res.command_failure_report('lz_interop.command',
+			reason:  'c_compress_failed'
+			action:  'inspect_c_runner_output'
+			command: cmd
+		))
 	}
 	c_encoded_data := os.read_bytes(c_encoded)!
 	v_decoded := lz.decompress_lz77(c_encoded_data)!
@@ -144,17 +156,25 @@ fn cross_validate_v_python(original []u8, input_path string, tmp_dir string) ! {
 	v_stream := lz.compress_lz77(original)!
 	os.write_file_array(v_encoded, v_stream)!
 
-	mut res :=
-		os.execute('python3 ${os.quoted_path(py_script)} decompress ${os.quoted_path(v_encoded)} ${os.quoted_path(py_decoded)}')
+	mut cmd := 'python3 ${os.quoted_path(py_script)} decompress ${os.quoted_path(v_encoded)} ${os.quoted_path(py_decoded)}'
+	mut res := os.execute(cmd)
 	if res.exit_code != 0 {
-		return error('Python decompress(V output) failed: ${res.output.trim_space()}')
+		return error(res.command_failure_report('lz_interop.command',
+			reason:  'python_decompress_failed'
+			action:  'inspect_python_runner_output'
+			command: cmd
+		))
 	}
 	validate_equal_files(input_path, py_decoded, 'V->Python')!
 
-	res =
-		os.execute('python3 ${os.quoted_path(py_script)} compress ${os.quoted_path(input_path)} ${os.quoted_path(py_encoded)}')
+	cmd = 'python3 ${os.quoted_path(py_script)} compress ${os.quoted_path(input_path)} ${os.quoted_path(py_encoded)}'
+	res = os.execute(cmd)
 	if res.exit_code != 0 {
-		return error('Python compress failed: ${res.output.trim_space()}')
+		return error(res.command_failure_report('lz_interop.command',
+			reason:  'python_compress_failed'
+			action:  'inspect_python_runner_output'
+			command: cmd
+		))
 	}
 	py_encoded_data := os.read_bytes(py_encoded)!
 	v_decoded := lz.decompress_lz77(py_encoded_data)!

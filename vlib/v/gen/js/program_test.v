@@ -58,9 +58,10 @@ fn check_path(dir string, tests []string) !int {
 			os.write_file(program_out, '')!
 		}
 		print(program + ' ')
-		res := os.execute('${os.quoted_path(vexe)} -b js_node run ${os.quoted_path(program)}')
+		cmd := '${os.quoted_path(vexe)} -b js_node run ${os.quoted_path(program)}'
+		res := os.execute(cmd)
 		if res.exit_code < 0 {
-			panic(res.output)
+			panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 		}
 		mut expected := os.read_file(program_out)!
 		expected = clean_line_endings(expected)

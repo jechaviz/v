@@ -940,11 +940,20 @@ pub fn v_build_failing_skipped(zargs string, folder string, oskipped []string, c
 pub fn build_v_cmd_failed(cmd string) bool {
 	res := os.execute(cmd)
 	if res.exit_code < 0 {
+		eprintln(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'build_command_start_failed'
+		))
 		return true
 	}
 	if res.exit_code != 0 {
 		eprintln('')
-		eprintln(res.output)
+		eprintln(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'build_command_failed'
+		))
 		return true
 	}
 	return false

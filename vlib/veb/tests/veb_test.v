@@ -28,9 +28,13 @@ fn testsuite_begin() {
 
 fn test_simple_veb_app_can_be_compiled() {
 	// did_server_compile := os.system('${os.quoted_path(vexe)} -g -o ${os.quoted_path(serverexe)} vlib/veb/tests/veb_test_server.v')
-	did_server_compile :=
-		os.system('${os.quoted_path(vexe)} -o ${os.quoted_path(serverexe)} vlib/veb/tests/veb_test_server.v')
-	assert did_server_compile == 0
+	compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(serverexe)} vlib/veb/tests/veb_test_server.v'
+	did_server_compile := os.execute(compile_cmd)
+	assert did_server_compile.exit_code == 0, did_server_compile.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	assert os.exists(serverexe)
 }
 
@@ -50,7 +54,10 @@ fn test_a_simple_veb_app_runs_in_the_background() {
 		spawn os.system(server_exec_cmd)
 	} $else {
 		res := os.system(server_exec_cmd)
-		assert res == 0
+		assert res == 0, os.process_exit_code_diagnostics(res, '0',
+			label:   @FN
+			command: server_exec_cmd
+		)
 	}
 	$if macos {
 		time.sleep(1000 * time.millisecond)

@@ -51,7 +51,11 @@ pub fn hg_serve(hg_path string, path string, start_port int) (&os.Process, int) 
 pub fn cmd_ok(location string, cmd string) os.Result {
 	println('>   cmd_ok for cmd: "${cmd}"')
 	res := os.execute(cmd)
-	assert res.exit_code == 0, 'success expected, but not found\n    location: ${location}\n    cmd:\n${cmd}\n    res:\n${res}\n'
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   location
+		command: cmd
+	)
+
 	return res
 }
 

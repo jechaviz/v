@@ -28,10 +28,11 @@ fn ensure_eval_backend_runner(vexe string) !string {
 		return v2_exe
 	}
 	vroot := os.dir(vexe)
-	build_res := os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(v2_exe)} ${os.quoted_path(os.join_path(vroot,
-		'cmd', 'v2', 'v2.v'))}')
+	build_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(v2_exe)} ${os.quoted_path(os.join_path(vroot,
+		'cmd', 'v2', 'v2.v'))}'
+	build_res := os.execute(build_cmd)
 	if build_res.exit_code != 0 {
-		return error(build_res.output)
+		return error(build_res.exit_code_diagnostics('0', label: @FN, command: build_cmd))
 	}
 	return v2_exe
 }
@@ -91,6 +92,13 @@ fn run_eval_backend_with_args(code string, extra_args []string) !os.Result {
 		exit_code: p.code
 		output:    stdout + stderr
 	}
+}
+
+fn eval_backend_diagnostics(result os.Result, label string) string {
+	return result.exit_code_diagnostics('0',
+		label:  label
+		reason: 'eval_backend_execution_failed'
+	)
 }
 
 fn test_eval_function_call_and_for_range() {
@@ -157,7 +165,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('7:9:2\n')
 }
@@ -174,7 +182,7 @@ fn main() {
 		'beta',
 	]) or { panic(err) }
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('|alpha|beta')
 }
@@ -191,7 +199,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('2:3\n')
 }
@@ -207,7 +215,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('1:2:3:3\n')
 }
@@ -224,7 +232,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('ok\n')
 }
@@ -246,7 +254,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('ok\n')
 }
@@ -276,7 +284,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('ok\n')
 }
@@ -304,7 +312,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('1:2:2:2:true\n')
 	assert res.output.contains('false:true:0:2\n')
@@ -325,7 +333,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('eval.os_execute.failed=false')
 	assert res.output.contains('eval.os_execute.exit_code=0')
@@ -356,7 +364,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('2\n')
 }
@@ -374,7 +382,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('ok\n')
 }
@@ -579,7 +587,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('builtin__Error\n')
 }
@@ -602,7 +610,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('4\n')
 }
@@ -618,7 +626,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('chan int\n')
 }
@@ -637,7 +645,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('bool\nint\nf64\nvoidptr\n')
 }
@@ -659,7 +667,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('int\nint\n')
 }
@@ -678,7 +686,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('int\nint\n')
 }
@@ -697,7 +705,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('int\nint\n')
 }
@@ -742,7 +750,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('types.Module\ntypes.Module\ntypes.Module\ntypes.Module\ntypes.Module\n')
 	assert res.output.contains('ast\ntypes.Type\nFile\n')
@@ -764,7 +772,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('0\n')
 }
@@ -780,7 +788,7 @@ fn main() {
 		panic(err)
 	}
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(eval_backend_diagnostics(res, @FN))
 	}
 	assert res.output.contains('1\n3\n')
 }

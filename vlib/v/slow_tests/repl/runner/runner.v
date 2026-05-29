@@ -53,7 +53,7 @@ pub fn run_repl_file(wd string, vexec string, file string) !string {
 	r := os.execute(rcmd)
 	if r.exit_code != 0 {
 		os.rm(input_temporary_filename)!
-		return error('Could not execute: ${rcmd}')
+		return error(r.exit_code_diagnostics('0', label: @FN, command: rcmd))
 	}
 	result := r.output.replace_each(['\r', '', '>>> ', '', '>>>', '', '... ', '',
 		wd + os.path_separator, '', vexec_folder, '']).trim_right('\n\r')

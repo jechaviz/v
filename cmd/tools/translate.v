@@ -37,7 +37,12 @@ fn main() {
 		res :=
 			os.execute('${os.quoted_path(vexe)} retry -- git clone --filter=blob:none https://github.com/vlang/c2v')
 		if res.exit_code != 0 {
-			eprintln('Failed to download C2V.')
+			eprintln(res.command_failure_report('v.translate.c2v',
+				reason:  'c2v_clone_failed'
+				action:  'inspect_git_clone_output'
+				message: 'Failed to download C2V.'
+				command: '${os.quoted_path(vexe)} retry -- git clone --filter=blob:none https://github.com/vlang/c2v'
+			))
 			exit(1)
 		}
 	}
@@ -48,8 +53,12 @@ fn main() {
 		res2 :=
 			os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(c2v_bin)} -keepc -g -experimental .')
 		if res2.exit_code != 0 {
-			eprintln(res2.output)
-			eprintln('Failed to compile C2V. This should not happen. Please report it via GitHub.')
+			eprintln(res2.command_failure_report('v.translate.c2v',
+				reason:  'c2v_compile_failed'
+				action:  'inspect_compiler_output_and_report_issue'
+				message: 'Failed to compile C2V. This should not happen. Please report it via GitHub.'
+				command: '${os.quoted_path(vexe)} -o ${os.quoted_path(c2v_bin)} -keepc -g -experimental .'
+			))
 			exit(2)
 		}
 	}
@@ -61,10 +70,14 @@ fn main() {
 	// println(passed_args)
 	os.chdir(os.wd_at_startup)!
 	c2v_cmd := '${os.quoted_path(c2v_bin)} ${passed_args}'
-	res := os.system(c2v_cmd)
-	if res != 0 {
-		eprintln('C2V command: ${c2v_cmd}')
-		eprintln('C2V failed to translate the C files. Please report it via GitHub.')
+	res := os.execute(c2v_cmd)
+	if res.exit_code != 0 {
+		eprintln(res.command_failure_report('v.translate.c2v',
+			reason:  'c2v_translate_failed'
+			action:  'inspect_translation_output_and_report_issue'
+			message: 'C2V failed to translate the C files. Please report it via GitHub.'
+			command: c2v_cmd
+		))
 		exit(4)
 	}
 }

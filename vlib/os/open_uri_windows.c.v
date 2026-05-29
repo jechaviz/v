@@ -8,9 +8,15 @@ type ShellExecuteWin = fn (voidptr, &u16, &u16, &u16, &u16, int)
 pub fn open_uri(uri string) ! {
 	mut vopen_uri_cmd := getenv('VOPEN_URI_CMD')
 	if vopen_uri_cmd != '' {
-		result := execute('${vopen_uri_cmd} "${uri}"')
+		cmd := '${vopen_uri_cmd} "${uri}"'
+		result := execute(cmd)
 		if result.exit_code != 0 {
-			return error('unable to open url: ${result.output}')
+			return error(result.command_failure_report('os.open_uri',
+				reason:  'open_uri_command_failed'
+				action:  'inspect_command_and_open_uri_provider'
+				message: 'unable to open url'
+				command: cmd
+			))
 		}
 		return
 	}

@@ -239,15 +239,28 @@ fn (upd VlsUpdater) compile_from_source() ! {
 
 	if !os.exists(vls_src_folder) {
 		upd.log('Cloning VLS repo...')
-		clone_result :=
-			os.execute('${os.quoted_path(vexe)} retry -- ${git} clone --filter=blob:none https://github.com/vlang/vls ${vls_src_folder}')
+		clone_cmd := '${os.quoted_path(vexe)} retry -- ${git} clone --filter=blob:none https://github.com/vlang/vls ${vls_src_folder}'
+		clone_result := os.execute(clone_cmd)
 		if clone_result.exit_code != 0 {
-			return error('Failed to build VLS from source. Reason: ${clone_result.output}')
+			return error(clone_result.command_failure_report('vls.command',
+				reason:  'vls_clone_failed'
+				action:  'inspect_git_clone_output'
+				message: 'Failed to build VLS from source.'
+				command: clone_cmd
+			))
 		}
 	} else {
 		upd.log('Updating VLS repo...')
-		pull_result :=
-			os.execute('${os.quoted_path(vexe)} retry -- ${git} -C ${vls_src_folder} pull')
+		pull_cmd := '${os.quoted_path(vexe)} retry -- ${git} -C ${vls_src_folder} pull'
+		pull_result := os.execute(pull_cmd)
+		if pull_result.exit_code != 0 {
+			return error(pull_result.command_failure_report('vls.command',
+				reason:  'vls_pull_failed'
+				action:  'inspect_git_pull_output'
+				message: 'Failed to update VLS source.'
+				command: pull_cmd
+			))
+		}
 		if !upd.is_force && pull_result.output.trim_space() == 'Already up to date.' {
 			upd.log('VLS was already updated to its latest version.')
 			return
@@ -268,10 +281,15 @@ fn (upd VlsUpdater) compile_from_source() ! {
 		return error('Cannot compile VLS from source: no appropriate C compiler found.')
 	}
 
-	compile_result := os.execute('${os.quoted_path(vexe)} run ${os.join_path(vls_src_folder,
-		'build.vsh')} ${possible_compilers[selected_compiler_idx]}')
+	compile_cmd := '${os.quoted_path(vexe)} run ${os.join_path(vls_src_folder, 'build.vsh')} ${possible_compilers[selected_compiler_idx]}'
+	compile_result := os.execute(compile_cmd)
 	if compile_result.exit_code != 0 {
-		return error('Cannot compile VLS from source: ${compile_result.output}')
+		return error(compile_result.command_failure_report('vls.command',
+			reason:  'vls_compile_failed'
+			action:  'inspect_vls_build_output'
+			message: 'Cannot compile VLS from source.'
+			command: compile_cmd
+		))
 	}
 
 	exec_path := os.join_path(vls_src_folder, 'bin', 'vls')

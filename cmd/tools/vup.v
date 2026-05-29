@@ -131,8 +131,12 @@ fn (app App) recompile_vup() bool {
 	}
 	vup_result := os.execute('${os.quoted_path(vexe_path)} -g cmd/tools/vup.v')
 	if vup_result.exit_code != 0 {
-		eprintln('> Failed recompiling vup.v .')
-		eprintln(vup_result.output)
+		eprintln(vup_result.command_failure_report('vup.command',
+			reason:  'vup_recompile_failed'
+			action:  'inspect_recompile_output'
+			message: 'Failed recompiling vup.v.'
+			command: '${os.quoted_path(vexe_path)} -g cmd/tools/vup.v'
+		))
 		return false
 	}
 	return true
@@ -143,9 +147,11 @@ fn (app App) make(_vself string) bool {
 	make := get_make_cmd_name()
 	make_result := os.execute(make)
 	if make_result.exit_code != 0 {
-		eprintln('> ${make} failed:')
-		eprintln('> make output:')
-		eprintln(make_result.output)
+		eprintln(make_result.command_failure_report('vup.command',
+			reason:  'make_failed'
+			action:  'inspect_make_output'
+			command: make
+		))
 		return false
 	}
 	app.vprintln(make_result.output)
@@ -224,8 +230,12 @@ fn (app App) git_command(command string) {
 		os.execute_or_exit(command)
 	}
 	if git_result.exit_code != 0 {
-		eprintln('Failed git command: ${command}')
-		eprintln(git_result.output)
+		eprintln(git_result.command_failure_report('vup.command',
+			reason:  'git_command_failed'
+			action:  'inspect_git_output'
+			message: 'Failed git command'
+			command: command
+		))
 		exit(1)
 	}
 	app.vprintln(git_result.output)
@@ -242,12 +252,20 @@ fn (app App) install_git() {
 		os.execute('bitsadmin.exe /transfer "vgit" https://github.com/git-for-windows/git/releases/download/v2.30.0.windows.2/Git-2.30.0.2-32-bit.exe "${os.getwd()}/git32.exe"')
 	if res_download.exit_code != 0 {
 		eprintln('Unable to install git automatically: please install git manually')
-		panic(res_download.output)
+		panic(res_download.command_failure_report('vup.command',
+			reason:  'git_installer_download_failed'
+			action:  'install_git_manually_or_retry'
+			command: 'bitsadmin.exe /transfer "vgit" https://github.com/git-for-windows/git/releases/download/v2.30.0.windows.2/Git-2.30.0.2-32-bit.exe "${os.getwd()}/git32.exe"'
+		))
 	}
 	res_git32 := os.execute(os.quoted_path(os.join_path_single(os.getwd(), 'git32.exe')))
 	if res_git32.exit_code != 0 {
 		eprintln('Unable to install git automatically: please install git manually')
-		panic(res_git32.output)
+		panic(res_git32.command_failure_report('vup.command',
+			reason:  'git_installer_failed'
+			action:  'install_git_manually_or_retry'
+			command: os.quoted_path(os.join_path_single(os.getwd(), 'git32.exe'))
+		))
 	}
 }
 

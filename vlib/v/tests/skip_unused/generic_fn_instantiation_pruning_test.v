@@ -28,9 +28,10 @@ fn test_skip_unused_prunes_unused_generic_fn_instantiations() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	res := os.execute('${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}')
+	cmd := '${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 	assert res.output.contains('VV_LOC Map_u8_u32 main__new_T_u32(void)')
 	assert !res.output.contains('VV_LOC Map_u8_int main__new_T_int(void)')
@@ -114,9 +115,10 @@ fn test_skip_unused_does_not_emit_impl_methods_for_interface_extensions() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	res := os.execute('${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}')
+	cmd := '${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 	assert res.output.contains('VV_LOC bool main__Elem_equal(')
 	assert !res.output.contains('main__Thing_equal(')
@@ -149,9 +151,10 @@ fn test_skip_unused_keeps_json2_embedded_struct_decode_helpers() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	res := os.execute('${os.quoted_path(vexe)} -w -o - ${os.quoted_path(source_path)}')
+	cmd := '${os.quoted_path(vexe)} -w -o - ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 	assert res.output.contains('x__json2__decode_struct_key_T_main__Req')
 	assert res.output.contains('x__json2__check_required_struct_fields_T_main__Req')
@@ -202,10 +205,10 @@ fn test_skip_unused_marks_dependencies_inside_generic_anon_fns() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	res :=
-		os.execute('${os.quoted_path(vexe)} -d no_backtrace -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}')
+	cmd := '${os.quoted_path(vexe)} -d no_backtrace -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic(res.output)
+		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 }
 

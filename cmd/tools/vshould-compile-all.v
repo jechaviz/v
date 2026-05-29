@@ -3,6 +3,12 @@ import log
 
 const should_clean = os.args.contains('-c')
 
+struct FailedCommand {
+	command   string
+	exit_code int
+	output    string
+}
+
 fn main() {
 	log.use_stdout()
 	unbuffer_stdout()
@@ -34,7 +40,7 @@ fn main() {
 		exit(1)
 	}
 	mut executables := []string{}
-	mut failed_commands := []string{}
+	mut failed_commands := []FailedCommand{}
 	mut project_folders := map[string]bool{}
 	mut skipped_files := []string{}
 	for idx, example in files {
@@ -73,8 +79,13 @@ fn main() {
 		}
 		cmd := '${os.quoted_path(@VEXE)} ${backend_options} ${os.quoted_path(example)}'
 		log.info('> compiling program ${idx + 1:4}/${files.len:-4}: ${cmd}')
-		if 0 != os.system(cmd) {
-			failed_commands << cmd
+		res := os.execute(cmd)
+		if res.exit_code != 0 {
+			failed_commands << FailedCommand{
+				command:   cmd
+				exit_code: res.exit_code
+				output:    res.output
+			}
 		} else {
 			executables << executable_name(example)
 		}
@@ -94,8 +105,13 @@ fn main() {
 		exe_path := os.join_path(pf, os.file_name(pf) + exe_extension)
 		cmd := '${os.quoted_path(@VEXE)} -o ${exe_path} ${pf}'
 		log.info('> compiling project ${pfi + 1:4}/${project_folders.len:-4}: ${cmd}')
-		if 0 != os.system(cmd) {
-			failed_commands << cmd
+		res := os.execute(cmd)
+		if res.exit_code != 0 {
+			failed_commands << FailedCommand{
+				command:   cmd
+				exit_code: res.exit_code
+				output:    res.output
+			}
 		} else {
 			executables << exe_path
 		}
@@ -110,7 +126,14 @@ fn main() {
 	}
 	if failed_commands.len > 0 {
 		for idx, fcmd in failed_commands {
-			log.error('>>> FAILED command ${idx + 1:4}/${failed_commands.len:-4}: ${fcmd}')
+			log.error('>>> FAILED command ${idx + 1:4}/${failed_commands.len:-4}:')
+			log.error(os.process_command_failure_report('vshould_compile_all.command',
+				fcmd.exit_code,
+				reason:  'compile_failed'
+				action:  'inspect_command_output'
+				command: fcmd.command
+				output:  fcmd.output
+			))
 		}
 		log.info('Summary: ${failed_commands.len:4}/${files.len:-4} file(s) failed to compile.')
 		exit(1)

@@ -53,7 +53,10 @@ fn run(fpath string, compiler_opts string, label string) CmdOutput {
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
 		eprintln('> ${label} compilation output:\n${res.output}')
-		assert res.exit_code == 0, 'compilation of ${fpath} failed'
+		assert res.exit_code == 0, res.exit_code_diagnostics('0',
+			label:   label
+			command: cmd
+		)
 	}
 	return CmdOutput{cmd, res.output}
 }

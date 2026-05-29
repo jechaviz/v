@@ -33,23 +33,24 @@ fn test_example_compilation() {
 			node_options_file += ' --enable-source-maps' // activate souremap generation
 		}
 		jsfile := os.join_path_single(output_dir, '${file}.js')
-		v_code :=
-			os.system('${os.quoted_path(vexe)} ${v_options_file} -o ${os.quoted_path(jsfile)} ${os.quoted_path(path)}')
-		if v_code != 0 {
-			assert false
-		}
-		// Compilation failed
-		assert v_code == 0
+		compile_cmd := '${os.quoted_path(vexe)} ${v_options_file} -o ${os.quoted_path(jsfile)} ${os.quoted_path(path)}'
+		compile_res := os.execute(compile_cmd)
+		assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+			label:   @FN
+			command: compile_cmd
+		)
+
 		if !there_is_node_available {
 			println(' ... skipping running ${file}, there is no NodeJS present')
 			continue
 		}
-		js_code := os.system('node ${os.quoted_path(jsfile)}')
-		if js_code != 0 {
-			assert false
-		}
-		// Running failed
-		assert js_code == 0
+		node_cmd := 'node ${os.quoted_path(jsfile)}'
+		node_res := os.execute(node_cmd)
+		assert node_res.exit_code == 0, node_res.exit_code_diagnostics('0',
+			label:   @FN
+			command: node_cmd
+		)
+
 		if should_create_source_map {
 			if there_is_grep_available {
 				grep_code_sourcemap_found :=

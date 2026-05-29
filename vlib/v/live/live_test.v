@@ -192,7 +192,7 @@ fn must_exec_cmd(cmd string) {
 	if res.exit_code == 0 {
 		return
 	}
-	panic('command failed: ${cmd}\n${res.output}')
+	panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 }
 
 fn test_live_program_can_be_compiled() {
@@ -200,9 +200,13 @@ fn test_live_program_can_be_compiled() {
 	compile_cmd := '${os.quoted_path(vexe)} -cg -keepc -nocolor -live -o ${os.quoted_path(genexe_file)} ${os.quoted_path(main_source_file)}'
 	log.info('Compiling with compile_cmd:')
 	eprintln('> ${compile_cmd}')
-	compile_res := os.system(compile_cmd)
+	compile_res := os.execute(compile_cmd)
 	log.info('> DONE')
-	assert compile_res == 0
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	run_in_background('${os.quoted_path(genexe_file)}')
 	wait_for_file('ORIGINAL')
 }

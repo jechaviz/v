@@ -16,7 +16,9 @@ fn run_test(cc_used string) {
 		else { '' }
 	}
 
-	assert os.system('${os.quoted_path(@VEXE)} ${cc_flag} -o create_win_${cc_used}.dll -shared create_win_dll.c.v') == 0
+	cmd := '${os.quoted_path(@VEXE)} ${cc_flag} -o create_win_${cc_used}.dll -shared create_win_dll.c.v'
+	res := os.execute(cmd)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	assert os.exists('create_win_${cc_used}.dll')
 	handle := dl.open('create_win_${cc_used}.dll', 0)
 	assert handle != 0

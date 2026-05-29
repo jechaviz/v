@@ -16,7 +16,11 @@ fn main() {
 			s :=
 				os.execute('${os.quoted_path(vexe)} retry -- git clone --filter=blob:none ${freetype_repo_url} ${freetype_folder}')
 			if s.exit_code != 0 {
-				panic(s.output)
+				panic(s.command_failure_report('vsetup_freetype.command',
+					reason:  'freetype_clone_failed'
+					action:  'inspect_git_clone_output'
+					command: '${os.quoted_path(vexe)} retry -- git clone --filter=blob:none ${freetype_repo_url} ${freetype_folder}'
+				))
 			}
 			println(s.output)
 			println('Thirdparty "freetype" installed successfully.')

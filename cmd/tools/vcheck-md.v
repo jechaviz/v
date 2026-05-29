@@ -636,10 +636,19 @@ fn cmdexecute(cmd string) int {
 	verbose_println(cmd)
 	res := os.execute(cmd)
 	if res.exit_code < 0 {
+		eprintln(res.command_failure_report('vcheck_md.command',
+			reason:  'command_start_failed'
+			action:  'inspect_command_and_environment'
+			command: cmd
+		))
 		return 1
 	}
 	if res.exit_code != 0 {
-		eprint(res.output)
+		eprintln(res.command_failure_report('vcheck_md.command',
+			reason:  'command_failed'
+			action:  'inspect_command_output'
+			command: cmd
+		))
 	}
 	return res.exit_code
 }

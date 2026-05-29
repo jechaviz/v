@@ -71,7 +71,7 @@ fn test_multifile_goto_definition() {
 
 		if res.exit_code < 0 {
 			println('${term.red('FAIL')} ${tc.name}: Command failed to execute')
-			println('  Command: ${cmd}')
+			println(res.exit_code_diagnostics('>= 0', label: @FN, command: cmd))
 			total_errors++
 			continue
 		}

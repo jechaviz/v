@@ -1060,14 +1060,26 @@ fn execute_repl_v_command(v_path string, args []string) !os.Result {
 	}
 }
 
+fn repl_command_label(v_path string, args []string) string {
+	mut cmd := os.quoted_path(v_path)
+	for arg in args {
+		cmd += ' ' + os.quoted_path(arg)
+	}
+	return cmd
+}
+
 fn repl_run_vfile(file string) !os.Result {
 	$if trace_repl_temp_files ? {
 		eprintln('>> repl_run_vfile file: ${file}')
 	}
-	s := execute_repl_v_command(vexe, ['-message-limit', '1', '-repl', 'run', file])!
+	args := ['-message-limit', '1', '-repl', 'run', file]
+	s := execute_repl_v_command(vexe, args)!
 	if s.exit_code < 0 {
 		rerror(s.output)
-		return error(s.output)
+		return error(s.exit_code_diagnostics('>= 0',
+			label:   @FN
+			command: repl_command_label(vexe, args)
+		))
 	}
 	return s
 }
@@ -1078,11 +1090,14 @@ fn repl_check_vfile(file string) !os.Result {
 	}
 	// Declaration-only REPL lines do not need code generation or execution.
 	// Cached checks keep repeated imports and definitions responsive.
-	s :=
-		execute_repl_v_command(vexe, ['-usecache', '-message-limit', '1', '-repl', '-check', file])!
+	args := ['-usecache', '-message-limit', '1', '-repl', '-check', file]
+	s := execute_repl_v_command(vexe, args)!
 	if s.exit_code < 0 {
 		rerror(s.output)
-		return error(s.output)
+		return error(s.exit_code_diagnostics('>= 0',
+			label:   @FN
+			command: repl_command_label(vexe, args)
+		))
 	}
 	return s
 }

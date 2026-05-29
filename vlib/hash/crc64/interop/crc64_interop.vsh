@@ -18,8 +18,11 @@ fn compile_c_helper(dir string) string {
 	cmd := 'gcc -std=c99 "${ref_c}" -o "${ref_bin}"'
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		eprintln('Failed to compile C helper:')
-		eprintln(result.output)
+		eprintln(result.command_failure_report('crc64_interop.command',
+			reason:  'c_helper_compile_failed'
+			action:  'inspect_c_compiler_output'
+			command: cmd
+		))
 		exit(1)
 	}
 
@@ -31,7 +34,11 @@ fn run_c_checksum(ref_bin string, data []u8) !u64 {
 	cmd := '${ref_bin} checksum ${hex_str}'
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		return error('C helper failed: ${result.output}')
+		return error(result.command_failure_report('crc64_interop.command',
+			reason:  'c_helper_failed'
+			action:  'inspect_c_helper_output'
+			command: cmd
+		))
 	}
 
 	result_str := result.output.trim_space()
@@ -44,7 +51,11 @@ fn run_python_checksum(dir string, data []u8) !u64 {
 	cmd := 'python3 "${ref_py}" checksum ${hex_str}'
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		return error('Python helper failed: ${result.output}')
+		return error(result.command_failure_report('crc64_interop.command',
+			reason:  'python_helper_failed'
+			action:  'inspect_python_helper_output'
+			command: cmd
+		))
 	}
 
 	result_str := result.output.trim_space()

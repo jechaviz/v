@@ -55,18 +55,19 @@ fn test_all() {
 		tname := rand.ulid()
 		tbase := os.join_path(os.vtmp_dir(), tname)
 		texe := if os.user_os() == 'windows' { '${tbase}.exe' } else { tbase }
-		compilation :=
-			os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(tbase)} -cflags "-w" -cg ${os.quoted_path(program)}')
+		compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(tbase)} -cflags "-w" -cg ${os.quoted_path(program)}'
+		compilation := os.execute(compile_cmd)
 		if compilation.exit_code < 0 {
-			panic(compilation.output)
+			panic(compilation.exit_code_diagnostics('0', label: @FN, command: compile_cmd))
 		}
 		if compilation.exit_code != 0 {
-			panic('compilation failed: ${compilation.output}')
+			panic(compilation.exit_code_diagnostics('0', label: @FN, command: compile_cmd))
 		}
-		res := os.execute(os.quoted_path(texe))
+		run_cmd := os.quoted_path(texe)
+		res := os.execute(run_cmd)
 		if res.exit_code < 0 {
 			vprintln('nope')
-			panic(res.output)
+			panic(res.exit_code_diagnostics('0', label: @FN, command: run_cmd))
 		}
 		$if windows {
 			os.rm(texe) or {}

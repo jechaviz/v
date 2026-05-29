@@ -679,12 +679,8 @@ fn (mut b Builder) gen_ssa_c() {
 		}
 		compile_res := os.execute(compile_cmd)
 		if compile_res.exit_code != 0 {
-			eprintln('error: ssa c backend compilation failed')
-			lines := compile_res.output.split_into_lines()
-			limit := if lines.len < 20 { lines.len } else { 20 }
-			for line in lines[..limit] {
-				eprintln(line)
-			}
+			report_builder_command_failure('ssa_c_backend_compilation', compile_cmd, compile_res,
+				20)
 			exit(1)
 		}
 		mut link_objects := '"${main_obj}" "${builtin_obj}"'
@@ -697,12 +693,7 @@ fn (mut b Builder) gen_ssa_c() {
 		}
 		cc_res := os.execute(cc_cmd)
 		if cc_res.exit_code != 0 {
-			eprintln('error: ssa c backend linking failed')
-			lines := cc_res.output.split_into_lines()
-			limit := if lines.len < 20 { lines.len } else { 20 }
-			for line in lines[..limit] {
-				eprintln(line)
-			}
+			report_builder_command_failure('ssa_c_backend_linking', cc_cmd, cc_res, 20)
 			exit(1)
 		}
 		if !b.pref.keep_c {
@@ -718,12 +709,7 @@ fn (mut b Builder) gen_ssa_c() {
 		}
 		cc_res := os.execute(cc_cmd)
 		if cc_res.exit_code != 0 {
-			eprintln('error: ssa c backend compilation failed')
-			lines := cc_res.output.split_into_lines()
-			limit := if lines.len < 20 { lines.len } else { 20 }
-			for line in lines[..limit] {
-				eprintln(line)
-			}
+			report_builder_command_failure('ssa_c_backend_compilation', cc_cmd, cc_res, 20)
 			exit(1)
 		}
 	}
@@ -3022,8 +3008,8 @@ fn run_cc_cmd_or_exit(cmd string, stage string, show_cc bool) bool {
 				}
 				rr := os.execute(recompile_cmd)
 				if rr.exit_code != 0 {
-					eprintln('cc recompile failed for ${c_sibling}:')
-					eprintln(rr.output)
+					report_builder_command_failure('cc_recompile_${c_sibling}', recompile_cmd, rr,
+						50)
 				}
 				// Invalidate stamp so future builds rebuild from .c too.
 				stamp_path := stem + '.stamp'
@@ -3034,12 +3020,8 @@ fn run_cc_cmd_or_exit(cmd string, stage string, show_cc bool) bool {
 			run_cc_cmd_or_exit(fallback_cmd, stage, show_cc)
 			return true
 		}
-		eprintln('${stage} failed:')
+		report_builder_command_failure(stage, cmd, result, 50)
 		lines := result.output.split_into_lines()
-		limit := if lines.len < 50 { lines.len } else { 50 }
-		for line in lines[..limit] {
-			eprintln(line)
-		}
 		mut error_count := 0
 		mut warning_count := 0
 		for line in lines {
@@ -3062,6 +3044,24 @@ fn native_graph_stage_title(label string, title string) string {
 		return title
 	}
 	return '${label} ${title}'
+}
+
+fn command_output_preview(output string, max_lines int) string {
+	lines := output.split_into_lines()
+	if lines.len <= max_lines {
+		return output.trim_space()
+	}
+	return lines[..max_lines].join('\n') + '\n... truncated_output_lines=${lines.len - max_lines}'
+}
+
+fn report_builder_command_failure(stage string, cmd string, result os.Result, max_lines int) {
+	eprintln(result.command_failure_report('v2.builder.command',
+		stage:   stage
+		reason:  'command_failed'
+		action:  'inspect_command_output'
+		command: cmd
+		output:  command_output_preview(result.output, max_lines)
+	))
 }
 
 const macos_tiny_candidate_graph_label = 'macOS Tiny Candidate'
@@ -3472,8 +3472,7 @@ fn (mut b Builder) gen_native(backend_arch pref.Arch) {
 				link_result = os.execute(normal_link_cmd)
 			}
 			if link_result.exit_code != 0 {
-				eprintln('Link failed:')
-				eprintln(link_result.output)
+				report_builder_command_failure('native_link_macos', link_cmd, link_result, 50)
 				exit(1)
 			}
 			if b.pref.verbose && used_macos_tiny_object {
@@ -3481,10 +3480,10 @@ fn (mut b Builder) gen_native(backend_arch pref.Arch) {
 			}
 		} else {
 			// Linux linking
-			link_result := os.execute('cc ${obj_file} -o ${output_binary} -no-pie')
+			link_cmd := 'cc ${obj_file} -o ${output_binary} -no-pie'
+			link_result := os.execute(link_cmd)
 			if link_result.exit_code != 0 {
-				eprintln('Link failed:')
-				eprintln(link_result.output)
+				report_builder_command_failure('native_link', link_cmd, link_result, 50)
 				exit(1)
 			}
 		}

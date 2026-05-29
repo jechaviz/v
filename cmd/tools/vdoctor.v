@@ -172,7 +172,11 @@ fn (mut a App) cmd(c CmdConfig) string {
 			return output[c.line]
 		}
 	}
-	return 'Error: ${x.output}'
+	return x.command_failure_report('vdoctor.command',
+		reason:  'probe_command_failed'
+		action:  'inspect_probe_command_output'
+		command: c.command
+	)
 }
 
 fn (mut a App) line(label string, value string) {

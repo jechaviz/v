@@ -22,7 +22,7 @@ fn test_the_v_compiler_can_be_invoked() {
 	vcmd_error := '${os.quoted_path(vexec)} nonexisting.v'
 	r_error := os.execute(vcmd_error)
 	if r_error.exit_code < 0 {
-		panic(r_error.output)
+		panic(r_error.exit_code_diagnostics('>= 0', label: @FN, command: vcmd_error))
 	}
 	assert r_error.exit_code == 1, r_error.exit_code_diagnostics('1', label: @FN)
 	actual_error := r_error.output.trim_space()

@@ -137,7 +137,10 @@ pub fn exec(cmd string) !os.Result {
 	x := os.execute(cmd)
 	if x.exit_code != 0 {
 		verbose_trace(modfn(@MOD, @FN), '## failed.')
-		return error(x.output)
+		return error(x.command_failure_report('cmd',
+			action:  'return_error_with_exit_code'
+			command: cmd
+		))
 	}
 	verbose_trace_exec_result(x)
 	return x
@@ -163,14 +166,14 @@ pub fn frun(cmd string) !string {
 	verbose_trace_strong(modfn(@MOD, @FN), cmd)
 	x := os.execute(cmd)
 	if x.exit_code != 0 {
-		verbose_trace(modfn(@MOD, @FN), 'cmd.failed=true')
-		verbose_trace(modfn(@MOD, @FN), 'cmd.reason=child_exit_nonzero')
-		verbose_trace(modfn(@MOD, @FN), 'cmd.action=return_error_with_exit_code')
-		verbose_trace(modfn(@MOD, @FN), 'cmd.message=command exited with a non-zero status')
-		verbose_trace(modfn(@MOD, @FN), 'cmd.exit_code=${x.exit_code}')
-		verbose_trace(modfn(@MOD, @FN), 'cmd.output=${scripting_report_value(x.output)}')
-		return error_with_code('cmd.failed=true\ncmd.reason=child_exit_nonzero\ncmd.action=return_error_with_exit_code\ncmd.message=command exited with a non-zero status\ncmd.command=${scripting_report_value(cmd)}',
-			x.exit_code)
+		report := x.command_failure_report('cmd',
+			action:  'return_error_with_exit_code'
+			command: cmd
+		)
+		for line in report.split_into_lines() {
+			verbose_trace(modfn(@MOD, @FN), line)
+		}
+		return error_with_code(report, x.exit_code)
 	}
 	verbose_trace_exec_result(x)
 	return x.output.trim_right('\r\n')

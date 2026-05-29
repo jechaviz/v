@@ -357,7 +357,13 @@ fn tlog(s string) {
 fn cmd_system(cmd string) {
 	res := os.system(cmd)
 	if res != 0 {
-		tlog('> error ${res}, while executing: ${cmd}')
+		for line in os.process_command_failure_report('v.tool.command', res,
+			reason:  'tool_command_failed'
+			action:  'inspect_command_output'
+			command: cmd
+		).split_into_lines() {
+			tlog(line)
+		}
 	}
 	exit(res)
 }
@@ -643,9 +649,14 @@ pub fn recompile_file(vexe string, file string) {
 	$if trace_recompilation ? {
 		println('recompilation command: ${cmd}')
 	}
-	recompile_result := os.system(cmd)
-	if recompile_result != 0 {
-		eprintln('could not recompile ${file}')
+	recompile_result := os.execute(cmd)
+	if recompile_result.exit_code != 0 {
+		eprintln(recompile_result.command_failure_report('v.tool.recompile',
+			reason:  'tool_recompile_failed'
+			action:  'inspect_recompile_output'
+			message: 'could not recompile tool'
+			command: cmd
+		))
 		exit(2)
 	}
 }

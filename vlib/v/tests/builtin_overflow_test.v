@@ -55,7 +55,7 @@ fn test_out_files() {
 		//
 		if res.exit_code < 0 {
 			println('nope')
-			panic(res.output)
+			panic(res.exit_code_diagnostics('0', label: @FN, command: os.quoted_path(pexe)))
 		}
 		mut found := res.output.trim_right('\r\n').replace('\r\n', '\n')
 		mut expected := os.read_file(out_path)!
