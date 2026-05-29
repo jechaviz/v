@@ -23,6 +23,28 @@ pub const external_module_dependencies_for_tool = {
 	'vdoc': ['markdown']
 }
 
+fn tool_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn report_tool_compilation_failure(tool_name string, tool_source string, command string, result os.Result, action string) {
+	output := result.output.trim_space()
+	eprintln('v.tool.failed=true')
+	eprintln('v.tool.reason=tool_compilation_failed')
+	eprintln('v.tool.action=${action}')
+	eprintln('v.tool.message=cannot compile V helper tool')
+	eprintln('v.tool.name=${tool_report_value(tool_name)}')
+	eprintln('v.tool.source=${tool_report_value(tool_source)}')
+	eprintln('v.tool.command=${tool_report_value(command)}')
+	eprintln('v.tool.exit_code=${result.exit_code}')
+	if output == '' {
+		eprintln('v.tool.output_empty=true')
+	} else {
+		eprintln('v.tool.output:')
+		eprintln(output)
+	}
+}
+
 const const_tabs = [
 	'',
 	'\t',
@@ -241,8 +263,9 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 					break
 				} else {
 					if tool_name == 'vup' {
-						eprintln('Cannot recompile the new version of `vup`: ${tool_compilation.exit_code}\n${tool_compilation.output}')
 						if os.exists(tool_exe) {
+							report_tool_compilation_failure(tool_name, tool_source,
+								compilation_command, tool_compilation, 'try_existing_tool_binary')
 							// Compilation failed, but we still have an already existing old `vup.exe`, that *probably* works.
 							// It is better to pretend the compilation succeeded, and try the old executable, then let it fail
 							// on its own, if it can not work too (it will produce a nicer diagnostic message), than to fail here
@@ -251,6 +274,8 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 							eprintln('Trying an already existing old version of the `vup` tool instead...')
 							break
 						} else {
+							report_tool_compilation_failure(tool_name, tool_source,
+								compilation_command, tool_compilation, 'ask_user_to_rebootstrap_v')
 							// No pre-existing `vup.exe` ... No choice but to show a message to the user :-( .
 							// Note: running `make` here from within the old V frontend process, is not reliable, since it can fail
 							// on windows and probably other systems, because the currently running executable is locked.
@@ -264,7 +289,8 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 						}
 					}
 					if i == tool_recompile_retry_max_count - 1 {
-						eprintln('cannot compile `${tool_source}`: ${tool_compilation.exit_code}\n${tool_compilation.output}')
+						report_tool_compilation_failure(tool_name, tool_source,
+							compilation_command, tool_compilation, 'abort_tool_launch')
 						l.release()
 						exit(1)
 					}

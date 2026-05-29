@@ -21,10 +21,13 @@ fn test_fmt_keeps_invalid_assert_source_unchanged() {
 
 	assert res.exit_code != 0, res.output
 	assert res.output.contains('unexpected string `bye`, expecting `,`'), res.output
-	assert res.output.contains('vfmt worker failed while formatting file:'), res.output
-	assert res.output.contains('exit_code:'), res.output
-	assert res.output.contains('origin_pid:'), res.output
-	assert res.output.contains('command:'), res.output
+	assert res.output.contains('vfmt.worker.failed=true'), res.output
+	assert res.output.contains('vfmt.worker.reason=worker_exit_nonzero'), res.output
+	assert res.output.contains('vfmt.worker.message=vfmt worker failed while formatting file:'), res.output
+	assert res.output.contains('vfmt.worker.exit_code='), res.output
+	assert res.output.contains('vfmt.worker.exit_description='), res.output
+	assert res.output.contains('vfmt.worker.origin_pid='), res.output
+	assert res.output.contains('vfmt.worker.command='), res.output
 	assert os.read_file(source_path)! == original
 }
 

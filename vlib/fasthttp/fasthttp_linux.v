@@ -1,6 +1,7 @@
 module fasthttp
 
 import net
+import os
 import sync.stdatomic
 import time
 
@@ -23,6 +24,22 @@ fn C.epoll_wait(__epfd i32, __events &C.epoll_event, __maxevents i32, __timeout 
 fn C.sendfile(out_fd i32, in_fd i32, offset &i64, count usize) i32
 
 fn C.fstat(fd i32, buf &C.stat) i32
+
+fn fasthttp_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn log_errno_failure(reason string, action string, message string, errno int, details []string) {
+	eprintln('fasthttp.io.failed=true')
+	eprintln('fasthttp.io.reason=${reason}')
+	eprintln('fasthttp.io.action=${action}')
+	eprintln('fasthttp.io.message=${fasthttp_report_value(message)}')
+	eprintln('fasthttp.io.errno=${errno}')
+	eprintln('fasthttp.io.error=${fasthttp_report_value(os.posix_get_error_msg(errno))}')
+	for detail in details {
+		eprintln('fasthttp.io.${detail}')
+	}
+}
 
 @[typedef]
 union C.epoll_data_t {
@@ -137,7 +154,8 @@ fn close_socket(fd int) bool {
 			// Interrupted by signal, retry is safe
 			return close_socket(fd)
 		}
-		eprintln('ERROR: close(fd=${fd}) failed with errno=${C.errno}')
+		log_errno_failure('close_failed', 'report_and_keep_server_running',
+			'failed to close socket', C.errno, ['fd=${fd}'])
 		return false
 	}
 	return true
@@ -148,7 +166,10 @@ fn create_server_socket(server Server) int {
 	server_fd := C.socket(i32(server.family), i32(net.SocketType.tcp), 0)
 	if server_fd < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'Socket creation failed')
+		log_errno_failure('socket_create_failed', 'abort_server_start',
+			'failed to create listening socket', C.errno, [
+			'family=${int(server.family)}',
+		])
 		return -1
 	}
 
@@ -158,13 +179,19 @@ fn create_server_socket(server Server) int {
 	opt := 1
 	if C.setsockopt(server_fd, C.SOL_SOCKET, C.SO_REUSEADDR, &opt, sizeof(opt)) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'setsockopt SO_REUSEADDR failed')
+		log_errno_failure('setsockopt_reuseaddr_failed', 'abort_server_start',
+			'failed to enable SO_REUSEADDR on listening socket', C.errno, [
+			'fd=${server_fd}',
+		])
 		close_socket(server_fd)
 		return -1
 	}
 	if C.setsockopt(server_fd, C.SOL_SOCKET, C.SO_REUSEPORT, &opt, sizeof(opt)) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'setsockopt SO_REUSEPORT failed')
+		log_errno_failure('setsockopt_reuseport_failed', 'abort_server_start',
+			'failed to enable SO_REUSEPORT on listening socket', C.errno, [
+			'fd=${server_fd}',
+		])
 		close_socket(server_fd)
 		return -1
 	}
@@ -177,13 +204,15 @@ fn create_server_socket(server Server) int {
 	alen := addr.len()
 	if C.bind(server_fd, voidptr(&addr), alen) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'Bind failed')
+		log_errno_failure('bind_failed', 'abort_server_start', 'failed to bind listening socket',
+			C.errno, ['fd=${server_fd}', 'port=${server.port}'])
 		close_socket(server_fd)
 		return -1
 	}
 	if C.listen(server_fd, max_connection_size) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'Listen failed')
+		log_errno_failure('listen_failed', 'abort_server_start',
+			'failed to listen on server socket', C.errno, ['fd=${server_fd}'])
 		close_socket(server_fd)
 		return -1
 	}
@@ -198,7 +227,8 @@ fn add_fd_to_epoll(epoll_fd int, fd int, events u32) int {
 	ev.data.fd = fd
 	if C.epoll_ctl(epoll_fd, C.EPOLL_CTL_ADD, fd, &ev) == -1 {
 		eprintln(@LOCATION)
-		C.perror(c'epoll_ctl')
+		log_errno_failure('epoll_add_failed', 'close_socket_and_report',
+			'failed to add socket to epoll', C.errno, ['epoll_fd=${epoll_fd}', 'fd=${fd}'])
 		return -1
 	}
 	return 0
@@ -208,7 +238,8 @@ fn add_fd_to_epoll(epoll_fd int, fd int, events u32) int {
 fn remove_fd_from_epoll(epoll_fd int, fd int) bool {
 	ret := C.epoll_ctl(epoll_fd, C.EPOLL_CTL_DEL, fd, C.NULL)
 	if ret == -1 {
-		eprintln('ERROR: epoll_ctl(DEL, fd=${fd}) failed with errno=${C.errno}')
+		log_errno_failure('epoll_delete_failed', 'report_and_continue_closure',
+			'failed to remove socket from epoll', C.errno, ['epoll_fd=${epoll_fd}', 'fd=${fd}'])
 		return false
 	}
 	return true
@@ -222,7 +253,10 @@ fn handle_accept_loop(epoll_fd int, listen_fd int, mut client_fds map[int]bool) 
 				break // No more incoming connections; exit loop.
 			}
 			eprintln(@LOCATION)
-			C.perror(c'Accept failed')
+			log_errno_failure('accept_failed', 'continue_accept_loop',
+				'failed to accept incoming connection', C.errno, [
+				'listen_fd=${listen_fd}',
+			])
 			break
 		}
 		// Enable TCP_NODELAY for lower latency
@@ -339,7 +373,10 @@ fn try_drain_write(client_fd int, mut state ClientWriteState) DrainStatus {
 			if errno_val == C.EINTR {
 				continue
 			}
-			eprintln('ERROR: send() failed with errno=${errno_val}')
+			log_errno_failure('send_failed', 'close_client_connection',
+				'failed to send response bytes to client', errno_val, [
+				'client_fd=${client_fd}',
+			])
 			return .failed
 		}
 		// send() returning 0 on a non-blocking TCP socket is unusual; treat it as
@@ -373,28 +410,57 @@ fn try_drain_write(client_fd int, mut state ClientWriteState) DrainStatus {
 			}
 			match errno_val {
 				C.EBADF {
-					eprintln('ERROR: sendfile() EBADF: input fd or socket not open for required access (errno=${errno_val})')
+					log_errno_failure('sendfile_bad_fd', 'close_client_connection',
+						'sendfile input file or socket is not open for required access', errno_val, [
+						'client_fd=${client_fd}',
+						'file_fd=${state.file_fd}',
+					])
 				}
 				C.EFAULT {
-					eprintln('ERROR: sendfile() EFAULT: bad address for offset (errno=${errno_val})')
+					log_errno_failure('sendfile_bad_address', 'close_client_connection',
+						'sendfile received a bad offset address', errno_val, [
+						'client_fd=${client_fd}',
+						'file_fd=${state.file_fd}',
+					])
 				}
 				C.EINVAL {
-					eprintln('ERROR: sendfile() EINVAL: invalid descriptor state or non-seekable input (errno=${errno_val})')
+					log_errno_failure('sendfile_invalid_state', 'close_client_connection',
+						'sendfile received invalid descriptor state or non-seekable input',
+						errno_val, ['client_fd=${client_fd}', 'file_fd=${state.file_fd}'])
 				}
 				C.EIO {
-					eprintln('ERROR: sendfile() EIO: I/O error while reading input file (errno=${errno_val})')
+					log_errno_failure('sendfile_io_error', 'close_client_connection',
+						'sendfile hit an I/O error while reading input file', errno_val, [
+						'client_fd=${client_fd}',
+						'file_fd=${state.file_fd}',
+					])
 				}
 				C.ENOMEM {
-					eprintln('ERROR: sendfile() ENOMEM: insufficient kernel memory (errno=${errno_val})')
+					log_errno_failure('sendfile_kernel_nomem', 'close_client_connection',
+						'sendfile failed because the kernel reported insufficient memory',
+						errno_val, ['client_fd=${client_fd}', 'file_fd=${state.file_fd}'])
 				}
 				C.EOVERFLOW {
-					eprintln('ERROR: sendfile() EOVERFLOW: count exceeds file/socket limits (errno=${errno_val})')
+					log_errno_failure('sendfile_overflow', 'close_client_connection',
+						'sendfile count exceeds file or socket limits', errno_val, [
+						'client_fd=${client_fd}',
+						'file_fd=${state.file_fd}',
+						'remaining=${remaining}',
+					])
 				}
 				C.ESPIPE {
-					eprintln('ERROR: sendfile() ESPIPE: input file not seekable with offset (errno=${errno_val})')
+					log_errno_failure('sendfile_not_seekable', 'close_client_connection',
+						'sendfile input file is not seekable with offset', errno_val, [
+						'client_fd=${client_fd}',
+						'file_fd=${state.file_fd}',
+					])
 				}
 				else {
-					eprintln('ERROR: sendfile() failed with errno=${errno_val}')
+					log_errno_failure('sendfile_failed', 'close_client_connection',
+						'sendfile failed with an unmapped errno', errno_val, [
+						'client_fd=${client_fd}',
+						'file_fd=${state.file_fd}',
+					])
 				}
 			}
 
@@ -650,7 +716,10 @@ fn process_events(server &Server, epoll_fd int, listen_fd int) {
 			if server.is_shutting_down() {
 				continue
 			}
-			eprintln('ERROR: epoll_wait() failed with errno=${C.errno}')
+			log_errno_failure('epoll_wait_failed', 'continue_event_loop',
+				'epoll_wait failed while polling server events', C.errno, [
+				'epoll_fd=${epoll_fd}',
+			])
 			continue
 		}
 		for i := 0; i < num_events; i++ {
@@ -736,7 +805,10 @@ fn process_events(server &Server, epoll_fd int, listen_fd int) {
 							break
 						}
 						// Error occurred
-						eprintln('ERROR: recv() failed with errno=${C.errno}')
+						log_errno_failure('recv_failed', 'close_client_connection',
+							'failed to read request bytes from client socket', C.errno, [
+							'client_fd=${client_fd}',
+						])
 						recv_error = true
 						break
 					} else if bytes_read == 0 {
@@ -856,7 +928,8 @@ pub fn (mut server Server) run() ! {
 
 		server.epoll_fds[i] = C.epoll_create1(0)
 		if server.epoll_fds[i] < 0 {
-			C.perror(c'epoll_create1 failed')
+			log_errno_failure('epoll_create_failed', 'abort_server_start',
+				'failed to create epoll instance', C.errno, []string{})
 			close_socket(server.listen_fds[i])
 			return
 		}

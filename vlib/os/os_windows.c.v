@@ -479,6 +479,25 @@ pub fn execute(cmd string) Result {
 	return unsafe { raw_execute(cmd) }
 }
 
+fn windows_execute_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn windows_execute_failure_output(reason string, action string, message string, error_num int, error_msg string, display_cmd string) string {
+	mut lines := [
+		'os.exec.failed=true',
+		'os.exec.reason=${reason}',
+		'os.exec.action=${action}',
+		'os.exec.message=${windows_execute_report_value(message)}',
+		'os.exec.exit_code=${error_num}',
+		'os.exec.error=${windows_execute_report_value(error_msg)}',
+	]
+	if display_cmd != '' {
+		lines << 'os.exec.command=${windows_execute_report_value(display_cmd)}'
+	}
+	return lines.join('\n')
+}
+
 fn windows_direct_execute_args(cmd string) ?[]string {
 	mut direct_args := []string{}
 	mut current := []u8{cap: cmd.len}
@@ -605,7 +624,10 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 		error_msg := get_error_msg(error_num)
 		return Result{
 			exit_code: error_num
-			output:    'exec failed (CreatePipe): ${error_msg}'
+			output:    windows_execute_failure_output('create_pipe_failed',
+				'abort_before_child_start',
+				'failed to create stdout capture pipe for child process', error_num, error_msg,
+				display_cmd)
 		}
 	}
 	set_handle_info_ok := C.SetHandleInformation(child_stdout_read, C.HANDLE_FLAG_INHERIT, 0)
@@ -616,7 +638,10 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 		C.CloseHandle(child_stdout_write)
 		return Result{
 			exit_code: error_num
-			output:    'exec failed (SetHandleInformation): ${error_msg}'
+			output:    windows_execute_failure_output('set_handle_information_failed',
+				'abort_before_child_start',
+				'failed to mark stdout capture handle as non-inheritable', error_num, error_msg,
+				display_cmd)
 		}
 	}
 	proc_info := ProcessInformation{}
@@ -651,7 +676,9 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 		C.CloseHandle(child_stdout_write)
 		return Result{
 			exit_code: error_num
-			output:    'exec failed (CreateProcess) with code ${error_num}: ${error_msg} cmd: ${display_cmd}'
+			output:    windows_execute_failure_output('create_process_failed',
+				'abort_before_child_start', 'failed to start child process with CreateProcessW',
+				error_num, error_msg, display_cmd)
 		}
 	}
 	C.CloseHandle(child_stdin)

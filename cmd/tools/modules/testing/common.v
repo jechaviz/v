@@ -784,7 +784,8 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 			}
 			if details.retry != 0 {
 				failure_output.write_string(separator)
-				failure_output.writeln(' retry: 0 ; max_retry: ${details.retry} ; r.exit_code: ${r.exit_code} ; trimmed_output.len: ${trimmed_output.len}')
+				failure_output.writeln(test_run_failure_attempt_report(0, details.retry,
+					r.exit_code, trimmed_output.len))
 			}
 			failure_output.writeln(trimmed_output)
 			os.setenv('VTEST_RETRY_MAX', '${details.retry}', true)
@@ -808,7 +809,8 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				}
 				trimmed_output = r.output.trim_space()
 				failure_output.write_string(separator)
-				failure_output.writeln(' retry: ${retry} ; max_retry: ${details.retry} ; r.exit_code: ${r.exit_code} ; trimmed_output.len: ${trimmed_output.len}')
+				failure_output.writeln(test_run_failure_attempt_report(retry, details.retry,
+					r.exit_code, trimmed_output.len))
 				failure_output.writeln(trimmed_output)
 				time.sleep(fail_retry_delay_ms)
 			}
@@ -847,6 +849,19 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		), cmd_duration, mtc)
 	}
 	return pool.no_result
+}
+
+fn test_run_failure_attempt_report(retry int, max_retry int, exit_code int, output_len int) string {
+	return [
+		'vtest.run.failure=true',
+		'vtest.run.reason=child_exit_nonzero',
+		'vtest.run.action=retry_or_report_failure',
+		'vtest.run.message=The generated test process exited with a non-zero status.',
+		'vtest.run.retry=${retry}',
+		'vtest.run.max_retry=${max_retry}',
+		'vtest.run.exit_code=${exit_code}',
+		'vtest.run.output_len=${output_len}',
+	].join('\n')
 }
 
 pub fn vlib_should_be_present(parent_dir string) {

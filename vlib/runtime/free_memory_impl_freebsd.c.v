@@ -11,7 +11,8 @@ fn free_memory_impl() !usize {
 			page_size := usize(C.sysconf(C._SC_PAGESIZE))
 			c_errno_1 := C.errno
 			if page_size == usize(-1) {
-				return error('free_memory: `C.sysconf()` return error code = ${c_errno_1}')
+				return error(runtime_errno_report('free_memory', 'C.sysconf(C._SC_PAGESIZE)',
+					'sysconf_pagesize_failed', 'return_error_to_caller', c_errno_1))
 			}
 			mut mib := [4]int{}
 			mut len := usize(4)
@@ -20,7 +21,9 @@ fn free_memory_impl() !usize {
 			}
 			c_errno_2 := C.errno
 			if retval_2 == -1 {
-				return error('free_memory: `C.sysctlnametomib()` return error code = ${c_errno_2}')
+				return error(runtime_errno_report('free_memory',
+					'C.sysctlnametomib(vm.stats.vm.v_free_count)',
+					'sysctlnametomib_free_pages_failed', 'return_error_to_caller', c_errno_2))
 			}
 			mut free_pages := int(0)
 			bufsize := usize(4)
@@ -29,7 +32,8 @@ fn free_memory_impl() !usize {
 			}
 			c_errno_3 := C.errno
 			if retval_3 == -1 {
-				return error('free_memory: `C.sysctl()` return error code = ${c_errno_3}')
+				return error(runtime_errno_report('free_memory', 'C.sysctl(v_free_count)',
+					'sysctl_free_pages_failed', 'return_error_to_caller', c_errno_3))
 			}
 			return page_size * usize(free_pages)
 		}

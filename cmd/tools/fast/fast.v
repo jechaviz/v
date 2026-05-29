@@ -91,7 +91,12 @@ fn main() {
 		elog('Fetching updates...')
 		ret := lsystem('${vdir}/v up')
 		if ret != 0 {
-			elog('failed to update V, exit_code: ${ret}')
+			elog('fast.update.failed=true')
+			elog('fast.update.reason=child_exit_nonzero')
+			elog('fast.update.action=abort_rebase_and_skip_benchmark_until_v_update_succeeds')
+			elog('fast.update.message=failed to update V before benchmarking')
+			elog('fast.update.exit_code=${ret}')
+			elog('fast.update.command=${vdir}/v up')
 			// A failed `git pull --rebase` (e.g. on a shallow CI checkout)
 			// leaves the worktree with conflict markers in source files,
 			// which would break any subsequent V compilation step. Restore

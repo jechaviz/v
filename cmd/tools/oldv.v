@@ -43,6 +43,15 @@ mut:
 	cc_options    string // additional options to pass to the C compiler while bootstrapping.
 }
 
+fn report_oldv_command_failure(cmd string, result os.Result) {
+	scripting.cprintln_strong('#      command failed: true')
+	scripting.cprintln_strong('#              reason: child_exit_nonzero')
+	scripting.cprintln_strong('#              action: report_previous_version_command_failure')
+	scripting.cprintln_strong('#             message: oldv command exited with a non-zero status')
+	scripting.cprintln_strong('#           exit_code: ${result.exit_code:-4d}')
+	scripting.cprintln_strong('#             command: ${cmd}')
+}
+
 fn (mut c Context) compile_oldv_if_needed() {
 	c.vgcontext = vgit.VGitContext{
 		workdir:        c.vgo.workdir
@@ -185,9 +194,9 @@ fn main() {
 	scripting.cprintln('#     v commit hash: ${shorter_hash} | folder: ${context.path_v}')
 	if context.cmd_to_run.len > 0 {
 		scripting.cprintln_strong('#           command: ${context.cmd_to_run:-34s}')
-		cmdres := os.execute_or_exit(context.cmd_to_run)
+		cmdres := os.execute(context.cmd_to_run)
 		if cmdres.exit_code != 0 {
-			scripting.cprintln_strong('#         exit code: ${cmdres.exit_code:-4d}')
+			report_oldv_command_failure(context.cmd_to_run, cmdres)
 		}
 		scripting.cprint_strong('#            result: ')
 		print(cmdres.output)

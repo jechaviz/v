@@ -596,7 +596,12 @@ pub fn rmdir(path string) ! {
 fn print_c_errno() {
 	e := C.errno
 	se := unsafe { cstring_to_vstring(C.strerror(e)) }
-	eprintln('errno=${e} err=${se}')
+	eprintln('os.system.failed=true')
+	eprintln('os.system.reason=libc_system_failed')
+	eprintln('os.system.action=report_errno_and_return_failure')
+	eprintln('os.system.message=C.system returned -1')
+	eprintln('os.system.errno=${e}')
+	eprintln('os.system.error=${se}')
 }
 
 // get_raw_line returns a one-line string from stdin along with `\n` if there is any.

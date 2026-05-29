@@ -176,32 +176,44 @@ fn report_worker_failure(file string, fpath string, worker_cmd string, worker_re
 	if output != '' {
 		eprintln(output)
 	}
-	eprintln('vfmt worker failed while formatting file: ${file}')
-	eprintln('  path: ${fpath}')
-	eprintln('  exit_code: ${worker_result.exit_code} (${worker_exit_description(worker_result.exit_code)})')
-	eprintln('  origin_pid: ${os.getpid()}')
-	eprintln('  cwd: ${os.getwd()}')
-	eprintln('  command: ${worker_cmd}')
+	eprintln('vfmt.worker.failed=true')
+	eprintln('vfmt.worker.reason=worker_exit_nonzero')
+	eprintln('vfmt.worker.action=rerun_single_file_or_inspect_host')
+	eprintln('vfmt.worker.message=vfmt worker failed while formatting file: ${vfmt_report_value(file)}')
+	eprintln('vfmt.worker.path=${vfmt_report_value(fpath)}')
+	eprintln('vfmt.worker.exit_code=${worker_result.exit_code}')
+	eprintln('vfmt.worker.exit_description=${vfmt_report_value(worker_exit_description(worker_result.exit_code))}')
+	eprintln('vfmt.worker.origin_pid=${os.getpid()}')
+	eprintln('vfmt.worker.cwd=${vfmt_report_value(os.getwd())}')
+	eprintln('vfmt.worker.command=${vfmt_report_value(worker_cmd)}')
 	if output == '' {
-		eprintln('  output: <empty>')
+		eprintln('vfmt.worker.output_empty=true')
 	}
-	eprintln('  advice: ${worker_failure_advice(worker_result)}')
+	eprintln('vfmt.worker.advice=${vfmt_report_value(worker_failure_advice(worker_result))}')
 }
 
 fn report_worker_missing_result(file string, fpath string, worker_cmd string, worker_result os.Result) {
 	output := worker_result.output.trim_space()
-	eprintln('vfmt worker did not return a formatted-file marker for: ${file}')
-	eprintln('  path: ${fpath}')
-	eprintln('  exit_code: ${worker_result.exit_code} (${worker_exit_description(worker_result.exit_code)})')
-	eprintln('  origin_pid: ${os.getpid()}')
-	eprintln('  cwd: ${os.getwd()}')
-	eprintln('  command: ${worker_cmd}')
+	eprintln('vfmt.worker.failed=true')
+	eprintln('vfmt.worker.reason=missing_formatted_file_marker')
+	eprintln('vfmt.worker.action=discard_worker_output_and_report')
+	eprintln('vfmt.worker.message=vfmt worker did not return a formatted-file marker for: ${vfmt_report_value(file)}')
+	eprintln('vfmt.worker.path=${vfmt_report_value(fpath)}')
+	eprintln('vfmt.worker.exit_code=${worker_result.exit_code}')
+	eprintln('vfmt.worker.exit_description=${vfmt_report_value(worker_exit_description(worker_result.exit_code))}')
+	eprintln('vfmt.worker.origin_pid=${os.getpid()}')
+	eprintln('vfmt.worker.cwd=${vfmt_report_value(os.getwd())}')
+	eprintln('vfmt.worker.command=${vfmt_report_value(worker_cmd)}')
 	if output == '' {
-		eprintln('  output: <empty>')
+		eprintln('vfmt.worker.output_empty=true')
 	} else {
-		eprintln('  output_preview: ${limit_worker_output(output, 2000)}')
+		eprintln('vfmt.worker.output_preview=${vfmt_report_value(limit_worker_output(output, 2000))}')
 	}
-	eprintln('  advice: ${worker_failure_advice(worker_result)}')
+	eprintln('vfmt.worker.advice=${vfmt_report_value(worker_failure_advice(worker_result))}')
+}
+
+fn vfmt_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
 }
 
 fn worker_exit_description(code int) string {

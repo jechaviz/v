@@ -257,7 +257,7 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 			tool_compilation := os.execute(compilation_command)
 			os.chdir(current_work_dir) or {}
 			if tool_compilation.exit_code != 0 {
-				eprintln('cannot compile `${v2_main_source}`: ${tool_compilation.exit_code}\n${tool_compilation.output}')
+				report_v2_compilation_failure(v2_main_source, compilation_command, tool_compilation)
 				exit(1)
 			}
 		}
@@ -281,6 +281,27 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 		}
 	}
 	exit(2)
+}
+
+fn report_v2_compilation_failure(source string, command string, result os.Result) {
+	output := result.output.trim_space()
+	eprintln('v.delegate.failed=true')
+	eprintln('v.delegate.reason=v2_compilation_failed')
+	eprintln('v.delegate.action=abort_delegated_compiler_launch')
+	eprintln('v.delegate.message=cannot compile delegated v2 compiler source: ${delegate_report_value(source)}')
+	eprintln('v.delegate.exit_code=${result.exit_code}')
+	eprintln('v.delegate.source=${delegate_report_value(source)}')
+	eprintln('v.delegate.command=${delegate_report_value(command)}')
+	if output == '' {
+		eprintln('v.delegate.output_empty=true')
+	} else {
+		eprintln('v.delegate.output:')
+		eprintln(output)
+	}
+}
+
+fn delegate_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
 }
 
 fn cached_v2_executable_path(vroot string, is_ownership bool) string {

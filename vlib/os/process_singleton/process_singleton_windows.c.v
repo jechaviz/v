@@ -1,5 +1,7 @@
 module process_singleton
 
+import os
+
 fn C.CreateMutexA(voidptr, bool, &char) voidptr
 
 const wait_object_0 = 0
@@ -10,7 +12,8 @@ fn acquire_windows_mutex(name string, path string, wait_ms int) !Guard {
 	mutex_name := windows_mutex_name(path)
 	handle := C.CreateMutexA(unsafe { nil }, false, &char(mutex_name.str))
 	if handle == unsafe { nil } {
-		return error('could not create process singleton mutex `${mutex_name}` (GetLastError=${C.GetLastError()})')
+		error_code := int(C.GetLastError())
+		return error('process_singleton.failed=true\nprocess_singleton.reason=win32_create_mutex_failed\nprocess_singleton.action=abort_singleton_acquire\nprocess_singleton.message=could not create process singleton mutex\nprocess_singleton.name=${process_singleton_report_value(name)}\nprocess_singleton.mutex=${process_singleton_report_value(mutex_name)}\nprocess_singleton.error_code=${error_code}\nprocess_singleton.error_message=${process_singleton_report_value(os.get_error_msg(error_code))}')
 	}
 	wait_result := C.WaitForSingleObject(handle, wait_ms)
 	if wait_result == wait_object_0 || wait_result == wait_abandoned {
@@ -25,7 +28,8 @@ fn acquire_windows_mutex(name string, path string, wait_ms int) !Guard {
 	if wait_result == wait_timeout {
 		return error('process singleton `${name}` is already running')
 	}
-	return error('could not wait for process singleton `${name}` mutex `${mutex_name}` (wait_result=${wait_result}, GetLastError=${C.GetLastError()})')
+	error_code := int(C.GetLastError())
+	return error('process_singleton.failed=true\nprocess_singleton.reason=win32_wait_failed\nprocess_singleton.action=abort_singleton_acquire\nprocess_singleton.message=could not wait for process singleton mutex\nprocess_singleton.name=${process_singleton_report_value(name)}\nprocess_singleton.mutex=${process_singleton_report_value(mutex_name)}\nprocess_singleton.wait_result=${wait_result}\nprocess_singleton.error_code=${error_code}\nprocess_singleton.error_message=${process_singleton_report_value(os.get_error_msg(error_code))}')
 }
 
 fn (mut guard Guard) release_windows_mutex() bool {
@@ -44,6 +48,10 @@ fn windows_mutex_name(path string) string {
 		tail = tail[tail.len - 64..]
 	}
 	return 'v_process_singleton_${stable_lock_hash(path).hex()}_${tail}'
+}
+
+fn process_singleton_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
 }
 
 fn stable_lock_hash(text string) u64 {

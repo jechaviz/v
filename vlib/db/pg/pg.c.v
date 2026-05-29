@@ -4,6 +4,10 @@ import io
 import orm
 import time
 
+fn pg_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
+}
+
 $if $pkgconfig('libpq') {
 	#pkgconfig --cflags --libs libpq
 } $else {
@@ -726,14 +730,16 @@ pub fn (c &Conn) copy_expert(query string, mut file io.ReaderWriter) !int {
 
 			code := C.PQputCopyData(c.conn, buf.data, n)
 			if code == -1 {
-				return error('pg copy error: Failed to send data, code=${code}')
+				copy_error := unsafe { C.PQerrorMessage(db.conn).vstring() }.trim_space()
+				return error('pg.copy.failed=true\npg.copy.reason=send_data_failed\npg.copy.action=abort_copy_and_report_connection_error\npg.copy.message=failed to send COPY data to PostgreSQL\npg.copy.code=${code}\npg.copy.error=${pg_report_value(copy_error)}')
 			}
 		}
 
 		code := C.PQputCopyEnd(c.conn, &char(unsafe { nil }))
 
 		if code != 1 {
-			return error('pg copy error: Failed to finish copy command, code: ${code}')
+			copy_error := unsafe { C.PQerrorMessage(db.conn).vstring() }.trim_space()
+			return error('pg.copy.failed=true\npg.copy.reason=finish_copy_failed\npg.copy.action=abort_copy_and_report_connection_error\npg.copy.message=failed to finish PostgreSQL COPY command\npg.copy.code=${code}\npg.copy.error=${pg_report_value(copy_error)}')
 		}
 	} else if status == .copy_out {
 		for {

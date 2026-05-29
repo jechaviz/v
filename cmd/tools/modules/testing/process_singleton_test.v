@@ -108,6 +108,8 @@ fn test_process_singleton_busy_lock_fails_closed() {
 	assert res.exit_code == -1
 	assert res.output.contains('vtest.process.queue=timeout')
 	assert res.output.contains('process-instance-queue-timeout')
+	assert res.output.contains('vtest.process.action=abort_before_child_start')
+	assert res.output.contains('vtest.process.message=')
 }
 
 fn test_process_singleton_system_busy_lock_fails_closed() {

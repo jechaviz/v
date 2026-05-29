@@ -103,7 +103,11 @@ fn main() {
 		elog('running ./fast -upload')
 		fast_exit_code := os.system('./fast -upload')
 		if fast_exit_code != 0 {
-			println('fast_exit_code = ${fast_exit_code}, != 0')
+			println('fast.upload.failed=true')
+			println('fast.upload.reason=child_exit_nonzero')
+			println('fast.upload.action=delay_and_retry_next_cycle')
+			println('fast.upload.message=fast upload command exited with a non-zero status')
+			println('fast.upload.exit_code=${fast_exit_code}')
 		}
 
 		delay()

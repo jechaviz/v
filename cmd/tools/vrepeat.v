@@ -27,6 +27,28 @@ fn show_failure_output(output string) {
 	eprintln(hline)
 }
 
+fn report_command_failure(phase string, run_index int, cmd string, result os.Result, duration i64) {
+	duration_ms := f64(duration) / 1000.0
+	eprintln('\nvrepeat.command.failed=true')
+	eprintln('vrepeat.command.reason=child_exit_nonzero')
+	eprintln('vrepeat.command.action=stop_or_use_ignore_failed')
+	eprintln('vrepeat.command.message=command exited with a non-zero status during ${phase}')
+	eprintln('vrepeat.command.phase=${phase}')
+	if run_index > 0 {
+		eprintln('vrepeat.command.run_index=${run_index}')
+	}
+	eprintln('vrepeat.command.exit_code=${result.exit_code}')
+	eprintln('vrepeat.command.duration_ms=${duration_ms}')
+	eprintln('vrepeat.command.command=${vrepeat_report_value(cmd)}')
+	eprintln('vrepeat.command.advice=Use -e or --ignore to ignore failed commands.')
+	eprintln('vrepeat.command.output:')
+	show_failure_output(result.output)
+}
+
+fn vrepeat_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
+}
+
 const max_fail_percent = 100 * 1000
 const max_time = 60 * 1000 // ms
 
@@ -218,10 +240,7 @@ fn (mut context Context) run() {
 						context.fail_count[cmd]++
 					}
 					if should_show_fail_output {
-						eprintln('\nCommand exited with exit code: ${res.exit_code} in ${f64(duration) / 1000:6.1f}ms .')
-						eprintln('Use -e or --ignore to ignore the failed commands.')
-						eprintln('The failed cmd was: `${c(tred, cmd)}` ; cmd output:')
-						show_failure_output(res.output)
+						report_command_failure('warmup', i + 1, cmd, res, duration)
 					}
 				}
 			}
@@ -253,8 +272,7 @@ fn (mut context Context) run() {
 				context.results[icmd].timings << duration
 				oldres = res.output.replace('\n', ' ')
 				if should_show_fail_output {
-					eprintln('\n${i + 1:10} non 0 exit code for cmd: ${cmd}; cmd output:')
-					show_failure_output(res.output)
+					report_command_failure('run', i + 1, cmd, res, duration)
 				}
 			}
 			context.results[icmd].cmd = cmd

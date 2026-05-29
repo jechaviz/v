@@ -53,6 +53,10 @@ pub fn verbose_trace(label string, message string) {
 	}
 }
 
+fn scripting_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
 pub fn verbose_trace_strong(label string, omessage string) {
 	if os.getenv('VERBOSE').len > 0 {
 		slabel := '${time.now().format_ss_milli()} ${label}'
@@ -66,7 +70,14 @@ pub fn verbose_trace_strong(label string, omessage string) {
 
 pub fn verbose_trace_exec_result(x os.Result) {
 	if os.getenv('VERBOSE').len > 0 {
-		cprintln('#   cmd.exit_code : ${x.exit_code.str():-4s}  cmd.output:')
+		failed := if x.exit_code == 0 { 'false' } else { 'true' }
+		reason := if x.exit_code == 0 { 'completed' } else { 'child_exit_nonzero' }
+		action := if x.exit_code == 0 { 'return_output' } else { 'report_command_failure' }
+		cprintln('#   cmd.failed     : ${failed}')
+		cprintln('#   cmd.reason     : ${reason}')
+		cprintln('#   cmd.action     : ${action}')
+		cprintln('#   cmd.exit_code  : ${x.exit_code.str():-4s}')
+		cprintln('#   cmd.output     :')
 		mut lnum := 1
 		lines := x.output.split_into_lines()
 		for oline in lines {
@@ -152,10 +163,14 @@ pub fn frun(cmd string) !string {
 	verbose_trace_strong(modfn(@MOD, @FN), cmd)
 	x := os.execute(cmd)
 	if x.exit_code != 0 {
-		verbose_trace(modfn(@MOD, @FN), '## failed.')
-		verbose_trace(modfn(@MOD, @FN), '## failure   code: ${x.exit_code}')
-		verbose_trace(modfn(@MOD, @FN), '## failure output: ${x.output}')
-		return error_with_code('failed cmd: ${cmd}', x.exit_code)
+		verbose_trace(modfn(@MOD, @FN), 'cmd.failed=true')
+		verbose_trace(modfn(@MOD, @FN), 'cmd.reason=child_exit_nonzero')
+		verbose_trace(modfn(@MOD, @FN), 'cmd.action=return_error_with_exit_code')
+		verbose_trace(modfn(@MOD, @FN), 'cmd.message=command exited with a non-zero status')
+		verbose_trace(modfn(@MOD, @FN), 'cmd.exit_code=${x.exit_code}')
+		verbose_trace(modfn(@MOD, @FN), 'cmd.output=${scripting_report_value(x.output)}')
+		return error_with_code('cmd.failed=true\ncmd.reason=child_exit_nonzero\ncmd.action=return_error_with_exit_code\ncmd.message=command exited with a non-zero status\ncmd.command=${scripting_report_value(cmd)}',
+			x.exit_code)
 	}
 	verbose_trace_exec_result(x)
 	return x.output.trim_right('\r\n')

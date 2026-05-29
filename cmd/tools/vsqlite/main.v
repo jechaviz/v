@@ -60,6 +60,63 @@ Interactive mode commands:
 
 const history_file = os.join_path(os.home_dir(), '.vsqlite_history')
 
+fn vsqlite_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn sqlite_result_reason(code int) string {
+	base_code := code & 0xff
+	return match base_code {
+		1 { 'sqlite_error' }
+		2 { 'sqlite_internal' }
+		3 { 'sqlite_perm' }
+		4 { 'sqlite_abort' }
+		5 { 'sqlite_busy' }
+		6 { 'sqlite_locked' }
+		7 { 'sqlite_nomem' }
+		8 { 'sqlite_readonly' }
+		9 { 'sqlite_interrupt' }
+		10 { 'sqlite_ioerr' }
+		11 { 'sqlite_corrupt' }
+		13 { 'sqlite_full' }
+		14 { 'sqlite_cantopen' }
+		17 { 'sqlite_schema' }
+		18 { 'sqlite_toobig' }
+		19 { 'sqlite_constraint' }
+		20 { 'sqlite_mismatch' }
+		21 { 'sqlite_misuse' }
+		22 { 'sqlite_nolfs' }
+		23 { 'sqlite_auth' }
+		24 { 'sqlite_format' }
+		25 { 'sqlite_range' }
+		26 { 'sqlite_notadb' }
+		else { 'sqlite_result_error' }
+	}
+}
+
+fn report_sqlite_result_failure(operation string, code int, action string, statement string, row int) {
+	eprintln('vsqlite.sql.failed=true')
+	eprintln('vsqlite.sql.reason=${sqlite_result_reason(code)}')
+	eprintln('vsqlite.sql.action=${action}')
+	eprintln('vsqlite.sql.message=SQLite ${operation} failed; inspect the statement and database state')
+	eprintln('vsqlite.sql.code=${code}')
+	if row > 0 {
+		eprintln('vsqlite.sql.row=${row}')
+	}
+	if statement != '' {
+		eprintln('vsqlite.sql.statement=${vsqlite_report_value(statement)}')
+	}
+}
+
+fn report_vsqlite_shell_failure(shell_cmd string, result os.Result) {
+	eprintln('vsqlite.shell.failed=true')
+	eprintln('vsqlite.shell.reason=child_exit_nonzero')
+	eprintln('vsqlite.shell.action=report_command_failure_and_continue_repl')
+	eprintln('vsqlite.shell.message=.shell command exited with a non-zero status')
+	eprintln('vsqlite.shell.exit_code=${result.exit_code}')
+	eprintln('vsqlite.shell.command=${vsqlite_report_value(shell_cmd)}')
+}
+
 struct App {
 mut:
 	db           sqlite.DB
@@ -291,7 +348,7 @@ fn (mut app App) run(stmt string) bool {
 		code := app.db.exec_none(stmt)
 		if code != 101 && code != 100 {
 			// sqlite_done=101, sqlite_row=100; anything else is an error
-			eprintln('Error: exec failed (code ${code})')
+			report_sqlite_result_failure('exec', code, 'abort_statement', stmt, 0)
 			if app.bail {
 				exit(1)
 			}
@@ -812,7 +869,7 @@ fn (mut app App) dot_cmd(cmd string) {
 				}
 			}
 			if result.exit_code != 0 {
-				eprintln('Exit code: ${result.exit_code}')
+				report_vsqlite_shell_failure(shell_cmd, result)
 			}
 		}
 		'.backup' {
@@ -1003,7 +1060,8 @@ fn (mut app App) import_csv(file string, table string) {
 		code := app.db.exec_none('INSERT INTO ${table} (${col_list}) VALUES (${quoted.join(',')})')
 		if code != 101 && code != 100 {
 			app.db.exec_none('ROLLBACK')
-			eprintln('Error: import failed on row ${imported + 1} (code ${code})')
+			report_sqlite_result_failure('import', code, 'rollback_import_and_report',
+				'INSERT INTO ${table} (${col_list}) VALUES (...)', imported + 1)
 			return
 		}
 		imported++

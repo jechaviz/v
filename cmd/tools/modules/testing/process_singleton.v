@@ -130,7 +130,10 @@ fn process_singleton_restore_env(name string, value string) {
 fn process_singleton_queue_wait_message(cmd string, lock_path string, wait_ms int) string {
 	return [
 		'vtest.process.queue=waiting',
+		'vtest.process.reason=process_instance_queue_busy',
+		'vtest.process.action=wait_for_singleton_turn',
 		'vtest.process.queue_message=otra instancia de V/VTest esta activa o cerrandose; esta ejecucion queda formada y no arrancara hasta obtener turno',
+		'vtest.process.message=Another V/VTest instance is active; this command is queued until the singleton lock is available.',
 		'vtest.process.queue_timeout_ms=${wait_ms}',
 		'vtest.process.lock_path=${lock_path}',
 		'vtest.process.command=${cmd}',
@@ -141,7 +144,10 @@ fn process_singleton_queue_wait_message(cmd string, lock_path string, wait_ms in
 fn process_singleton_queue_start_message(cmd string, lock_path string) string {
 	return [
 		'vtest.process.queue=starting',
+		'vtest.process.reason=process_instance_queue_released',
+		'vtest.process.action=start_queued_command',
 		'vtest.process.queue_message=la instancia previa libero el turno; iniciando ahora',
+		'vtest.process.message=The previous V/VTest instance released the singleton lock; starting this command now.',
 		'vtest.process.lock_path=${lock_path}',
 		'vtest.process.command=${cmd}',
 	].join('\n')
@@ -150,8 +156,10 @@ fn process_singleton_queue_start_message(cmd string, lock_path string) string {
 fn process_singleton_queue_timeout_message(cmd string, lock_path string, wait_ms int) string {
 	return [
 		'vtest.process.queue=timeout',
-		'vtest.process.exit_code=-1',
 		'vtest.process.reason=process-instance-queue-timeout',
+		'vtest.process.action=abort_before_child_start',
+		'vtest.process.message=V did not start another instance because the singleton queue timed out.',
+		'vtest.process.exit_code=-1',
 		'vtest.process.queue_timeout_ms=${wait_ms}',
 		'vtest.process.lock_path=${lock_path}',
 		'vtest.process.command=${cmd}',

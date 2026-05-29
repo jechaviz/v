@@ -215,7 +215,9 @@ fn (mut context Context) process_whole_file_in_worker(path string) (int, int) {
 		cmd := '${os.quoted_path(context.myself)} ${verbosity} --worker --timeout_ms ${context.timeout_ms:5} --cut_index ${i:5} --path ${os.quoted_path(path)} '
 		context.log(cmd)
 		mut res := os.execute(cmd)
-		context.log('worker exit_code: ${res.exit_code} | worker output:\n${res.output}')
+		worker_failed := res.exit_code != 0
+		worker_reason := if worker_failed { 'child_exit_nonzero' } else { 'completed' }
+		context.log('worker.failed=${worker_failed} | worker.reason=${worker_reason} | worker.exit_code=${res.exit_code} | worker output:\n${res.output}')
 		if res.exit_code != 0 {
 			fails++
 			mut is_panic := false
@@ -237,6 +239,12 @@ fn (mut context Context) process_whole_file_in_worker(path string) (int, int) {
 			println('${path_to_line} ${err}')
 			println('\t${line} | ${err_line}')
 			println('')
+			eprintln('vtest_parser.worker.failed=true')
+			eprintln('vtest_parser.worker.reason=child_exit_nonzero')
+			eprintln('vtest_parser.worker.action=report_parser_cut_failure')
+			eprintln('vtest_parser.worker.message=parser worker failed while reducing input')
+			eprintln('vtest_parser.worker.exit_code=${res.exit_code}')
+			eprintln('vtest_parser.worker.cut_index=${i}')
 			eprintln(res.output)
 			eprintln('>>> failed command: ${cmd}')
 			if context.show_src {

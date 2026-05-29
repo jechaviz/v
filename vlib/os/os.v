@@ -578,7 +578,9 @@ pub fn user_names() ![]string {
 	$if windows {
 		result := execute('wmic useraccount get name')
 		if result.exit_code != 0 {
-			return error('Failed to get user names. Exited with code ${result.exit_code}: ${result.output}')
+			return error(execute_failure_report('os.user_names', 'user_query_failed',
+				'report_wmic_failure', 'failed to get Windows user names with wmic',
+				'wmic useraccount get name', result))
 		}
 		mut users := result.output.split_into_lines()
 		// windows command prints an empty line at the end of output
@@ -1162,12 +1164,34 @@ pub mut:
 	machine  string
 }
 
+fn os_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn execute_failure_report(prefix string, reason string, action string, message string, cmd string, res Result) string {
+	mut lines := [
+		'${prefix}.failed=true',
+		'${prefix}.reason=${reason}',
+		'${prefix}.action=${action}',
+		'${prefix}.message=${os_report_value(message)}',
+		'${prefix}.exit_code=${res.exit_code}',
+		'${prefix}.command=${os_report_value(cmd)}',
+	]
+	output := res.output.trim_space()
+	if output == '' {
+		lines << '${prefix}.output_empty=true'
+	} else {
+		lines << '${prefix}.output=${os_report_value(output)}'
+	}
+	return lines.join('\n')
+}
+
 // execute_or_panic returns the os.Result of executing `cmd`, or panic with its output on failure.
 pub fn execute_or_panic(cmd string) Result {
 	res := execute(cmd)
 	if res.exit_code != 0 {
-		eprintln('failed    cmd: ${cmd}')
-		eprintln('failed   code: ${res.exit_code}')
+		eprintln(execute_failure_report('os.execute', 'child_exit_nonzero',
+			'panic_with_child_output', 'command exited with a non-zero status', cmd, res))
 		panic(res.output)
 	}
 	return res
@@ -1177,9 +1201,8 @@ pub fn execute_or_panic(cmd string) Result {
 pub fn execute_or_exit(cmd string) Result {
 	res := execute(cmd)
 	if res.exit_code != 0 {
-		eprintln('failed    cmd: ${cmd}')
-		eprintln('failed   code: ${res.exit_code}')
-		eprintln(res.output)
+		eprintln(execute_failure_report('os.execute', 'child_exit_nonzero',
+			'exit_after_reporting_child_failure', 'command exited with a non-zero status', cmd, res))
 		exit(1)
 	}
 	return res

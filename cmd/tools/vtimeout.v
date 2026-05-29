@@ -9,6 +9,20 @@ mut:
 	cmd_args []string
 }
 
+fn vtimeout_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn report_vtimeout_command_failure(cmd_args []string, exit_code int, reason string) {
+	command := cmd_args.join(' ')
+	eprintln('vtimeout.command.failed=true')
+	eprintln('vtimeout.command.reason=${reason}')
+	eprintln('vtimeout.command.action=report_command_start_failure')
+	eprintln('vtimeout.command.message=cannot execute command before applying timeout')
+	eprintln('vtimeout.command.exit_code=${exit_code}')
+	eprintln('vtimeout.command.command=${vtimeout_report_value(command)}')
+}
+
 fn main() {
 	mut fp := flag.new_flag_parser(os.args[1..])
 	fp.application('v timeout')
@@ -45,8 +59,10 @@ fn main() {
 	p.set_args(ctx.cmd_args[1..])
 	p.run()
 	if p.err != '' {
-		eprintln('Cannot execute: ${ctx.cmd_args.join(' ')}')
-		exit(if os.exists(ctx.cmd_args[0]) { 126 } else { 127 })
+		exit_code := if os.exists(ctx.cmd_args[0]) { 126 } else { 127 }
+		reason := if exit_code == 126 { 'command_not_executable' } else { 'command_not_found' }
+		report_vtimeout_command_failure(ctx.cmd_args, exit_code, reason)
+		exit(exit_code)
 	}
 
 	child_exit := chan int{}
