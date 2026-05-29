@@ -29,6 +29,8 @@ fn C.mempcpy(dest voidptr, src voidptr, n usize) voidptr
 @[trusted]
 fn C.calloc(usize, usize) voidptr
 
+fn C.getenv(&char) &char
+
 fn C.atoi(&char) i32
 
 fn C.malloc(usize) voidptr

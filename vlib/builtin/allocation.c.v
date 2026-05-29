@@ -70,6 +70,7 @@ pub fn malloc(n isize) &u8 {
 	} else if n == 0 {
 		return &u8(unsafe { nil })
 	}
+	auto_process_memory_guard_before_alloc(n)
 	mut res := &u8(unsafe { nil })
 	$if prealloc {
 		return unsafe { prealloc_malloc(n) }
@@ -118,6 +119,7 @@ pub fn malloc_noscan(n isize) &u8 {
 	if n < 0 {
 		_memory_panic(@FN, n)
 	}
+	auto_process_memory_guard_before_alloc(n)
 	mut res := &u8(unsafe { nil })
 	$if prealloc {
 		return unsafe { prealloc_malloc(n) }
@@ -167,6 +169,7 @@ fn malloc_uninit(n isize) &u8 {
 	} else if n == 0 {
 		return &u8(unsafe { nil })
 	}
+	auto_process_memory_guard_before_alloc(n)
 	$if vgc ? {
 		return unsafe { &u8(vgc_malloc_typed_opts(usize(n), 0, 0, false)) }
 	}
@@ -180,6 +183,7 @@ fn malloc_noscan_uninit(n isize) &u8 {
 	} else if n == 0 {
 		return &u8(unsafe { nil })
 	}
+	auto_process_memory_guard_before_alloc(n)
 	$if vgc ? {
 		return unsafe { &u8(vgc_malloc_noscan_opts(usize(n), false)) }
 	}
@@ -208,6 +212,7 @@ pub fn malloc_uncollectable(n isize) &u8 {
 	if n < 0 {
 		_memory_panic(@FN, n)
 	}
+	auto_process_memory_guard_before_alloc(n)
 
 	mut res := &u8(unsafe { nil })
 	$if prealloc {
@@ -254,6 +259,10 @@ pub fn v_realloc(b &u8, n isize) &u8 {
 	$if trace_realloc ? {
 		C.fprintf(C.stderr, c'v_realloc %6d\n', n)
 	}
+	if n < 0 {
+		_memory_panic(@FN, n)
+	}
+	auto_process_memory_guard_before_alloc(n)
 	mut new_ptr := &u8(unsafe { nil })
 	$if prealloc {
 		unsafe {
@@ -302,6 +311,10 @@ pub fn realloc_data(old_data &u8, old_size int, new_size int) &u8 {
 	$if trace_realloc ? {
 		C.fprintf(C.stderr, c'realloc_data old_size: %6d new_size: %6d\n', old_size, new_size)
 	}
+	if new_size < 0 {
+		_memory_panic(@FN, isize(new_size))
+	}
+	auto_process_memory_guard_before_alloc(isize(new_size))
 	$if prealloc {
 		return unsafe { prealloc_realloc(old_data, old_size, new_size) }
 	}
@@ -363,6 +376,7 @@ pub fn vcalloc(n isize) &u8 {
 	} else if n == 0 {
 		return &u8(unsafe { nil })
 	}
+	auto_process_memory_guard_before_alloc(n)
 	$if prealloc {
 		return unsafe { prealloc_calloc(n) }
 	} $else $if vgc ? {
@@ -397,17 +411,15 @@ pub fn vcalloc_noscan(n isize) &u8 {
 		total_m += n
 		C.fprintf(C.stderr, c'vcalloc_noscan %6d total %10d\n', n, total_m)
 	}
+	if n < 0 {
+		_memory_panic(@FN, n)
+	}
+	auto_process_memory_guard_before_alloc(n)
 	$if prealloc {
 		return unsafe { prealloc_calloc(n) }
 	} $else $if vgc ? {
-		if n < 0 {
-			_memory_panic(@FN, n)
-		}
 		return unsafe { &u8(vgc_calloc(usize(n))) }
 	} $else $if gcboehm ? {
-		if n < 0 {
-			_memory_panic(@FN, n)
-		}
 		$if gcboehm_opt ? {
 			res := unsafe { C.GC_MALLOC_ATOMIC(n) }
 			unsafe { C.memset(res, 0, n) }

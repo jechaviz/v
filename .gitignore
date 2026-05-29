@@ -47,6 +47,7 @@ temp/
 tmp/
 cache/
 .cache/
+/logs/
 
 # unignore special files without extension
 !.github/PULL_REQUEST_TEMPLATE

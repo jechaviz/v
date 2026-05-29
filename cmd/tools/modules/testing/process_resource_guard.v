@@ -12,6 +12,8 @@ const process_guard_limit_env = 'VTEST_CHILD_MAX_MEMORY'
 const process_guard_limit_mb_env = 'VTEST_CHILD_MAX_MEMORY_MB'
 const process_guard_output_limit_env = 'VTEST_CHILD_OUTPUT_LIMIT'
 const process_guard_spawn_wait_env = 'VTEST_MEMORY_BACKPRESSURE_WAIT_MS'
+const process_guard_child_memory_guard_env = 'V_PROCESS_MEMORY_GUARD'
+const process_guard_child_memory_limit_mb_env = 'V_PROCESS_MEMORY_LIMIT_MB'
 const process_guard_default_limit = u64(2) * process_guard_bytes_per_gib
 const process_guard_default_output_limit = 4 * 1024 * 1024
 const process_guard_default_spawn_wait_ms = 120_000
@@ -34,7 +36,7 @@ fn execute_test_binary(generated_binary_fpath string, run_js bool, run_cmd strin
 	executable := process_guard_executable(generated_binary_fpath, run_js) or {
 		return os.Result{
 			exit_code: -1
-			output:    err.msg()
+			output:    process_guard_spawn_error(run_cmd, err.msg())
 		}
 	}
 	args := if run_js { [generated_binary_fpath] } else { []string{} }
@@ -62,6 +64,28 @@ fn process_guard_executable(generated_binary_fpath string, run_js bool) !string 
 	}
 }
 
+fn process_guard_configure_child_environment(mut process os.Process, limit_bytes u64) {
+	if limit_bytes == 0 {
+		return
+	}
+	mut env := os.environ()
+	if process_guard_env_value_off(env[process_guard_child_memory_guard_env]) {
+		return
+	}
+	env[process_guard_child_memory_limit_mb_env] =
+		process_guard_limit_bytes_to_mb(limit_bytes).str()
+	process.set_environment(env)
+}
+
+fn process_guard_limit_bytes_to_mb(limit_bytes u64) u64 {
+	return (limit_bytes + process_guard_bytes_per_mib - 1) / process_guard_bytes_per_mib
+}
+
+fn process_guard_env_value_off(value string) bool {
+	mode := value.trim_space().to_lower()
+	return mode in ['0', 'false', 'off', 'no', 'disabled']
+}
+
 fn process_guard_execute(executable string, args []string, display_cmd string) os.Result {
 	if pressure_result := process_guard_wait_for_host_memory('vtest_run', display_cmd) {
 		_ = pressure_result
@@ -71,8 +95,10 @@ fn process_guard_execute(executable string, args []string, display_cmd string) o
 			output:    err.msg()
 		}
 	}
+	limit_bytes := process_guard_limit_bytes()
 	mut process := os.new_process(executable)
 	process.set_args(args)
+	process_guard_configure_child_environment(mut process, limit_bytes)
 	process.set_redirect_stdio()
 	process.run()
 	if process.status == .not_started || process.err != '' {
@@ -81,7 +107,8 @@ fn process_guard_execute(executable string, args []string, display_cmd string) o
 			output:    process_guard_spawn_error(display_cmd, process.err)
 		}
 	}
-	limit_bytes := process_guard_limit_bytes()
+	mut job := process_guard_job_create(limit_bytes)
+	process_guard_job_assign(mut job, process.pid)
 	output_limit := process_guard_output_limit()
 	mut output := ProcessGuardOutput{
 		builder: strings.new_builder(4096)
@@ -102,12 +129,19 @@ fn process_guard_execute(executable string, args []string, display_cmd string) o
 		time.sleep(50 * time.millisecond)
 	}
 	process.wait()
+	process_guard_job_close(mut job)
 	process_guard_drain(mut process, mut output, output_limit)
 	mut result_output := process_guard_output(output.builder.str(), output.truncated, killed,
-		display_cmd, process.pid, peak_bytes, limit_bytes)
+		display_cmd, process.pid, peak_bytes, limit_bytes, job)
 	exit_code := if killed { -1 } else { process.code }
 	if exit_code != 0 && result_output.trim_space() == '' {
 		result_output = process_guard_silent_failure_message(display_cmd, exit_code)
+		if job.enabled {
+			result_output += '\n' + process_guard_job_report(job, limit_bytes)
+		}
+	} else if exit_code != 0 && job.enabled
+		&& process_guard_output_looks_memory_related(result_output) {
+		result_output += '\n' + process_guard_job_report(job, limit_bytes)
 	}
 	process.close()
 	return os.Result{
@@ -180,6 +214,9 @@ fn process_guard_silent_failure_message(display_cmd string, exit_code int) strin
 	snapshot := runtime.collect_host_telemetry(os.getwd())
 	return [
 		'vtest.process.exit_without_output=true',
+		'vtest.process.reason=exit_without_output',
+		'vtest.process.action=collect_telemetry',
+		'vtest.process.message=The child process exited without stdout or stderr.',
 		'vtest.process.exit_code=${exit_code}',
 		'vtest.process.command=${display_cmd}',
 		'vtest.process.advice=The child process failed without stderr/stdout. Check the memory and virtual-memory telemetry below; rerun with VTEST_SHOW_CMD=1, VTEST_CHILD_MEMORY_GUARD=1, or lower VTEST_CHILD_MAX_MEMORY_MB to isolate runaway allocations.',
@@ -190,6 +227,9 @@ fn process_guard_silent_failure_message(display_cmd string, exit_code int) strin
 fn process_guard_wait_message(display_cmd string, waited_ms int, plan util.MemoryBackpressurePlan) string {
 	return [
 		'vtest.resource.waited_for_host_memory=true',
+		'vtest.resource.reason=host_memory_backpressure',
+		'vtest.resource.action=delayed_child_start',
+		'vtest.resource.message=V delayed starting the child process until host memory pressure eased.',
 		'vtest.resource.wait_ms=${waited_ms}',
 		'vtest.resource.command=${display_cmd}',
 		plan.report(),
@@ -200,6 +240,9 @@ fn process_guard_host_pressure_message(display_cmd string, waited_ms int, plan u
 	return [
 		'vtest.resource.blocked=true',
 		'vtest.resource.reason=host_memory_pressure',
+		'vtest.resource.action=abort_before_child_start',
+		'vtest.resource.message=V did not start another child process because host memory pressure stayed critical.',
+		'vtest.resource.exit_code=${process_guard_host_pressure_exit_code}',
 		'vtest.resource.wait_ms=${waited_ms}',
 		'vtest.resource.command=${display_cmd}',
 		'vtest.resource.advice=V did not start another compiler/test process because Windows memory or commit headroom stayed critical. Redesign the workload to stream, chunk, cap allocations, reuse data, or lower VJOBS; set VMEM_BACKPRESSURE=strict for more conservative scheduling or VTEST_MEMORY_BACKPRESSURE_WAIT_MS to tune the wait window.',
@@ -248,7 +291,7 @@ fn process_guard_append(mut output ProcessGuardOutput, chunk string, output_limi
 	output.truncated = true
 }
 
-fn process_guard_output(output string, truncated bool, killed bool, display_cmd string, pid int, peak_bytes u64, limit_bytes u64) string {
+fn process_guard_output(output string, truncated bool, killed bool, display_cmd string, pid int, peak_bytes u64, limit_bytes u64, job ProcessGuardJob) string {
 	mut lines := []string{}
 	if output != '' {
 		lines << output
@@ -258,25 +301,116 @@ fn process_guard_output(output string, truncated bool, killed bool, display_cmd 
 	}
 	if killed {
 		lines << process_guard_kill_message(display_cmd, pid, peak_bytes, limit_bytes)
+		if job.enabled {
+			lines << process_guard_job_report(job, limit_bytes)
+		}
 	}
 	return lines.join('\n')
 }
 
 fn process_guard_spawn_error(display_cmd string, message string) string {
 	detail := if message.trim_space() == '' { 'unknown spawn error' } else { message }
-	return 'vtest.resource.spawn_error=true\nvtest.resource.command=${display_cmd}\nvtest.resource.error=${detail}'
+	return [
+		'vtest.resource.spawn_error=true',
+		'vtest.resource.reason=spawn_failed',
+		'vtest.resource.action=abort_before_child_start',
+		'vtest.resource.message=V could not start the child process.',
+		'vtest.resource.exit_code=-1',
+		'vtest.resource.command=${display_cmd}',
+		'vtest.resource.error=${process_guard_report_value(detail)}',
+		'vtest.resource.advice=Check the executable path, permissions, working directory, and any file locks before rerunning.',
+	].join('\n')
 }
 
 fn process_guard_kill_message(display_cmd string, pid int, peak_bytes u64, limit_bytes u64) string {
 	return [
 		'vtest.resource.killed=true',
 		'vtest.resource.reason=child_memory_limit',
+		'vtest.resource.action=kill_child_process',
+		'vtest.resource.message=The generated test process exceeded its memory budget and was stopped.',
+		'vtest.resource.exit_code=-1',
 		'vtest.resource.pid=${pid}',
 		'vtest.resource.peak_private_bytes=${peak_bytes}',
 		'vtest.resource.limit_bytes=${limit_bytes}',
 		'vtest.resource.command=${display_cmd}',
 		'vtest.resource.advice=The generated test process was stopped before it could exhaust Windows commit/pagefile. Redesign the test or runtime path to stream, chunk, cap allocations, or reuse data; set VTEST_CHILD_MAX_MEMORY_MB to tune the limit or VTEST_CHILD_MEMORY_GUARD=0 only for trusted diagnostics.',
 	].join('\n')
+}
+
+fn process_guard_job_report(job ProcessGuardJob, limit_bytes u64) string {
+	return [
+		'vtest.resource.job_object.enabled=${job.enabled}',
+		'vtest.resource.job_object.state=${process_guard_job_state(job)}',
+		'vtest.resource.job_object.reason=${process_guard_job_reason(job)}',
+		'vtest.resource.job_object.action=${process_guard_job_action(job)}',
+		'vtest.resource.job_object.assigned=${job.assigned}',
+		'vtest.resource.job_object.create_error=${job.create_error}',
+		'vtest.resource.job_object.create_error_message=${process_guard_os_error_message(job.create_error)}',
+		'vtest.resource.job_object.assign_error=${job.assign_error}',
+		'vtest.resource.job_object.assign_error_message=${process_guard_os_error_message(job.assign_error)}',
+		'vtest.resource.job_object.limit_bytes=${limit_bytes}',
+		'vtest.resource.job_object.advice=On Windows, vtest puts guarded child processes in a Job Object when possible. If this process failed without output near the limit, reduce VTEST_CHILD_MAX_MEMORY_MB only for diagnostics or redesign the workload to stream/chunk; if assign_error is nonzero, keep the polling guard as fallback and investigate parent job nesting.',
+	].join('\n')
+}
+
+fn process_guard_job_state(job ProcessGuardJob) string {
+	if !job.enabled {
+		return 'disabled'
+	}
+	if job.assigned {
+		return 'assigned'
+	}
+	if job.create_error != 0 {
+		return 'create_failed'
+	}
+	if job.assign_error != 0 {
+		return 'assign_failed'
+	}
+	return 'created_unassigned'
+}
+
+fn process_guard_job_reason(job ProcessGuardJob) string {
+	if !job.enabled {
+		return 'not_requested'
+	}
+	if job.assigned {
+		return 'job_object_enforced'
+	}
+	if job.create_error != 0 {
+		return 'job_object_create_failed'
+	}
+	if job.assign_error != 0 {
+		return 'job_object_assign_failed'
+	}
+	return 'job_object_not_assigned'
+}
+
+fn process_guard_job_action(job ProcessGuardJob) string {
+	if job.assigned {
+		return 'enforce_job_limits'
+	}
+	if job.enabled {
+		return 'fallback_to_polling_guard'
+	}
+	return 'skip_job_object'
+}
+
+fn process_guard_os_error_message(code u32) string {
+	if code == 0 {
+		return ''
+	}
+	return process_guard_report_value(os.get_error_msg(int(code)))
+}
+
+fn process_guard_report_value(value string) string {
+	return value.trim_space().replace('\r\n', ' ').replace('\n', ' ')
+}
+
+fn process_guard_output_looks_memory_related(output string) bool {
+	lower := output.to_lower()
+	return lower.contains('memory allocation failure') || lower.contains('out of memory')
+		|| lower.contains('auto process memory guard')
+		|| lower.contains('v.memory_guard.failed=true')
 }
 
 fn process_guard_limit_bytes() u64 {
