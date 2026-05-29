@@ -83,7 +83,7 @@ fn test_process_guard_silent_failure_gets_telemetry() {
 	result := process_guard_with_silent_diagnostics('silent.exe', os.Result{
 		exit_code: 1
 	})
-	assert result.exit_code == 1
+	assert result.exit_code == 1, result.exit_code_diagnostics('1', label: @FN)
 	assert result.output.contains('vtest.process.exit_without_output=true')
 	assert result.output.contains('vtest.process.reason=exit_without_output')
 	assert result.output.contains('vtest.process.action=collect_telemetry')
@@ -124,7 +124,7 @@ fn test_process_guard_recognizes_builtin_memory_guard_report() {
 
 fn test_process_guard_execute_command_rejects_empty_command() {
 	result := process_guard_execute_command('')
-	assert result.exit_code == -1
+	assert result.exit_code == -1, result.exit_code_diagnostics('-1', label: @FN)
 	assert result.output.contains('vtest.resource.spawn_error=true')
 	assert result.output.contains('vtest.resource.reason=spawn_failed')
 	assert result.output.contains('vtest.resource.action=abort_before_child_start')

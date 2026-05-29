@@ -45,7 +45,12 @@ pub fn testme() int {
 	output := p.stdout_slurp()
 	errors := p.stderr_slurp()
 	p.close()
-	assert p.code == 0, 'stdout: ${output}\nstderr: ${errors}'
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: output
+		stderr: errors
+	)
+
 	assert output.trim_space() == '1', 'stdout: ${output}\nstderr: ${errors}'
 }
 
@@ -96,7 +101,12 @@ fn C.importc_test_missing_header() int
 	errors := p.stderr_slurp()
 	p.close()
 	combined := output + errors
-	assert p.code == 0, 'stdout: ${output}\nstderr: ${errors}'
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: output
+		stderr: errors
+	)
+
 	assert !combined.contains('builder error:'), 'stdout: ${output}\nstderr: ${errors}'
 	assert !combined.contains('missing_header_17389.h'), 'stdout: ${output}\nstderr: ${errors}'
 }

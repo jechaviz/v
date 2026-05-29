@@ -176,14 +176,13 @@ fn run_in_background(cmd string) {
 	log.warn('running in background: ${cmd} ...')
 	spawn fn (cmd string) {
 		res := os.execute(cmd)
-		log.warn('Background cmd ended. res.exit_code: ${res.exit_code} | res.output.len: ${res.output.len}')
+		background_failed := res.exit_code != 0
+		background_reason := if background_failed { 'child_exit_nonzero' } else { 'completed' }
+		log.warn('vtest.background.failed=${background_failed} | vtest.background.reason=${background_reason} | vtest.background.exit_code=${res.exit_code} | vtest.background.output_len=${res.output.len}')
 		if res.exit_code != 0 {
-			eprintln('----------------------- background command failed: --------------------------')
-			eprintln('----- exit_code: ${res.exit_code}, cmd: ${cmd}, output:')
-			eprintln(res.output)
-			eprintln('-----------------------------------------------------------------------------')
+			eprintln(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 		}
-		assert res.exit_code == 0
+		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	}(cmd)
 	log.warn('the live program should be running in the background now')
 }

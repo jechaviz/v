@@ -158,7 +158,7 @@ fn main() {
 				had_failures = true
 				continue
 			}
-			println('Warning: Binary exited with code ${gen_res.exit_code}')
+			println(gen_res.exit_code_diagnostics('0', label: @FN, command: gen_cmd))
 		}
 
 		// Strip terminal control characters that script command may prepend

@@ -28,6 +28,6 @@ fn test_nested_module_lookup_works_with_relative_paths() {
 	}
 	cmd := '${os.quoted_path(@VEXE)} run ${os.quoted_path(rel_main_path)}'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.replace('\r\n', '\n').trim_space() == 'v1\nv2'
 }

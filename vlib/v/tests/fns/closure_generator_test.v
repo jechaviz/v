@@ -199,9 +199,7 @@ fn test_closure_return_${styp}_${i}() ! {
 	cmd := '${os.quoted_path(vexe)} -keepc -cg -showcc ${full_path_to_target}'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		eprintln(res.output)
-		eprintln('> failed exit code: ${res.exit_code} | cmd:\n${cmd}')
-		assert false
+		assert false, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	}
 	os.chdir(os.dir(vexe)) or {}
 	os.rmdir_all(wrkdir) or {}

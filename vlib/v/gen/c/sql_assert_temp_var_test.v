@@ -15,5 +15,8 @@ fn test_assert_with_inline_sql_select_compiles() {
 	}
 	cmd := '${os.quoted_path(sql_assert_temp_var_vexe)} -o ${os.quoted_path(output_path)} ${os.quoted_path(sql_assert_temp_var_testdata)}'
 	compilation := os.execute(cmd)
-	assert compilation.exit_code == 0, '${cmd}\n${compilation.output}'
+	assert compilation.exit_code == 0, compilation.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
 }

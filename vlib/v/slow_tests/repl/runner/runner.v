@@ -83,10 +83,10 @@ pub fn run_prod_file(wd string, vexec string, file string) !string {
 	cmd := '${os.quoted_path(vexec)} -prod run ${os.quoted_path(file)}'
 	r := os.execute(cmd)
 	if r.exit_code < 0 {
-		return error('Could not execute: ${cmd}')
+		return error(r.exit_code_diagnostics('>= 0', label: @FN, command: cmd))
 	}
 	if r.exit_code != 0 {
-		return error('${cmd} return exit code: ${r.exit_code}')
+		return error(r.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 	result := r.output.replace('\r', '')
 	if result != expected_content {

@@ -26,7 +26,7 @@ fn test_input_rune_iterator_with_unicode_input() {
 	}
 	p.close()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	eprintln('done')
 	solines := olines.join('').trim_space().replace('\r', '')
 	eprintln('solines.len: ${solines.len} | solines: ${solines}')

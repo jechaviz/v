@@ -31,7 +31,7 @@ fn test_compiling_without_vmodules_fails() {
 	os.setenv('VMODULES', '', true)
 	dump(cmd)
 	res := os.execute(cmd)
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.trim_space().contains('builder error: cannot import module "yyy" (not found)')
 }
 
@@ -42,7 +42,7 @@ fn test_compiling_with_vmodules_works() {
 	dump(os.getenv('VMODULES'))
 	dump(cmd)
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.trim_space() == "['x', 'y', 'z']"
 }
 
@@ -52,7 +52,7 @@ fn test_importing_third_party_submodule_works() {
 	dump(os.getenv('VMODULES'))
 	dump(submodule_cmd)
 	res := os.execute(submodule_cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_running_installed_module_with_short_submodule_imports_works() {
@@ -66,6 +66,6 @@ fn test_running_installed_module_with_short_submodule_imports_works() {
 	dump(os.getenv('VMODULES'))
 	dump(run_cmd)
 	res := os.execute(run_cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.trim_space() == 'android sdk'
 }

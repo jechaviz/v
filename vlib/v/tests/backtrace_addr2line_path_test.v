@@ -28,11 +28,16 @@ fn test_print_backtrace_does_not_pass_a_bare_main_binary_name_to_addr2line() {
 	os.write_file(source_path, helper_source)!
 	compile_cmd := '${os.quoted_path(vexe)} -g -o ${os.quoted_path(exe_path)} ${os.quoted_path(source_path)}'
 	compile_res := os.execute(compile_cmd)
-	assert compile_res.exit_code == 0, 'compilation failed: ${compile_res.output}'
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	os.setenv('PATH', '${bin_dir}${os.path_delimiter}${old_path}', true)
 	os.chdir(run_dir)!
-	run_res := os.execute('${exe_name} 2>&1')
-	assert run_res.exit_code == 0, 'execution failed: ${run_res.output}'
+	run_cmd := '${exe_name} 2>&1'
+	run_res := os.execute(run_cmd)
+	assert run_res.exit_code == 0, run_res.exit_code_diagnostics('0', label: @FN, command: run_cmd)
 	assert run_res.output.contains('backtrace_addr2line_probe')
 	assert !run_res.output.contains('addr2line:'), run_res.output
 	assert !run_res.output.contains('No such file'), run_res.output

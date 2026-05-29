@@ -23,7 +23,7 @@ fn pipe_to_v_run() ! {
 	cmd := '${cat_cmd} ${os.quoted_path(tmp_v_file)} | ${os.quoted_path(vexe)} run -'
 	res := os.execute(cmd)
 	// eprintln('>> cmd: ${cmd} | res: ${res}')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.replace('\r', '').trim_space().split('\n') == ['4', 'hello']
 	os.rm(tmp_v_file) or { panic(err) }
 	assert !os.exists(tmp_v_file)

@@ -57,7 +57,7 @@ fn ensure_curl_works(tname string) ? {
 fn test_curl_connecting_through_ipv4_works() {
 	ensure_curl_works(@FN) or { return }
 	res := os.execute('${curl_executable} --connect-timeout 0.5 --silent http://127.0.0.1:${port}/')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output == welcome_text
 	log.info('> ${@FN}')
 }
@@ -73,7 +73,7 @@ fn test_net_http_connecting_through_ipv4_works() {
 fn test_curl_connecting_through_ipv6_works() {
 	ensure_curl_works(@FN) or { return }
 	res := os.execute('${curl_executable} --silent --connect-timeout 0.5 http://[::1]:${port}/')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output == welcome_text
 	log.info('> ${@FN}')
 }

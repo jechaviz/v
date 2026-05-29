@@ -317,7 +317,9 @@ import os
 fn main() {
 	cmd := if os.user_os() == 'windows' { 'cmd /c echo ok' } else { 'printf ok' }
 	result := os.execute(cmd)
-	println('\${result.exit_code}:\${result.output}')
+	println('eval.os_execute.failed=\${result.exit_code != 0}')
+	println('eval.os_execute.exit_code=\${result.exit_code}')
+	println('eval.os_execute.output=\${result.output}')
 }
 	") or {
 		panic(err)
@@ -325,7 +327,9 @@ fn main() {
 	if res.exit_code != 0 {
 		panic(res.output)
 	}
-	assert res.output.contains('0:ok')
+	assert res.output.contains('eval.os_execute.failed=false')
+	assert res.output.contains('eval.os_execute.exit_code=0')
+	assert res.output.contains('eval.os_execute.output=ok')
 }
 
 fn test_eval_transformed_smartcast_assignment() {

@@ -88,7 +88,7 @@ fn test_vvmrc_delegates_to_matching_compiler_executable() {
 	})
 	compile_res :=
 		os.execute('${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}')
-	assert compile_res.exit_code == 0, compile_res.output
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0', label: @FN)
 	project_dir := os.join_path(tmp_root, 'project')
 	os.mkdir_all(project_dir) or { panic(err) }
 	os.write_file(os.join_path(project_dir, '.vvmrc'), requested_vvm_test_version) or { panic(err) }
@@ -99,7 +99,7 @@ fn test_vvmrc_delegates_to_matching_compiler_executable() {
 	envs[path_key] = '${bin_dir}${os.path_delimiter}${envs[path_key]}'
 	envs['V_SKIP_VVMRC'] = ''
 	res := run_v_command(project_dir, ['run', 'main.v'], envs)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('${delegated_marker} run main.v'), res.output
 }
 

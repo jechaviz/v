@@ -29,7 +29,7 @@ fn test_macos_tcc_boehm_uses_bundled_libgc() {
 	defer {
 		os.rm(exe_path) or {}
 	}
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	// macOS amd64 tccbin only ships libgc.a (no .dylib).
 	assert res.output.contains('thirdparty/tcc/lib/libgc.a')
 	assert !res.output.contains(' -lgc')

@@ -10,7 +10,7 @@ fn test_no_builtin_no_preludes_types_are_lowered_to_c() {
 	os.chdir(vroot) or {}
 	cmd := '${os.quoted_path(vexe)} -no-builtin -no-preludes -enable-globals -gc none -no-skip-unused -o - ${os.quoted_path(testdata_file)}'
 	compilation := os.execute(cmd)
-	assert compilation.exit_code == 0
+	assert compilation.exit_code == 0, compilation.exit_code_diagnostics('0', label: @FN)
 	generated_c := compilation.output.replace('\r\n', '\n')
 	assert !generated_c.contains('typedef array Array_charptr;')
 	assert !generated_c.contains('voidptr file')

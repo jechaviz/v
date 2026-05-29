@@ -20,7 +20,7 @@ fn run_v_ok(command string) string {
 	if res.exit_code != 0 {
 		eprintln('> failing cmd: ${command}')
 		eprintln('> output:\n${res.output}')
-		assert res.exit_code == 0
+		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	}
 	return res.output
 }
@@ -43,7 +43,9 @@ fn test_conditional_executable_removal() {
 	dump(after_run_file_list)
 	assert executable !in after_run_file_list
 
-	assert os.execute('${os.quoted_path(vexe)} .').exit_code == 0
+	compile_dir_res := os.execute('${os.quoted_path(vexe)} .')
+	assert compile_dir_res.exit_code == 0, compile_dir_res.exit_code_diagnostics('0', label: @FN)
+
 	assert os.execute('./${executable}').output.trim_space() == 'Hello World!'
 	after_compilation__ := os.ls(test_path)!
 	dump(after_compilation__)
@@ -70,11 +72,11 @@ fn test_run_from_workdir_with_spaces() {
 	os.chdir(project_dir)!
 
 	run_file_res := os.execute('${os.quoted_path(vexe)} run Test.vsh')
-	assert run_file_res.exit_code == 0, run_file_res.output
+	assert run_file_res.exit_code == 0, run_file_res.exit_code_diagnostics('0', label: @FN)
 	assert run_file_res.output.trim_space() == 'Hello from a spaced script path'
 
 	run_dir_res := os.execute('${os.quoted_path(vexe)} run .')
-	assert run_dir_res.exit_code == 0, run_dir_res.output
+	assert run_dir_res.exit_code == 0, run_dir_res.exit_code_diagnostics('0', label: @FN)
 	assert run_dir_res.output.trim_space() == 'Hello from a spaced path'
 }
 
@@ -92,7 +94,7 @@ fn test_existing_vsh_executable_uses_cache_until_source_is_newer() {
 
 	cmd := '${os.quoted_path(vexe)} script.vsh'
 	first_res := os.execute(cmd)
-	assert first_res.exit_code == 0, first_res.output
+	assert first_res.exit_code == 0, first_res.exit_code_diagnostics('0', label: @FN)
 	assert first_res.output.trim_space() == 'Hello from cached vsh'
 
 	mut executable := os.join_path(project_dir, 'script')
@@ -102,7 +104,7 @@ fn test_existing_vsh_executable_uses_cache_until_source_is_newer() {
 	assert os.is_file(executable)
 
 	warm_cache_res := os.execute(cmd)
-	assert warm_cache_res.exit_code == 0, warm_cache_res.output
+	assert warm_cache_res.exit_code == 0, warm_cache_res.exit_code_diagnostics('0', label: @FN)
 	assert warm_cache_res.output.trim_space() == 'Hello from cached vsh'
 
 	cache_stamp := os.file_last_mod_unix(executable) + 3600
@@ -113,14 +115,14 @@ fn test_existing_vsh_executable_uses_cache_until_source_is_newer() {
 	assert os.file_last_mod_unix(script_path) < cache_stamp
 
 	cached_res := os.execute(cmd)
-	assert cached_res.exit_code == 0, cached_res.output
+	assert cached_res.exit_code == 0, cached_res.exit_code_diagnostics('0', label: @FN)
 	assert cached_res.output.trim_space() == 'Hello from cached vsh'
 
 	os.utime(script_path, cache_stamp + 60, cache_stamp + 60)!
 	assert os.file_last_mod_unix(script_path) > cache_stamp
 
 	rebuilt_res := os.execute(cmd)
-	assert rebuilt_res.exit_code == 0, rebuilt_res.output
+	assert rebuilt_res.exit_code == 0, rebuilt_res.exit_code_diagnostics('0', label: @FN)
 	assert rebuilt_res.output.trim_space() == 'Hello from rebuilt vsh'
 }
 
@@ -212,7 +214,7 @@ fn test_empty_local_dir_does_not_shadow_vlib_module() {
 
 	res := os.execute('${os.quoted_path(vexe)} run main.v')
 
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.trim_space() == 'true'
 }
 
@@ -231,7 +233,7 @@ fn test_local_command_dir_does_not_shadow_vlib_prelude_imports() {
 
 	res := os.execute('${os.quoted_path(vexe)} -stats test main_test.v')
 
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('test_shadow_free_stats')
 }
 
@@ -249,7 +251,7 @@ fn test_removed_src_layout_error_mentions_vmod_subdirs() {
 	res := os.execute('${os.quoted_path(vexe)} run .')
 	normalized_output := res.output.replace('\r\n', '\n')
 
-	assert res.exit_code != 0
+	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert normalized_output.contains('the virtual `src/` module directory is no longer supported.')
 	assert !normalized_output.contains('base_url')
 	assert normalized_output.contains('add `subdirs` to v.mod')
@@ -273,7 +275,11 @@ fn test_thirdparty_object_build_with_multiline_cflags() {
 	stdout := p.stdout_slurp()
 	stderr := p.stderr_slurp()
 	p.close()
-	assert p.code == 0, 'stdout:\n${stdout}\nstderr:\n${stderr}'
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: stdout
+		stderr: stderr
+	)
 }
 
 fn test_missing_library_is_reported_without_compiler_bug_hint() {
@@ -289,7 +295,7 @@ fn test_missing_library_is_reported_without_compiler_bug_hint() {
 	res := os.execute('${os.quoted_path(vexe)} ${os.quoted_path(src_file)}')
 	normalized_output := res.output.replace('\r\n', '\n')
 
-	assert res.exit_code != 0
+	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert normalized_output.contains('builder error:')
 	assert normalized_output.contains('C library `${lib_name}` was not found while linking the generated program.')
 	assert normalized_output.contains('Please install the corresponding development package/libraries')
@@ -341,7 +347,11 @@ fn test_message_limit_notices_do_not_fail_build() {
 		os.execute('${os.quoted_path(vexe)} -stats -message-limit 5 -o ${os.quoted_path(exe_file)} ${os.quoted_path(src_file)}')
 	normalized_output := res.output.replace('\r\n', '\n')
 
-	assert res.exit_code == 0, normalized_output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:  @FN
+		output: normalized_output
+	)
+
 	assert os.exists(exe_file), normalized_output
 	assert !normalized_output.contains('builder error: too many errors/warnings/notices')
 	assert normalized_output.contains('checker summary: 0 V errors, 0 V warnings, 10 V notices'), normalized_output
@@ -373,7 +383,11 @@ fn test_run_with_obscure_source_filenames() {
 		display_name := file_name.replace('\n', '\\n')
 		res :=
 			os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(out_file)} run ${os.quoted_path(src_file)}')
-		assert res.exit_code == 0, '${display_name}: ${res.output}'
+		assert res.exit_code == 0, res.exit_code_diagnostics('0',
+			label:  @FN
+			reason: 'builder_run_failed_for_${display_name}'
+		)
+
 		assert res.output.trim_space() == 'hi', '${display_name}: ${res.output}'
 		assert os.read_file(src_file)! == source
 		os.rm(out_file) or {}

@@ -3,7 +3,10 @@ import os
 fn execute_in_thread(id int) !string {
 	res := os.execute('printf thread_${id}')
 	if res.exit_code != 0 {
-		return error('thread ${id} failed: exit=${res.exit_code} output="${res.output.trim_space()}"')
+		return error(res.exit_code_diagnostics('0',
+			label:   'thread_${id}'
+			command: 'printf thread_${id}'
+		))
 	}
 	return res.output
 }

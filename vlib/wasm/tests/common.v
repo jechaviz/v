@@ -33,8 +33,7 @@ pub fn validate(code []u8) ! {
 	validation_cmd := '${os.quoted_path(wasm_validate_exe)} ${os.quoted_path(outfile)}'
 	res := os.execute(validation_cmd)
 	if res.exit_code != 0 {
-		eprintln('failed exit code: ${res.exit_code} | command:\n${validation_cmd}')
-		return error('wasm-validate exited with a non zero exit code: ${res.exit_code}')
+		return error(res.exit_code_diagnostics('0', label: @FN, command: validation_cmd))
 	}
 	os.rm(outfile)!
 }

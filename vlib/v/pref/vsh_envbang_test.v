@@ -34,7 +34,7 @@ println(os.args)
 ")!
 	os.chmod(rnd_vsh_script_path, 0o700)!
 	res := os.execute('${os.quoted_path(rnd_vsh_script_path)} abc 123 -option')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	lines := res.output.split_into_lines()
 	dump(lines)
 	assert lines[0] == 'hello'
@@ -75,7 +75,7 @@ fn main() {
 	os.chmod(rnd_vsh_script_path, 0o700)!
 	res :=
 		os.execute('${os.quoted_path(rnd_vsh_script_path)} --path ${os.quoted_path(existing_path)}')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.trim_space() == 'File path: ${existing_path}'
 	os.rm(rnd_vsh_script_path)!
 	os.rm(existing_path)!

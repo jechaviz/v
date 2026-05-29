@@ -61,7 +61,7 @@ fn test_acquire_blocks_second_instance() {
 	defer {
 		helper.wait()
 		assert helper.stderr_slurp().trim_space() == ''
-		assert helper.code == 0
+		assert helper.code == 0, os.process_exit_code_diagnostics(helper.code, '0', label: @FN)
 		helper.close()
 	}
 	assert try_acquire_from_helper('test-singleton', lock_path, 0) == 1
@@ -111,7 +111,7 @@ fn test_wait_timeout_reports_busy_instance() {
 	defer {
 		helper.wait()
 		assert helper.stderr_slurp().trim_space() == ''
-		assert helper.code == 0
+		assert helper.code == 0, os.process_exit_code_diagnostics(helper.code, '0', label: @FN)
 		helper.close()
 	}
 	assert try_acquire_from_helper('test-singleton', lock_path, 5) == 1
@@ -163,7 +163,11 @@ fn wait_for_helper(mut p os.Process) {
 	}
 	p.wait()
 	stderr := p.stderr_slurp().trim_space()
-	assert false, 'helper failed to acquire process singleton; exit=${p.code} stdout="${output.trim_space()}" stderr="${stderr}"'
+	assert false, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: output
+		stderr: stderr
+	)
 }
 
 fn try_acquire_from_helper(name string, lock_path string, wait_ms int) int {

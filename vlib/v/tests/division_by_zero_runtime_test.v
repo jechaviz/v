@@ -34,9 +34,17 @@ fn compile_and_run_program(source string) string {
 	os.write_file(source_path, source) or { panic(err) }
 	compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(exe_path)} ${os.quoted_path(source_path)}'
 	compilation := os.execute(compile_cmd)
-	assert compilation.exit_code == 0, 'compilation failed: ${compilation.output}'
+	assert compilation.exit_code == 0, compilation.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	result := os.execute(os.quoted_path(exe_path))
-	assert result.exit_code != 0, 'program unexpectedly succeeded'
+	assert result.exit_code != 0, result.exit_code_diagnostics('!= 0',
+		label:  @FN
+		reason: 'division_by_zero_program_unexpectedly_succeeded'
+	)
+
 	return result.output
 }
 

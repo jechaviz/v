@@ -19,6 +19,7 @@ fn test_is_o_generated_c_files_can_be_linked_together() {
 	a_c := os.join_path(workdir, 'a.c')
 	b_c := os.join_path(workdir, 'b.c')
 	prog := os.join_path(workdir, 'prog')
+	prog_exe := $if windows { '${prog}.exe' } $else { prog }
 	os.write_file(a_v, 'module main
 
 @[markused]
@@ -48,10 +49,13 @@ int main(void) {
 		'${cc} -o ${os.quoted_path(prog)} ${os.quoted_path(a_c)} ${os.quoted_path(b_c)} ${os.quoted_path(host_c)} -lm',
 	] {
 		res := os.execute(cmd)
-		assert res.exit_code == 0, '${cmd}\n${res.output}'
+		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	}
-	res := os.execute(os.quoted_path(prog))
-	assert res.exit_code == 0, res.output
+	res := os.execute(os.quoted_path(prog_exe))
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: os.quoted_path(prog_exe)
+	)
 	assert res.output.trim_space() == '1 2'
 }
 

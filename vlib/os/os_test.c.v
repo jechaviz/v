@@ -1037,11 +1037,10 @@ fn test_execute() {
 	}
 	result := os.execute('${os.quoted_path(@VEXE)} run ${os.quoted_path(print0script)}')
 	hexresult := result.output.hex()
-	// println('exit_code: ${result.exit_code}')
 	// println('output: |${result.output}|')
 	// println('output.len: ${result.output.len}')
 	// println('output hexresult: ${hexresult}')
-	assert result.exit_code == 0
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	assert hexresult.contains('7374617274004d4944444c450066696e697368')
 	assert hexresult.ends_with('0a7878')
 }
@@ -1063,29 +1062,32 @@ fn test_exec_with_args() {
 	}
 	compile_result :=
 		os.execute('${os.quoted_path(@VEXE)} -o ${os.quoted_path(output_arg)} ${os.quoted_path(source_path)}')
-	assert compile_result.exit_code == 0, compile_result.output
+	assert compile_result.exit_code == 0, compile_result.exit_code_diagnostics('0', label: @FN)
 
 	result := os.exec([exe_path, 'one two', 'semi;colon'])
 	normalized_output := result.output.replace('\r\n', '\n')
-	assert result.exit_code == 0, result.output
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	assert normalized_output.contains('one two|semi;colon\n'), result.output
 	assert normalized_output.contains('stderr-ok\n'), result.output
 
 	shell_metachar_result := os.exec([exe_path, 'first; echo injected'])
 	normalized_shell_metachar_output := shell_metachar_result.output.replace('\r\n', '\n')
-	assert shell_metachar_result.exit_code == 0, shell_metachar_result.output
+	assert shell_metachar_result.exit_code == 0, shell_metachar_result.exit_code_diagnostics('0',
+		label: @FN
+	)
+
 	assert normalized_shell_metachar_output.contains('first; echo injected\n'), shell_metachar_result.output
 }
 
 fn test_execute_with_stderr_redirection() {
 	result := os.execute('${os.quoted_path(@VEXE)} wrong_command')
-	assert result.exit_code == 1
+	assert result.exit_code == 1, result.exit_code_diagnostics('1', label: @FN)
 	assert result.output.contains('unknown command `wrong_command`')
 
 	stderr_path := os.join_path_single(tfolder, 'stderr.txt')
 	result2 :=
 		os.execute('${os.quoted_path(@VEXE)} wrong_command 2> ${os.quoted_path(stderr_path)}')
-	assert result2.exit_code == 1
+	assert result2.exit_code == 1, result2.exit_code_diagnostics('1', label: @FN)
 	assert result2.output == ''
 	assert os.exists(stderr_path)
 }
@@ -1095,9 +1097,9 @@ fn test_execute_with_linefeeds() {
 		return
 	}
 	result := os.execute('true\n')
-	assert result.exit_code == 0
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	result2 := os.execute('false\n')
-	assert result2.exit_code == 1
+	assert result2.exit_code == 1, result2.exit_code_diagnostics('1', label: @FN)
 }
 
 fn test_execute_with_semicolon_inside_quoted_string_on_windows() {
@@ -1105,7 +1107,7 @@ fn test_execute_with_semicolon_inside_quoted_string_on_windows() {
 		return
 	}
 	result := os.execute('echo "hello;"')
-	assert result.exit_code == 0, result.output
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	assert result.output.trim_space() == '"hello;"'
 }
 
@@ -1117,7 +1119,7 @@ fn test_execute_pipe_into_vfmt() {
 	}
 	result :=
 		os.execute('${os.quoted_path(@VEXE)} run ${os.quoted_path(producer_script)} | ${os.quoted_path(@VEXE)} fmt')
-	assert result.exit_code == 0, result.output
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	assert result.output.replace('\r\n', '\n') == 'fn main() {\n\tprintln(1)\n}\n'
 }
 
@@ -1127,7 +1129,7 @@ fn test_execute_fc_get_output() {
 	}
 	result := os.execute('c:\\windows\\system32\\fc.exe /?')
 	assert result.output.contains('filename')
-	assert result.exit_code == -1
+	assert result.exit_code == -1, result.exit_code_diagnostics('-1', label: @FN)
 }
 
 fn test_execute_decodes_utf16le_output() {
@@ -1140,7 +1142,7 @@ fn test_execute_decodes_utf16le_output() {
 		os.rm(source_path) or {}
 	}
 	result := os.execute('${os.quoted_path(@VEXE)} run ${os.quoted_path(source_path)}')
-	assert result.exit_code == 0, result.output
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	assert result.output == 'OK\n', result.output
 }
 

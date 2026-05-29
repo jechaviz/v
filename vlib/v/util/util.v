@@ -258,7 +258,7 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 				compile_sw := time.new_stopwatch()
 				tool_compilation := os.execute(compilation_command)
 				os.chdir(current_work_dir) or {}
-				tlog('tool_compilation.exit_code: ${tool_compilation.exit_code}, took: ${compile_sw.elapsed().milliseconds()}ms')
+				tlog('v.tool.compilation.failed=${tool_compilation.exit_code != 0}, v.tool.compilation.exit_code=${tool_compilation.exit_code}, v.tool.compilation.duration_ms=${compile_sw.elapsed().milliseconds()}')
 				if tool_compilation.exit_code == 0 {
 					break
 				} else {

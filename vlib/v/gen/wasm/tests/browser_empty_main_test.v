@@ -29,9 +29,14 @@ fn test_wasm_browser_target_allows_empty_main() {
 
 	for idx, flags in flags_sets {
 		output_path := os.join_path(wrkdir, 'empty_main_${idx}.wasm')
-		res :=
-			os.execute('${vexe} ${flags} -o ${os.quoted_path(output_path)} ${os.quoted_path(source_path)}')
-		assert res.exit_code == 0, 'compilation failed for `${flags}`: ${res.output}'
+		cmd := '${vexe} ${flags} -o ${os.quoted_path(output_path)} ${os.quoted_path(source_path)}'
+		res := os.execute(cmd)
+		assert res.exit_code == 0, res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'wasm_browser_compilation_failed'
+		)
+
 		assert os.exists(output_path), 'missing output for `${flags}`'
 	}
 }
@@ -56,9 +61,14 @@ fn test_wasm_shared_library_exports_custom_names_without_main() {
 	].join_lines()
 	os.write_file(source_path, source)!
 
-	res :=
-		os.execute('${vexe} -b wasm -shared -o ${os.quoted_path(output_path)} ${os.quoted_path(source_path)}')
-	assert res.exit_code == 0, 'compilation failed: ${res.output}'
+	cmd := '${vexe} -b wasm -shared -o ${os.quoted_path(output_path)} ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+		reason:  'wasm_shared_library_compilation_failed'
+	)
+
 	assert os.exists(output_path), 'missing output for shared wasm library'
 
 	wasm_bytes := os.read_bytes(output_path)!

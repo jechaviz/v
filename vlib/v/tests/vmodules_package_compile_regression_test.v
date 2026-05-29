@@ -73,5 +73,5 @@ fn test_issue_20147_vmodules_package_tests_compile() {
 		os.rmdir_all(issue_20147_workspace()) or {}
 	}
 	res := os.execute('${os.quoted_path(issue_20147_vexe)} test .')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }

@@ -15,7 +15,7 @@ fn test_command() {
 		dump(line)
 	}
 	cmd.close()!
-	assert cmd.exit_code == 0
+	assert cmd.exit_code == 0, os.process_exit_code_diagnostics(cmd.exit_code, '0', label: @FN)
 
 	eprintln('-------------------------')
 	// This will return a non 0 code
@@ -28,5 +28,6 @@ fn test_command() {
 		dump(line)
 	}
 	cmd_to_fail.close()!
-	assert cmd_to_fail.exit_code != 0 // 2 on linux, 1 on macos
+	assert cmd_to_fail.exit_code != 0, os.process_exit_code_diagnostics(cmd_to_fail.exit_code,
+		'!= 0', label: @FN) // 2 on linux, 1 on macos
 }

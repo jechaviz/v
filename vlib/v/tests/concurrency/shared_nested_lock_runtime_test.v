@@ -82,7 +82,12 @@ fn test_nested_shared_lock_fails_without_hanging() {
 		assert false, 'nested shared lock hung\n${err}'
 		return
 	}
-	assert result.code != 0, 'expected nested shared lock failure, got output:\n${result.output}'
+	assert result.code != 0, os.process_exit_code_diagnostics(result.code, '!= 0',
+		label:  @FN
+		reason: 'expected_nested_shared_lock_failure'
+		output: result.output
+	)
+
 	assert result.output.contains('Resource deadlock avoided'), result.output
 }
 
@@ -137,6 +142,10 @@ fn test_shared_generic_heap_method_call_does_not_hang() {
 		assert false, 'shared generic heap method call hung\n${err}'
 		return
 	}
-	assert result.code == 0, result.output
+	assert result.code == 0, os.process_exit_code_diagnostics(result.code, '0',
+		label:  @FN
+		output: result.output
+	)
+
 	assert result.output.contains('done'), result.output
 }

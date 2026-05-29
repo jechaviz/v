@@ -58,7 +58,7 @@ fn test_parallel_cc_fails_when_c_compilation_fails() {
 fn main() {}
 '
 	})
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('failed parallel C compilation'), res.output
 }
 
@@ -74,7 +74,7 @@ fn main() {
 }
 '
 	})
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('failed to link after parallel C compilation'), res.output
 }
 
@@ -88,7 +88,7 @@ fn test_parallel_cc_succeeds_with_array_sort_compare_helper() {
 	}
 	'
 	})
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_parallel_cc_uses_resolved_compiler_even_when_cc_env_is_invalid() {
@@ -101,5 +101,5 @@ fn main() {
 	}, {
 		'CC': 'definitely_missing_parallel_cc_compiler_23174'
 	})
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }

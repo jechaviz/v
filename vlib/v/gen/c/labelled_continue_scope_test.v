@@ -16,7 +16,7 @@ fn test_labelled_continue_targets_reenter_at_the_loop_gate() {
 	os.chdir(vroot) or {}
 	cmd := '${os.quoted_path(vexe)} -o - ${os.quoted_path(labelled_continue_scope_testdata)}'
 	compilation := os.execute(cmd)
-	assert compilation.exit_code == 0
+	assert compilation.exit_code == 0, compilation.exit_code_diagnostics('0', label: @FN)
 	generated_c := compilation.output.replace('\r\n', '\n')
 	cases := [
 		LabelledContinueCase{'range_outer', 'issue_19973_range_var'},

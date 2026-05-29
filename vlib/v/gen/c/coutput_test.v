@@ -101,7 +101,7 @@ fn test_out_files() {
 		//
 		if res.exit_code < 0 {
 			println('${term.red('FAIL')} C:${compile_ms:6}ms, R:${run_ms:2}ms ${label}')
-			println('  run crashed with exit code: ${res.exit_code}')
+			println(res.exit_code_diagnostics('>= 0', label: label, command: os.quoted_path(pexe)))
 			if res.output.len > 0 {
 				println(res.output)
 			}
@@ -783,12 +783,10 @@ fn vroot_relative(opath string) string {
 
 fn ensure_compilation_succeeded(compilation os.Result, cmd string) {
 	if compilation.exit_code < 0 {
-		eprintln('> cmd exit_code < 0, cmd: ${cmd}')
-		panic(compilation.output)
+		panic(compilation.exit_code_diagnostics('>= 0', label: @FN, command: cmd))
 	}
 	if compilation.exit_code != 0 {
-		eprintln('> cmd exit_code != 0, cmd: ${cmd}')
-		panic('compilation failed: ${compilation.output}')
+		panic(compilation.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 }
 

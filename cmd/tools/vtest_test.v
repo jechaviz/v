@@ -108,7 +108,7 @@ fn test_with_stats_and_several_test_files() {
 
 fn test_partial_failure() {
 	res := os.execute('${os.quoted_path(mytest_exe)} test ${os.quoted_path(tpath_partial)}')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('assert 5 == 7'), res.output
 	assert res.output.contains(' 1 failed, 1 passed, 2 total'), res.output
 	assert res.output.contains('To reproduce just failure'), res.output
@@ -118,7 +118,7 @@ fn test_run_only_reports_filtered_failures() {
 	failing_test_path := os.join_path(tpath_partial, 'failing_test.v')
 	res :=
 		os.execute('${os.quoted_path(mytest_exe)} test -run-only test_xyz ${os.quoted_path(failing_test_path)}')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('assert 5 == 7'), res.output
 	assert res.output.contains(' 1 failed, 1 total'), res.output
 }
@@ -140,14 +140,14 @@ fn test_js_runtime_errors_are_shown_for_js_tests() {
 	}
 	res :=
 		os.execute('${os.quoted_path(mytest_exe)} test ${os.quoted_path(tpath_js_runtime_error)}')
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('runtime_error_test.js.v'), res.output
 	assert res.output.contains('TypeError: boom'), res.output
 }
 
 fn test_with_stats_and_partial_failure() {
 	res := os.execute('${os.quoted_path(mytest_exe)} -stats test ${os.quoted_path(tpath_partial)}')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('assert 5 == 7'), res.output
 	assert res.output.contains(' 1 failed, 1 passed, 2 total'), res.output
 	assert res.output.contains('To reproduce just failure'), res.output

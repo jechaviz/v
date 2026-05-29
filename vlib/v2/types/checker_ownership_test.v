@@ -48,7 +48,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: use of moved value'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: use of moved value'
+
 	assert output.contains('use of moved value: `s1`'), 'error should mention s1, got: ${output}'
 	assert output.contains('value moved to `s2`'), 'error should mention s2, got: ${output}'
 }
@@ -62,8 +66,11 @@ fn main() {
 	println(s2)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'normal strings should not trigger ownership errors'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=normal strings should not trigger ownership errors'
 }
 
 fn test_ownership_clone_prevents_move() {
@@ -75,8 +82,11 @@ fn main() {
 	println(s2)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, '.clone() should prevent move'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=.clone() should prevent move'
 }
 
 // === Function call move tests ===
@@ -94,7 +104,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: use after move into function'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: use after move into function'
+
 	assert output.contains('use of moved value: `s`'), 'error should mention s, got: ${output}'
 	assert output.contains('takes_ownership'), 'error should mention the function name, got: ${output}'
 }
@@ -111,8 +125,11 @@ fn main() {
 	println(s)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'clone() arg should not move ownership'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=clone() arg should not move ownership'
 }
 
 // === Primitives don't move ===
@@ -130,8 +147,11 @@ fn main() {
 	println(y)
 }
 '
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'int should not trigger ownership move'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=int should not trigger ownership move'
 }
 
 // === Combined scenario (Rust book example) ===
@@ -153,7 +173,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s used after move into takes_ownership'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s used after move into takes_ownership'
+
 	assert output.contains('use of moved value: `s`'), 'got: ${output}'
 }
 
@@ -174,7 +198,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s1 from gives_ownership() is owned and was moved'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s1 from gives_ownership() is owned and was moved'
+
 	assert output.contains('use of moved value: `s1`'), 'got: ${output}'
 	assert output.contains('value moved to `s2`'), 'got: ${output}'
 }
@@ -192,8 +220,11 @@ fn main() {
 	println(s1)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'using gives_ownership() result directly should be fine'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=using gives_ownership() result directly should be fine'
 }
 
 fn test_ownership_takes_and_gives_back() {
@@ -211,7 +242,13 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s2 is owned (via takes_and_gives_back) and was moved to s3'
+	assert exit_code != 0,
+		os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) +
+		'\nvtest.assert.note=should fail: s2 is owned (via takes_and_gives_back) and was moved to s3'
+
 	assert output.contains('use of moved value: `s2`'), 'got: ${output}'
 }
 
@@ -229,7 +266,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s1 was moved into takes_and_gives_back'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s1 was moved into takes_and_gives_back'
+
 	assert output.contains('use of moved value: `s1`'), 'got: ${output}'
 }
 
@@ -253,8 +294,11 @@ fn main() {
 	println(s3)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'valid Rust book example should compile without errors'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=valid Rust book example should compile without errors'
 }
 
 // === References and borrowing tests ===
@@ -273,8 +317,11 @@ fn main() {
 	println(len)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'passing &s should borrow, not move'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=passing &s should borrow, not move'
 }
 
 fn test_borrow_multiple_immutable_ok() {
@@ -291,8 +338,11 @@ fn main() {
 	println(s1)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'multiple immutable borrows should be allowed'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=multiple immutable borrows should be allowed'
 }
 
 fn test_borrow_var_blocks_move() {
@@ -306,7 +356,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: cannot move s1 while borrowed by r'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: cannot move s1 while borrowed by r'
+
 	assert output.contains('cannot move `s1` because it is borrowed'), 'got: ${output}'
 	assert output.contains('borrowed by `r`'), 'got: ${output}'
 }
@@ -322,7 +376,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: cannot assign to s while borrowed by r'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: cannot assign to s while borrowed by r'
+
 	assert output.contains('cannot assign to `s` because it is borrowed'), 'got: ${output}'
 }
 
@@ -339,8 +397,11 @@ fn main() {
 	println(s)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'mut borrow via call should not move ownership'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=mut borrow via call should not move ownership'
 }
 
 fn test_borrow_two_immutable_vars_ok() {
@@ -354,8 +415,11 @@ fn main() {
 	println(*r2)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'two immutable borrows should be allowed'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=two immutable borrows should be allowed'
 }
 
 // === Direct return expression ownership tests ===
@@ -375,7 +439,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s1 from gives_ownership() is owned and was moved'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s1 from gives_ownership() is owned and was moved'
+
 	assert output.contains('use of moved value: `s1`'), 'got: ${output}'
 }
 
@@ -391,8 +459,11 @@ fn main() {
 	println(s1)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'using gives_ownership() result directly should be fine'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=using gives_ownership() result directly should be fine'
 }
 
 fn test_ownership_direct_return_ownership_fn() {
@@ -414,7 +485,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s1 from outer() is owned (transitively) and was moved'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s1 from outer() is owned (transitively) and was moved'
+
 	assert output.contains('use of moved value: `s1`'), 'got: ${output}'
 }
 
@@ -434,8 +509,13 @@ fn main() {
 	println(result)
 }
 "
-	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'pick returns a (not owned), not b (owned) — result should not be owned'
+	exit_code, output := run_ownership_check(code)
+	assert exit_code == 0,
+		os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		output: output
+	) +
+		'\nvtest.assert.note=pick returns a (not owned), not b (owned) — result should not be owned'
 }
 
 fn test_ownership_returns_param_correct_arg() {
@@ -454,7 +534,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'pick returns b (owned) — result should be owned and moved to r2'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=pick returns b (owned) — result should be owned and moved to r2'
+
 	assert output.contains('use of moved value: `result`'), 'got: ${output}'
 }
 
@@ -473,7 +557,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s moved into struct field'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s moved into struct field'
+
 	assert output.contains('use of moved value: `s`'), 'got: ${output}'
 }
 
@@ -486,7 +574,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s moved into array literal'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s moved into array literal'
+
 	assert output.contains('use of moved value: `s`'), 'got: ${output}'
 }
 
@@ -500,7 +592,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s moved into array append'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s moved into array append'
+
 	assert output.contains('use of moved value: `s`'), 'got: ${output}'
 }
 
@@ -513,7 +609,11 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code != 0, 'should fail: s moved into map literal'
+	assert exit_code != 0, os.process_exit_code_diagnostics(exit_code, '!= 0',
+		label:  @FN
+		output: output
+	) + '\nvtest.assert.note=should fail: s moved into map literal'
+
 	assert output.contains('use of moved value: `s`'), 'got: ${output}'
 }
 

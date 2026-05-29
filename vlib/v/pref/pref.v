@@ -339,7 +339,11 @@ fn run_code_in_tmp_vfile_and_exit(args []string, mut res Preferences, option_nam
 
 	res.vrun_elog('tmp_cmd: ${tmp_cmd}')
 	tmp_result := os.system(tmp_cmd)
-	res.vrun_elog('exit code: ${tmp_result}')
+	run_failed := tmp_result != 0
+	run_reason := if run_failed { 'child_exit_nonzero' } else { 'completed' }
+	res.vrun_elog('v.pref.run.failed=${run_failed}')
+	res.vrun_elog('v.pref.run.reason=${run_reason}')
+	res.vrun_elog('v.pref.run.exit_code=${tmp_result}')
 
 	if output_option != '' {
 		res.vrun_elog('remove tmp exe file: ${tmp_exe_file_path}')

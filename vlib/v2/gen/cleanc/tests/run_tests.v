@@ -58,8 +58,7 @@ fn main() {
 		// Run the generated binary.
 		gen_res := os.execute(v2_output)
 		if gen_res.exit_code != 0 {
-			eprintln('  [FAIL] Generated binary exited with code ${gen_res.exit_code}')
-			eprintln(gen_res.output)
+			eprintln(gen_res.exit_code_diagnostics('0', label: @FN, command: v2_output))
 			failed++
 			continue
 		}

@@ -25,5 +25,5 @@ fn test_dbg_compiles_with_reserved_function_argument_name() {
 		eprintln('> failed command: ${cmd}')
 		eprintln(res.output)
 	}
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }

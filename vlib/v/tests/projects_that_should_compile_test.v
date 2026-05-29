@@ -52,7 +52,7 @@ fn vrun_ok(options string, path string) string {
 	if res.exit_code != 0 {
 		eprintln('> failing vrun cmd: ${cmd}')
 		eprintln('> output:\n${res.output}')
-		assert res.exit_code == 0
+		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	}
 	return res.output
 }
@@ -83,7 +83,7 @@ fn test_running_subdir_project_with_parent_vmod_works() {
 	}
 	os.chdir(root)!
 	res := os.execute('${os.quoted_path(@VEXE)} run hexagonal')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.trim_space() == 'built'
 }
 
@@ -108,7 +108,7 @@ fn test_running_module_with_same_module_subdirs_setting_works() {
 	}
 	os.chdir(root)!
 	res := os.execute('${os.quoted_path(@VEXE)} run app/main.v')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.trim_space() == '42'
 }
 
@@ -168,7 +168,7 @@ pub fn (mut app App) ci_runs(mut ctx Context) veb.Result {
 	}
 	os.chdir(root)!
 	res := os.execute('${os.quoted_path(@VEXE)} .')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_module_resolution_is_independent_of_working_directory() {
@@ -350,7 +350,12 @@ fn test_usecache_build_module_sumtype_uses_canonical_type_id_helper() {
 	stderr := p.stderr_slurp()
 	exit_code := p.code
 	p.close()
-	assert exit_code == 0, '${stdout}${stderr}'
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		stdout: stdout
+		stderr: stderr
+	)
+
 	generated_c_path := os.join_path(vtmp_dir, 'maker.tmp.c')
 	assert os.exists(generated_c_path)
 	generated_c := os.read_file(generated_c_path)!

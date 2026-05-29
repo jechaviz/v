@@ -24,7 +24,7 @@ fn check_parsing_files_in_folder(folder string, options string) {
 		cmd := '${os.quoted_path(vexe)} ${options} ${os.quoted_path(f)}'
 		eprintln('> cmd: ${cmd}')
 		res := os.execute(cmd)
-		assert res.exit_code == 0, 'failed cmd: ${cmd}, output:\n${res.output}'
+		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 		assert res.output.split_into_lines().len > 10, 'there should be several files printed by cmd: ${cmd}'
 	}
 }

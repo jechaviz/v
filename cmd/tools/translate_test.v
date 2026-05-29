@@ -31,7 +31,12 @@ fn test_translate_legacy_wrapper_flag_uses_wrapper_mode() {
 	stderr := process.stderr_slurp()
 	exit_code := process.code
 	process.close()
-	assert exit_code == 0, 'stdout:\n${stdout}\nstderr:\n${stderr}'
+	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
+		label:  @FN
+		stdout: stdout
+		stderr: stderr
+	)
+
 	args := os.read_file(args_out)!.split_into_lines()
 	assert args == ['wrapper', sample_path], args.str()
 }
@@ -46,7 +51,7 @@ fn compile_fake_c2v(vmodules_dir string) ! {
 		'\n'
 	os.write_file(fake_c2v_path, fake_c2v_source)!
 	res := os.execute('${qvexe} -o ${os.quoted_path(c2v_bin)} ${os.quoted_path(fake_c2v_path)}')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn exe_suffix() string {

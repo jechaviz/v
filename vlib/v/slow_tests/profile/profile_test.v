@@ -30,7 +30,10 @@ fn test_v_profile_works_when_interrupted() {
 	compile_cmd := '${os.quoted_path(vexe)} -skip-unused -o ${os.quoted_path(program_exe)} -profile ${os.quoted_path(program_profile)} ${os.quoted_path(program_source)}'
 	eprintln('> compiling cmd: ${compile_cmd}')
 	compilation_result := os.execute(compile_cmd)
-	assert compilation_result.exit_code == 0, compilation_result.output
+	assert compilation_result.exit_code == 0, compilation_result.exit_code_diagnostics('0',
+		label: @FN
+	)
+
 	eprintln('> compiled ${program_exe}')
 	mut p := os.new_process(program_exe)
 	p.set_redirect_stdio()
@@ -52,7 +55,7 @@ fn test_v_profile_works_when_interrupted() {
 	p.wait()
 	eprintln('> closing ${program_exe}')
 	p.close()
-	assert p.code == 130
+	assert p.code == 130, os.process_exit_code_diagnostics(p.code, '130', label: @FN)
 	assert p.status == .closed
 	eprintln('> reading profile_content from ${program_profile} ...')
 	profile_content := os.read_file(program_profile)!
@@ -130,7 +133,7 @@ fn validate_output(fn_name string, vopts string, fsource string, expected map[st
 	program_source := os.join_path(vroot, fsource)
 	res :=
 		os.execute('${os.quoted_path(vexe)} ${vopts} -profile - run ${os.quoted_path(program_source)}')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.len > 0
 	res_lines := res.output.split_into_lines()
 	for expected_counter_name, expected_counter_value in expected {

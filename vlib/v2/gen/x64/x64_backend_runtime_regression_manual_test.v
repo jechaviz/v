@@ -16,10 +16,14 @@ fn run_x64_backend_runtime_program(name string, source string) string {
 	vexe := os.getenv_opt('VEXE') or { @VEXE }
 	build :=
 		os.execute('${os.quoted_path(vexe)} -v2 -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}')
-	assert build.exit_code == 0, build.output
+	assert build.exit_code == 0, build.exit_code_diagnostics('0', label: @FN)
 	run :=
 		os.execute('out=$(${os.quoted_path(bin_path)} 2>&1); code=$?; printf "%s\\n%s" "$code" "$out"')
-	assert run.exit_code == 0, '${name}: ${run.output}'
+	assert run.exit_code == 0, run.exit_code_diagnostics('0',
+		label:  @FN
+		reason: 'x64_generated_binary_wrapper_failed_for_${name}'
+	)
+
 	lines := run.output.split_into_lines()
 	assert lines.len >= 1, '${name}: ${run.output}'
 	assert lines[0] == '0', '${name}: ${run.output}'
@@ -38,7 +42,7 @@ fn run_x64_backend_runtime_compile_error(name string, source string) string {
 	vexe := os.getenv_opt('VEXE') or { @VEXE }
 	build :=
 		os.execute('${os.quoted_path(vexe)} -v2 -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}')
-	assert build.exit_code != 0, build.output
+	assert build.exit_code != 0, build.exit_code_diagnostics('!= 0', label: @FN)
 	return build.output
 }
 
@@ -56,10 +60,10 @@ fn run_x64_backend_runtime_program_redirected(name string, source string) (strin
 	vexe := os.getenv_opt('VEXE') or { @VEXE }
 	build :=
 		os.execute('${os.quoted_path(vexe)} -v2 -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}')
-	assert build.exit_code == 0, build.output
+	assert build.exit_code == 0, build.exit_code_diagnostics('0', label: @FN)
 	run :=
 		os.execute('${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}')
-	assert run.exit_code == 0, run.output
+	assert run.exit_code == 0, run.exit_code_diagnostics('0', label: @FN)
 	stdout := os.read_file(stdout_path) or { panic(err) }
 	stderr := os.read_file(stderr_path) or { panic(err) }
 	return stdout, stderr

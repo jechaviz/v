@@ -144,7 +144,7 @@ pub fn square(x int) int {
 }
 ')!
 	res := os.execute_opt('${vexe_} doc -m src/ -v') or { panic(err) }
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('square')
 }
 
@@ -212,7 +212,7 @@ pub fn greet() string {
 ")!
 	res := os.execute_opt('${vexe_} doc -no-timestamp -f text -o - -readme -comments ${os.quoted_path(
 		'./' + mod_dir)}') or { panic(err) }
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.replace('\r\n', '\n').trim_space() == 'module overview
     `overview` uses the first comment after the module declaration as the module overview.
 
@@ -239,7 +239,7 @@ pub enum Bar {
 ')!
 	res := os.execute_opt('${vexe_} doc -no-timestamp -m -f html -o - -html-only-contents ${os.quoted_path(
 		'./' + mod_dir)}') or { panic(err) }
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	output := res.output.replace('\r\n', '\n')
 	assert output.contains('Foo lorem ipsum foo.')
 	assert output.contains('Bar ipsum lorem bar.')
@@ -255,7 +255,7 @@ const internal = 1
 	res := os.execute_opt('${vexe_} doc -no-timestamp -f text -o - ${os.quoted_path('./' + mod_dir)}') or {
 		panic(err)
 	}
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.replace('\r\n', '\n').trim_space() == 'module module_without_public_symbols'
 }
 

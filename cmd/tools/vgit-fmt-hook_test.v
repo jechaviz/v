@@ -57,23 +57,23 @@ fn testsuite_end() {
 fn test_commit_no_vfmt() {
 	eprintln('>>>> ${@FN}')
 	reset_to_start_state()
-	assert os.execute_or_exit('git checkout -b unformatted').exit_code == 0
+	os.execute_or_exit('git checkout -b unformatted')
 	append('main.v', '//') or { panic(err) }
-	assert os.execute_or_exit('git add .').exit_code == 0
-	assert os.execute_or_exit('git commit -m "unformatted change"').exit_code == 0
-	assert os.execute_or_exit('git diff start').exit_code == 0
+	os.execute_or_exit('git add .')
+	os.execute_or_exit('git commit -m "unformatted change"')
+	os.execute_or_exit('git diff start')
 	assert read_file('main.v').starts_with(unformatted_content)
 }
 
 fn test_run_vfmt_manually() {
 	eprintln('>>>> ${@FN}')
 	reset_to_start_state()
-	assert os.execute_or_exit('git checkout -b formatted').exit_code == 0
+	os.execute_or_exit('git checkout -b formatted')
 	os.write_file('README.md', 'some new content') or { panic(err) }
-	assert os.execute_or_exit('${os.quoted_path(vexe)} fmt -w .').exit_code == 0
-	assert os.execute_or_exit('git add .').exit_code == 0
-	assert os.execute_or_exit('git commit -m "formatted change"').exit_code == 0
-	assert os.execute_or_exit('git diff start').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} fmt -w .')
+	os.execute_or_exit('git add .')
+	os.execute_or_exit('git commit -m "formatted change"')
+	os.execute_or_exit('git diff start')
 	assert read_file('main.v') == formatted_content
 }
 
@@ -81,7 +81,7 @@ fn test_run_git_fmt_hook() {
 	eprintln('>>>> ${@FN}')
 	reset_to_start_state()
 	res := os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('>   CURRENT git repo pre-commit hook: missing')
 	assert res.output.contains('> Main V repo pre-commit hook script: size:  ')
 	// Git hook = shell script on OpenBSD
@@ -98,7 +98,7 @@ fn test_run_git_fmt_hook_status_explicit() {
 	eprintln('>>>> ${@FN}')
 	reset_to_start_state()
 	res := os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook status')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('>   CURRENT git repo pre-commit hook: missing')
 	assert res.output.contains('> Main V repo pre-commit hook script: size:  ')
 	// Git hook = shell script on OpenBSD
@@ -118,7 +118,7 @@ fn test_run_git_fmt_hook_install() {
 	append('main.v', '\n') or { panic(err) }
 	assert read_file('main.v').starts_with(unformatted_content)
 	assert !os.is_file(hook_file)
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install')
 	assert os.is_file(hook_file)
 	res := os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook status')
 	assert res.output.contains('>   CURRENT git repo pre-commit hook: size:  ')
@@ -139,11 +139,11 @@ fn test_run_git_fmt_hook_install() {
 	assert read_file('main.v') == formatted_content
 	dres := os.execute_or_exit('git diff start')
 	// dump(dres)
-	assert dres.exit_code == 0
+	assert dres.exit_code == 0, dres.exit_code_diagnostics('0', label: @FN)
 	assert dres.output.contains('+fn main() {')
 	assert dres.output.contains("+\tprintln('hi')")
 	second := os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install')
-	assert second.exit_code == 0
+	assert second.exit_code == 0, second.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_run_git_fmt_hook_remove() {
@@ -151,9 +151,9 @@ fn test_run_git_fmt_hook_remove() {
 	reset_to_start_state()
 	os.execute_or_exit('git checkout start')
 	os.execute_or_exit('git checkout -b non_formatting_after_removing_hook')
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install')
 	assert os.is_file(hook_file)
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook remove').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook remove')
 	assert !os.is_file(hook_file)
 	append('main.v', '\n') or { panic(err) }
 	assert read_file('main.v').starts_with(unformatted_content)
@@ -170,22 +170,22 @@ fn test_run_git_fmt_hook_install_and_remove_on_foreign_hook_should_be_a_nop() {
 	os.write_file(hook_file, foreign_script) or { panic(err) }
 	os.chmod(hook_file, 0o0777) or { panic(err) }
 	assert read_file(hook_file) == foreign_script
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install')
 	assert read_file(hook_file) == foreign_script
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook remove').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook remove')
 	assert read_file(hook_file) == foreign_script
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook install')
 	assert read_file(hook_file) == foreign_script
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook status').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook status')
 	assert read_file(hook_file) == foreign_script
-	assert os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook').exit_code == 0
+	os.execute_or_exit('${os.quoted_path(vexe)} git-fmt-hook')
 	assert read_file(hook_file) == foreign_script
 	append('main.v', '\n') or { panic(err) }
 	append('main.v', '\n') or { panic(err) }
 	assert read_file('main.v').starts_with(unformatted_content)
 	os.execute_or_exit('git add -u')
 	fcommiting := os.execute_or_exit('git commit -m "this should NOT be formatted 2"')
-	assert fcommiting.exit_code == 0
+	assert fcommiting.exit_code == 0, fcommiting.exit_code_diagnostics('0', label: @FN)
 	assert fcommiting.output.contains('hello hello')
 	assert read_file('main.v').starts_with(unformatted_content)
 }

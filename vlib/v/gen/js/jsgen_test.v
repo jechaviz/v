@@ -71,7 +71,7 @@ fn test_issue_11379_js_browser_builtin_print_call_does_not_panic() {
 	output := os.join_path(output_dir, 'js_browser_builtin_print_regression.js')
 	res :=
 		os.execute('${os.quoted_path(vexe)} -enable-globals -b js_browser -o ${os.quoted_path(output)} ${os.quoted_path(program)}')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert !res.output.contains('V panic:'), res.output
 	assert os.exists(output)
 }
@@ -84,7 +84,7 @@ fn test_issue_20667_js_can_compile_game_of_life_example() {
 	output := os.join_path(output_dir, 'game_of_life.js')
 	res :=
 		os.execute('${os.quoted_path(vexe)} -prod -b js -w -o ${os.quoted_path(output)} ${os.quoted_path(program)}')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert os.exists(output)
 }
 
@@ -105,7 +105,7 @@ fn test_issue_23554_js_browser_interpolated_at_exprs_do_not_emit_nested_template
 	os.write_file(program, source) or { panic(err) }
 	res :=
 		os.execute('${os.quoted_path(vexe)} -b js_browser -o ${os.quoted_path(output)} ${os.quoted_path(program)}')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	js := os.read_file(output) or { panic(err) }
 	assert !js.contains('new string(`' + '$' + '{"')
 	assert os.exists(output)

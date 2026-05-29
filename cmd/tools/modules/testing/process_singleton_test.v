@@ -100,12 +100,12 @@ fn test_process_singleton_busy_lock_fails_closed() {
 	defer {
 		helper.wait()
 		assert helper.stderr_slurp().trim_space() == ''
-		assert helper.code == 0
+		assert helper.code == 0, os.process_exit_code_diagnostics(helper.code, '0', label: @FN)
 		helper.close()
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
-	assert res.exit_code == -1
+	assert res.exit_code == -1, res.exit_code_diagnostics('-1', label: @FN)
 	assert res.output.contains('vtest.process.queue=timeout')
 	assert res.output.contains('process-instance-queue-timeout')
 	assert res.output.contains('vtest.process.action=abort_before_child_start')
@@ -136,7 +136,7 @@ fn test_process_singleton_system_busy_lock_fails_closed() {
 	defer {
 		helper.wait()
 		assert helper.stderr_slurp().trim_space() == ''
-		assert helper.code == 0
+		assert helper.code == 0, os.process_exit_code_diagnostics(helper.code, '0', label: @FN)
 		helper.close()
 	}
 
@@ -167,12 +167,12 @@ fn test_process_singleton_held_flag_keeps_nested_execute_reentrant() {
 	defer {
 		helper.wait()
 		assert helper.stderr_slurp().trim_space() == ''
-		assert helper.code == 0
+		assert helper.code == 0, os.process_exit_code_diagnostics(helper.code, '0', label: @FN)
 		helper.close()
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.to_lower().contains('v ')
 }
 
@@ -197,12 +197,12 @@ fn test_process_singleton_can_be_disabled_even_when_lock_is_busy() {
 	defer {
 		helper.wait()
 		assert helper.stderr_slurp().trim_space() == ''
-		assert helper.code == 0
+		assert helper.code == 0, os.process_exit_code_diagnostics(helper.code, '0', label: @FN)
 		helper.close()
 	}
 
 	res := process_singleton_execute('${os.quoted_path(@VEXE)} version')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.to_lower().contains('v ')
 }
 
@@ -258,5 +258,9 @@ fn process_singleton_wait_for_helper(mut p os.Process) {
 	}
 	p.wait()
 	stderr := p.stderr_slurp().trim_space()
-	assert false, 'helper failed to acquire V test process singleton; exit=${p.code} stdout="${output.trim_space()}" stderr="${stderr}"'
+	assert false, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: output
+		stderr: stderr
+	)
 }

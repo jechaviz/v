@@ -19,7 +19,7 @@ fn test_fmt_keeps_invalid_assert_source_unchanged() {
 
 	res := os.execute('${os.quoted_path(vexe)} fmt -w ${os.quoted_path(source_path)}')
 
-	assert res.exit_code != 0, res.output
+	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert res.output.contains('unexpected string `bye`, expecting `,`'), res.output
 	assert res.output.contains('vfmt.worker.failed=true'), res.output
 	assert res.output.contains('vfmt.worker.reason=worker_exit_nonzero'), res.output
@@ -63,7 +63,7 @@ fn test_fmt_verify_accepts_formatted_file_with_utf8_bom() {
 
 	res := os.execute('${os.quoted_path(vexe)} fmt -verify ${os.quoted_path(source_path)}')
 
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert os.read_file(source_path)! == original
 }
 
@@ -75,7 +75,7 @@ fn test_fmt_write_preserves_utf8_bom() {
 	res := os.execute('${os.quoted_path(vexe)} fmt -w ${os.quoted_path(source_path)}')
 	formatted := os.read_file(source_path)!
 
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert formatted.starts_with('\xef\xbb\xbf')
 	assert formatted == "\xef\xbb\xbfmodule main\n\nfn main() {\n\tprintln('hi')\n}\n"
 }

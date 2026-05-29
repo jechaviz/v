@@ -37,8 +37,7 @@ fn test_wasm_when_decompiled_must_have() {
 		if res_wasm.exit_code != 0 {
 			bench.fail()
 			eprintln(bench.step_message_fail(cmd))
-			eprintln('   res_wasm.exit_code: ${res_wasm.exit_code}')
-			eprintln('   res_wasm.output   : ${res_wasm.output}')
+			eprintln(res_wasm.exit_code_diagnostics('0', label: @FN, command: cmd))
 			continue
 		}
 
@@ -48,8 +47,7 @@ fn test_wasm_when_decompiled_must_have() {
 		if res_dcmp.exit_code != 0 {
 			bench.fail()
 			eprintln(bench.step_message_fail(cmd_decompile))
-			eprintln('   res_dcmp.exit_code: ${res_dcmp.exit_code}')
-			eprintln('   res_dcmp.output   : ${res_dcmp.output}')
+			eprintln(res_dcmp.exit_code_diagnostics('0', label: @FN, command: cmd_decompile))
 			continue
 		}
 

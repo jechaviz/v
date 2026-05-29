@@ -24,15 +24,20 @@ fn test_cflags() {
 
 	println('> test whether -cflags is passed to the backend C compiler')
 	fail := custom_compile('failing.exe', 'NONSENSE_OPTION')
-	assert fail.compilation.exit_code != 0
+	assert fail.compilation.exit_code != 0, fail.compilation.exit_code_diagnostics('!= 0',
+		label: @FN
+	)
+
 	println('> NONSENSE_OPTION failed the C build, OK')
 
 	dbg := custom_compile('debug_hw.exe', debug_arg)
-	assert dbg.compilation.exit_code == 0
+	assert dbg.compilation.exit_code == 0, dbg.compilation.exit_code_diagnostics('0', label: @FN)
+
 	assert dbg.file_size > 0
 
 	opt := custom_compile('optimised_hw.exe', optimised_arg)
-	assert opt.compilation.exit_code == 0
+	assert opt.compilation.exit_code == 0, opt.compilation.exit_code_diagnostics('0', label: @FN)
+
 	assert opt.file_size > 0
 
 	$if !tinyc {

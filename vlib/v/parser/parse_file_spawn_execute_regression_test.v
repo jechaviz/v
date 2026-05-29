@@ -22,11 +22,13 @@ fn test_parse_file_does_not_poison_spawn_execute_on_macos() {
 	}
 	util.timing_set_should_print(false)
 	before_ms, before_exit_code := spawn_execute_elapsed_ms()
-	assert before_exit_code == 0
+	assert before_exit_code == 0, os.process_exit_code_diagnostics(before_exit_code, '0', label: @FN)
+
 	mut table := ast.new_table()
 	prefs := pref.new_preferences()
 	_ := parser.parse_file(@FILE, mut table, .skip_comments, prefs)
 	after_ms, after_exit_code := spawn_execute_elapsed_ms()
-	assert after_exit_code == 0
+	assert after_exit_code == 0, os.process_exit_code_diagnostics(after_exit_code, '0', label: @FN)
+
 	assert after_ms < 5000, 'spawn + os.execute slowed down from ${before_ms}ms to ${after_ms}ms'
 }

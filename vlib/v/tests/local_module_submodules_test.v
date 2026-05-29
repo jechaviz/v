@@ -83,7 +83,7 @@ fn test_local_module_submodules_compile_from_main_file() {
 		os.rm(out_name) or {}
 	}
 	res := compile_local_module_submodules('main.v', out_name)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_local_module_submodules_compile_from_project_dir() {
@@ -93,7 +93,7 @@ fn test_local_module_submodules_compile_from_project_dir() {
 		os.rm(out_name) or {}
 	}
 	res := compile_local_module_submodules('.', out_name)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_issue_24649_submodules_compile_from_main_file() {
@@ -104,7 +104,7 @@ fn test_issue_24649_submodules_compile_from_main_file() {
 		os.rm(out_name) or {}
 	}
 	res := compile_issue_24649_project('running_my_math.v', out_name, basepath)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_issue_24649_submodules_compile_from_dot_slash_main_file() {
@@ -115,7 +115,7 @@ fn test_issue_24649_submodules_compile_from_dot_slash_main_file() {
 		os.rm(out_name) or {}
 	}
 	res := compile_issue_24649_project('./running_my_math.v', out_name, basepath)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_issue_24649_submodules_compile_from_project_dir() {
@@ -126,7 +126,7 @@ fn test_issue_24649_submodules_compile_from_project_dir() {
 		os.rm(out_name) or {}
 	}
 	res := compile_issue_24649_project('.', out_name, basepath)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_issue_24649_submodules_compile_from_absolute_main_file() {
@@ -138,5 +138,5 @@ fn test_issue_24649_submodules_compile_from_absolute_main_file() {
 	}
 	target := os.join_path(basepath, 'running_my_math.v')
 	res := compile_issue_24649_project(target, out_name, os.dir(basepath))
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }

@@ -16,7 +16,7 @@ fn test_process_memory_guard_is_off_without_explicit_limit() {
 		os.rm(probe) or {}
 	}
 	result := process_memory_guard_run_probe(probe, {})
-	assert result.exit_code == 0, result.output
+	assert result.exit_code == 0, result.exit_code_diagnostics('0', label: @FN)
 	assert result.output.trim_space() == 'ok'
 }
 
@@ -28,7 +28,7 @@ fn test_process_memory_guard_limit_env_fails_before_large_allocation() {
 	result := process_memory_guard_run_probe(probe, {
 		'V_PROCESS_MEMORY_LIMIT_MB': '1'
 	})
-	assert result.exit_code == 103, result.output
+	assert result.exit_code == 103, result.exit_code_diagnostics('103', label: @FN)
 	assert result.output.contains('v.memory_guard.failed=true')
 	assert result.output.contains('v.memory_guard.reason=process_memory_limit')
 	assert result.output.contains('v.memory_guard.action=abort_before_oom')

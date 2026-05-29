@@ -4,25 +4,25 @@ const vexe = os.quoted_path(@VEXE)
 
 fn test_help() {
 	res := os.execute(vexe + ' help')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.starts_with('V is a tool for managing V source code.')
 }
 
 fn test_help_as_short_option() {
 	res := os.execute(vexe + ' -h')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.starts_with('V is a tool for managing V source code.')
 }
 
 fn test_help_as_long_option() {
 	res := os.execute(vexe + ' --help')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.starts_with('V is a tool for managing V source code.')
 }
 
 fn test_run_help_text() {
 	res := os.execute(vexe + ' help')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('executable if V created it for this run.')
 	assert res.output.contains('Compile and run a V program, keeping the')
 	assert res.output.contains('executable for reuse.')
@@ -30,7 +30,7 @@ fn test_run_help_text() {
 
 fn test_run_topic_mentions_conditional_cleanup() {
 	res := os.execute(vexe + ' help run')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output.contains('If `v run` created the executable for this run')
 	assert res.output.contains('If the executable already existed before the command')
 }
@@ -41,27 +41,27 @@ fn test_all_topics() {
 	topics := topic_paths.map(os.file_name(it).replace('.txt', ''))
 	for t in topics {
 		res := os.execute(vexe + ' help ${t}')
-		assert res.exit_code == 0, res.output
+		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 		assert res.output != ''
 	}
 }
 
 fn test_unknown_topic() {
 	res := os.execute(vexe + ' help abc')
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.starts_with('error: unknown help topic "abc".')
 }
 
 fn test_topics_output() {
 	res := os.execute(vexe + ' help topics')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output != '', res.output
 	assert !res.output.contains('default')
 }
 
 fn test_topic_sub_help() {
 	res := os.execute(vexe + ' fmt --help')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert res.output != ''
 }
 

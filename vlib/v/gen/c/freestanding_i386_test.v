@@ -21,7 +21,7 @@ pub fn kmain() {
 ")!
 	cmd := '${test_vexe} -cc gcc -gc none -no-skip-unused -freestanding -no-std -is_o -m32 -o ${os.quoted_path(out_c)} ${os.quoted_path(main_v)}'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, '${cmd}\n${res.output}'
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	generated := os.read_file(out_c)!
 	assert generated.contains('VV_LOC voidptr builtin__memdup(voidptr src, isize size);')
 	assert !generated.contains('\nvoidptr builtin__memdup(voidptr src, isize size);\n')

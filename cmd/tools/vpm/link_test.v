@@ -45,18 +45,18 @@ fn test_link_and_unlink_current_project() {
 		eprintln('Skipping symlink test due to missing privileges.')
 		return
 	}
-	assert link_res.exit_code == 0, link_res.output
+	assert link_res.exit_code == 0, link_res.exit_code_diagnostics('0', label: @FN)
 	assert os.is_link(link_path), 'expected `${link_path}` to be a symlink'
 	assert os.real_path(link_path) == os.real_path(project_path)
 	assert link_res.output.contains('Linked `${module_name}`'), link_res.output
 
 	link_again_res := execute_in_dir(project_path, '${vexe} link')
-	assert link_again_res.exit_code == 0, link_again_res.output
+	assert link_again_res.exit_code == 0, link_again_res.exit_code_diagnostics('0', label: @FN)
 	assert link_again_res.output.contains('already linked')
 		|| link_again_res.output.contains('already available'), link_again_res.output
 
 	unlink_res := execute_in_dir(project_subdir, '${vexe} unlink')
-	assert unlink_res.exit_code == 0, unlink_res.output
+	assert unlink_res.exit_code == 0, unlink_res.exit_code_diagnostics('0', label: @FN)
 	assert !os.exists(link_path) && !os.is_link(link_path)
 	assert !os.exists(os.join_path(test_path, 'author'))
 	assert unlink_res.output.contains('Unlinked `${module_name}`'), unlink_res.output
@@ -69,7 +69,7 @@ fn test_link_without_vmod() {
 		return
 	}
 	res := execute_in_dir(path, '${vexe} link')
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('no `v.mod` file found'), res.output
 }
 

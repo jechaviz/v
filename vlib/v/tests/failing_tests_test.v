@@ -34,7 +34,7 @@ fn testsuite_begin() {
 
 fn test_returning_options() {
 	res := vexecute('vlib/v/tests/testdata/tests_returning_options_failing_test.v')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	// dump(res)
 	assert res.output.contains('tests_returning_options_failing_test.v:13: fn test_example failed propagation with error: failing test with return, err: oh no')
 	assert res.output.contains('tests_returning_options_failing_test.v:19: fn test_example_2 failed propagation with error: oh no')
@@ -42,7 +42,7 @@ fn test_returning_options() {
 
 fn test_sizeof_in_assert() {
 	res := vexecute('vlib/v/tests/testdata/sizeof_used_in_assert_test.v')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	// dump(res)
 	assert res.output.contains('sizeof_used_in_assert_test.v:11: fn test_assert_offsetof')
 	assert res.output.contains('assert __offsetof(main.Abc, y) == 1')
@@ -57,7 +57,7 @@ fn test_assert_failure_runs_scoped_defer_cleanup() {
 	}
 	os.rm(assert_failed_defer_cleanup_path) or {}
 	res := vexecute('vlib/v/tests/testdata/assert_with_scoped_defer_cleanup_failing_test.v')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('assert_with_scoped_defer_cleanup_failing_test.v')
 	assert res.output.contains('assert false')
 	assert !os.exists(assert_failed_defer_cleanup_path)
@@ -69,7 +69,7 @@ fn test_assert_failure_runs_deferred_file_close_flush() {
 	}
 	os.rm(assert_failed_deferred_file_close_path) or {}
 	res := vexecute('vlib/v/tests/testdata/assert_with_scoped_defer_cleanup_failing_test.v')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('assert_with_scoped_defer_cleanup_failing_test.v')
 	assert res.output.contains('assert false')
 	content := os.read_file(assert_failed_deferred_file_close_path)!
@@ -93,7 +93,7 @@ fn test_run_only_reports_filtered_failures() {
 	os.write_file(test_path, test_source)!
 	res :=
 		os.execute('${os.quoted_path(@VEXE)} -test-runner normal -run-only test_fail ${os.quoted_path(test_path)}')
-	assert res.exit_code == 1
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('fn test_fail'), res.output
 	assert res.output.contains('expected to fail'), res.output
 	assert !res.output.contains('fn test_ok'), res.output
@@ -129,7 +129,7 @@ fn test_before_each_and_after_each_run_around_each_test() {
 	os.rm(log_path) or {}
 	os.setenv('V_ISSUE_19699_LOG_PATH', log_path, true)
 	res := os.execute('${os.quoted_path(@VEXE)} -test-runner normal ${os.quoted_path(test_path)}')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	log_lines := os.read_lines(log_path)!
 	assert log_lines == [
 		'testsuite_begin',
@@ -160,7 +160,7 @@ fn test_windows_c_system_info_is_undefined_on_non_windows() {
 		os.rm(source_path) or {}
 	}
 	res := os.execute('${os.quoted_path(@VEXE)} ${os.quoted_path(source_path)}')
-	assert res.exit_code != 0, res.output
+	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert res.output.contains('unknown type `C.SYSTEM_INFO`'), res.output
 	assert !res.output.contains('C compilation error'), res.output
 	assert !res.output.contains('builder error'), res.output

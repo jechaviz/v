@@ -9,8 +9,9 @@ fn testsuite_begin() {
 	os.rm(the_executable) or {}
 	res :=
 		os.execute('${os.quoted_path(@VEXE)} -o ${os.quoted_path(the_executable)} ${os.quoted_path(the_source)}')
-	assert res.exit_code == 0
-	assert os.execute(os.quoted_path(the_executable)).exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	run_res := os.execute(os.quoted_path(the_executable))
+	assert run_res.exit_code == 0, run_res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn testsuite_end() {
@@ -24,7 +25,7 @@ fn normalise_lines(lines []string) string {
 fn check_program(opts string, extension string) {
 	result := the_source.replace('.v', extension)
 	res := os.execute('${os.quoted_path(the_executable)} ${opts}')
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert normalise_lines(res.output.split_into_lines()) == normalise_lines(os.read_lines(result) or {
 		panic(err)
 	})

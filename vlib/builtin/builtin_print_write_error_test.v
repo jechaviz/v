@@ -57,7 +57,12 @@ fn test_println_does_not_hang_on_failed_stdout_write() {
 	p.wait()
 	stdout := p.stdout_slurp()
 	stderr := p.stderr_slurp()
-	assert p.code == 0, 'child exited with ${p.code}\nstdout:\n${stdout}\nstderr:\n${stderr}'
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: stdout
+		stderr: stderr
+	)
+
 	assert stdout == '', stdout
 	assert stderr == '', stderr
 }

@@ -45,7 +45,7 @@ fn main() {
 		eprintln('vtime.command.exit_code=${ecode}')
 		eprintln('vtime.command.command=${vtime_report_value(cmd)}')
 	}
-	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Exit code: ${ecode:3}. Command: ${term.ecolorize(term.green,
+	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Status: ${ecode:3}. Command: ${term.ecolorize(term.green,
 		cmd)}')
 	exit(ecode)
 }

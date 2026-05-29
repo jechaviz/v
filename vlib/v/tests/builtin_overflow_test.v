@@ -114,12 +114,10 @@ fn vroot_relative(opath string) string {
 
 fn ensure_compilation_succeeded(compilation os.Result, cmd string) {
 	if compilation.exit_code < 0 {
-		eprintln('> cmd exit_code < 0, cmd: ${cmd}')
-		panic(compilation.output)
+		panic(compilation.exit_code_diagnostics('>= 0', label: @FN, command: cmd))
 	}
 	if compilation.exit_code != 0 {
-		eprintln('> cmd exit_code != 0, cmd: ${cmd}')
-		panic('compilation failed: ${compilation.output}')
+		panic(compilation.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 }
 

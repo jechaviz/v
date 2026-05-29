@@ -513,19 +513,25 @@ fn test_v_cmds_and_flags() {
 
 	eval_removed_message := 'use v -v2 -eval file.v'
 	eval_flag_res := os.execute('${vexe} -eval ${vroot}/examples/hello_world.v')
-	assert eval_flag_res.exit_code == 1
+	assert eval_flag_res.exit_code == 1, eval_flag_res.exit_code_diagnostics('1', label: @FN)
 	assert eval_flag_res.output.trim_space() == eval_removed_message
 
 	eval_backend_res := os.execute('${vexe} -backend eval ${vroot}/examples/hello_world.v')
-	assert eval_backend_res.exit_code == 1
+	assert eval_backend_res.exit_code == 1, eval_backend_res.exit_code_diagnostics('1', label: @FN)
 	assert eval_backend_res.output.trim_space() == eval_removed_message
 
 	interpret_flag_res := os.execute('${vexe} -interpret ${vroot}/examples/hello_world.v')
-	assert interpret_flag_res.exit_code == 1
+	assert interpret_flag_res.exit_code == 1, interpret_flag_res.exit_code_diagnostics('1',
+		label: @FN
+	)
+
 	assert interpret_flag_res.output.trim_space() == eval_removed_message
 
 	interpret_command_res := os.execute('${vexe} interpret ${vroot}/examples/hello_world.v')
-	assert interpret_command_res.exit_code == 1
+	assert interpret_command_res.exit_code == 1, interpret_command_res.exit_code_diagnostics('1',
+		label: @FN
+	)
+
 	assert interpret_command_res.output.trim_space() == eval_removed_message
 
 	no_run_files_res := os.execute('${vexe} run')
@@ -557,13 +563,13 @@ fn main() {
 }
 ")!
 	build_res := os.execute('${os.quoted_path(vexe)} -silent build ${os.quoted_path(script_path)}')
-	assert build_res.exit_code == 0, build_res.output
+	assert build_res.exit_code == 0, build_res.exit_code_diagnostics('0', label: @FN)
 	assert build_res.output == ''
 	assert !os.exists(marker_path)
 	assert os.is_file(exe_path)
 
 	run_res := os.execute(os.quoted_path(exe_path))
-	assert run_res.exit_code == 0, run_res.output
+	assert run_res.exit_code == 0, run_res.exit_code_diagnostics('0', label: @FN)
 	assert run_res.output.trim_space() == 'ran'
 	assert os.read_file(marker_path)! == 'ran'
 }
@@ -576,14 +582,14 @@ fn test_unknown_option_flags_no_run() {
 
 	res1 :=
 		os.execute('${os.quoted_path(@VEXE)} -o ${os.quoted_path(tfile)} examples/hello_world.v --an-unknown-option')
-	assert res1.exit_code == 1, res1.output
+	assert res1.exit_code == 1, res1.exit_code_diagnostics('1', label: @FN)
 	assert res1.output.starts_with('Unknown argument')
 	assert res1.output.contains('--an-unknown-option')
 	assert !os.exists(tfile)
 
 	res2 :=
 		os.execute('${os.quoted_path(@VEXE)} -o ${os.quoted_path(tfile)} --an-unknown-option examples/hello_world.v')
-	assert res2.exit_code == 1, res2.output
+	assert res2.exit_code == 1, res2.exit_code_diagnostics('1', label: @FN)
 	assert res2.output.starts_with('Unknown argument')
 	assert res2.output.contains('--an-unknown-option')
 	assert !os.exists(tfile)
@@ -592,21 +598,24 @@ fn test_unknown_option_flags_no_run() {
 fn test_unknown_option_flags_with_run() {
 	res_run_o :=
 		os.execute('${os.quoted_path(@VEXE)} -o ${os.quoted_path(tfile)} run examples/hello_world.v --an-unknown-option')
-	assert res_run_o.exit_code == 0, res_run_o.output
+	assert res_run_o.exit_code == 0, res_run_o.exit_code_diagnostics('0', label: @FN)
 	assert res_run_o.output == '' // because of -o, there should not be an actual run, since compilation stopped after generating the .c file
 	assert os.exists(tfile)
 	os.rm(tfile) or {}
 
 	res_run_no_o_unknown_before_run :=
 		os.execute('${os.quoted_path(@VEXE)} --an-unknown-option run examples/hello_world.v ')
-	assert res_run_no_o_unknown_before_run.exit_code == 1, res_run_no_o_unknown_before_run.output
+	assert res_run_no_o_unknown_before_run.exit_code == 1, res_run_no_o_unknown_before_run.exit_code_diagnostics('1',
+		label: @FN
+	)
+
 	assert res_run_no_o_unknown_before_run.output.starts_with('Unknown argument')
 	assert res_run_no_o_unknown_before_run.output.contains('--an-unknown-option')
 	assert !os.exists(tfile)
 
 	res_run_no_o :=
 		os.execute('${os.quoted_path(@VEXE)} run examples/hello_world.v --an-unknown-option')
-	assert res_run_no_o.exit_code == 0, res_run_no_o.output
+	assert res_run_no_o.exit_code == 0, res_run_no_o.exit_code_diagnostics('0', label: @FN)
 	assert res_run_no_o.output.trim_space() == 'Hello, World!'
 	assert !os.exists(tfile)
 }
@@ -622,7 +631,7 @@ fn test_missing_explicit_ccompiler_reports_error() {
 	os.rm(expected_output) or {}
 	res :=
 		os.execute('${os.quoted_path(@VEXE)} -cc ${missing_cc} -o ${os.quoted_path(output)} ${os.quoted_path(target)}')
-	assert res.exit_code != 0
+	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert res.output.contains(missing_cc), res.output
 	assert res.output.to_lower().contains('not found') || res.output.to_lower().contains('missing'), res.output
 
@@ -645,7 +654,7 @@ fn test_generate_c_project_creates_build_files() {
 	target := os.join_path(vroot, 'examples', 'json.v')
 	cmd := '${os.quoted_path(vexe)} -generate-c-project ${os.quoted_path(output_dir)} ${os.quoted_path(target)}'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	for rel_path in ['json.c', 'build_command.txt', 'build.sh', 'build.bat', 'Makefile'] {
 		assert os.is_file(os.join_path(output_dir, rel_path))
 	}
@@ -677,7 +686,7 @@ fn test_output_flag_accepts_directory_path() {
 	output_arg := output_dir + os.path_separator
 	res :=
 		os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(output_arg)} ${os.quoted_path(target)}')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	assert os.is_dir(output_dir)
 	mut expected_output := os.join_path(output_dir, 'hello_world')
 	$if windows {
@@ -759,7 +768,7 @@ fn test_wayland_only_linux_session_surfaces_a_v_error_for_gg() {
 	if res.exit_code == 0 {
 		eprintln('> failed command: ${cmd}')
 	}
-	assert res.exit_code != 0
+	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert output.contains('Wayland-only Linux session without `-d sokol_wayland`')
 	assert !output.contains('C error. This should never happen.')
 }

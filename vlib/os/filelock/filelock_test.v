@@ -94,7 +94,11 @@ fn wait_for_lock(mut p os.Process) {
 	}
 	p.wait()
 	stderr := p.stderr_slurp().trim_space()
-	assert false, 'helper failed to acquire lock; exit=${p.code} stdout="${output.trim_space()}" stderr="${stderr}"'
+	assert false, os.process_exit_code_diagnostics(p.code, '0',
+		label:  @FN
+		stdout: output
+		stderr: stderr
+	)
 }
 
 fn try_lock_from_helper(path string, lock_mode filelock.LockMode, start u64, len u64) int {
@@ -149,7 +153,7 @@ fn test_existing_file_lock_range() {
 	assert try_lock_from_helper(target, .exclusive, 0, 5) == 1
 	assert try_lock_from_helper(target, .exclusive, 6, 5) == 0
 	holder.wait()
-	assert holder.code == 0
+	assert holder.code == 0, os.process_exit_code_diagnostics(holder.code, '0', label: @FN)
 	assert os.exists(target)
 	assert os.read_file(target)! == '0123456789abcdef'
 }
@@ -169,6 +173,6 @@ fn test_existing_file_lock_shared_mode() {
 	assert try_lock_from_helper(target, .shared, 0, 5) == 0
 	assert try_lock_from_helper(target, .exclusive, 0, 5) == 1
 	holder.wait()
-	assert holder.code == 0
+	assert holder.code == 0, os.process_exit_code_diagnostics(holder.code, '0', label: @FN)
 	assert os.exists(target)
 }

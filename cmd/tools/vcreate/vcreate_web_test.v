@@ -34,5 +34,5 @@ fn test_web_template_uses_veb() {
 	assert template_html.contains('veb starter')
 	os.chdir(project_path)!
 	res := os.execute('${os.quoted_path(@VEXE)} .')
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }

@@ -139,7 +139,7 @@ fn test_set_work_folder() {
 	p.set_work_folder(new_work_folder)
 	p.set_redirect_stdio()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	output := p.stdout_slurp().trim_space()
 	p.close()
 	$if trace_process_output ? {
@@ -163,7 +163,7 @@ fn test_set_environment() {
 	})
 	p.set_redirect_stdio()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	output := p.stdout_slurp().trim_space()
 	p.close()
 	$if trace_process_output ? {
@@ -195,7 +195,7 @@ fn test_new_process_uses_exact_executable_path_when_folder_contains_spaces() {
 	})
 	p.set_redirect_stdio()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	output := p.stdout_slurp().trim_space()
 	errors := p.stderr_slurp().trim_space()
 	p.close()
@@ -215,7 +215,7 @@ fn test_new_process_passes_spaced_path_args_on_windows() {
 	p.set_args([file_arg, dir_arg, quoted_arg, 'marker'])
 	p.set_redirect_stdio()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	output := p.stdout_slurp().trim_space()
 	errors := p.stderr_slurp().trim_space()
 	p.close()
@@ -247,7 +247,7 @@ fn test_new_process_uses_path_for_bare_command_names() {
 	p.set_work_folder(os.real_path(os.temp_dir()))
 	p.wait()
 	assert p.status == .exited
-	assert p.code == 7
+	assert p.code == 7, os.process_exit_code_diagnostics(p.code, '7', label: @FN)
 	p.close()
 }
 
@@ -271,7 +271,7 @@ fn test_run() {
 		i++
 	}
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	assert p.status == .exited
 
 	eprintln('polling iterations: ${i}')
@@ -285,7 +285,7 @@ fn test_wait() {
 	assert p.status != .exited
 	p.wait()
 	assert p.status == .exited
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	assert p.pid != os.getpid()
 	p.close()
 }
@@ -298,7 +298,7 @@ fn test_slurping_output() {
 	assert p.status != .exited
 	p.wait()
 	assert p.status == .exited
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	output := p.stdout_slurp().trim_space()
 	errors := p.stderr_slurp().trim_space()
 	p.close()
@@ -360,7 +360,7 @@ fn test_close_before_wait_preserves_exit_code() {
 	p.close()
 	p.wait()
 	assert p.status == .exited
-	assert p.code == 7
+	assert p.code == 7, os.process_exit_code_diagnostics(p.code, '7', label: @FN)
 	p.close()
 }
 
@@ -418,7 +418,7 @@ fn test_pipe_read_returns_none_after_eof() {
 	p.set_args(['-timeout_ms', '120', '-period_ms', '50'])
 	p.set_redirect_stdio()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	_ = p.stdout_slurp()
 	_ = p.stderr_slurp()
 	assert !p.is_pending(.stdout)
@@ -439,7 +439,7 @@ fn test_slurping_utf16le_output_on_windows() {
 	mut p := os.new_process(utf16le_output_exe_filename)
 	p.set_redirect_stdio()
 	p.wait()
-	assert p.code == 0
+	assert p.code == 0, os.process_exit_code_diagnostics(p.code, '0', label: @FN)
 	output := p.stdout_slurp()
 	errors := p.stderr_slurp()
 	p.close()

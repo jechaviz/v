@@ -85,7 +85,7 @@ fn vcrun(target string) os.Result {
 	cmd := '${os.quoted_path(vexe)} crun ${os.quoted_path(target)}'
 	eprintln('now: ${time.now().format_ss_milli()} | cmd: ${cmd}')
 	res := os.execute(cmd)
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	return res
 }
 

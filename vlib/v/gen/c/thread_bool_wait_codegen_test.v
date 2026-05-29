@@ -13,7 +13,7 @@ fn test_thread_bool_waiter_is_declared_before_array_waiter_uses_it_on_windows() 
 		"fn ping(url string) bool {\n\treturn url.len > 0\n}\n\nfn main() {\n\turls := ['a', 'b']\n\tmut threads := []thread bool{}\n\tfor url in urls {\n\t\tthreads << go ping(url)\n\t}\n\tresults := threads.wait()\n\tprintln(results)\n}\n")!
 	cmd := '${os.quoted_path(thread_bool_wait_codegen_vexe)} -o - -os windows ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, '${cmd}\n${res.output}'
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	lines := res.output.replace('\r\n', '\n').split_into_lines()
 	thread_wait_decl := 'bool __v_thread_bool_wait(__v_thread_bool thread);'
 	array_wait_def := 'Array_bool Array___v_thread_bool_wait(Array___v_thread_bool a) {'
@@ -37,7 +37,7 @@ fn test_prealloc_spawn_args_use_c_malloc() {
 		"fn worker(s string) {\n\tprintln(s)\n}\n\nfn answer() int {\n\treturn 42\n}\n\nfn main() {\n\tt := spawn worker('ok')\n\tt.wait()\n\tt2 := spawn answer()\n\tprintln(t2.wait())\n}\n")!
 	cmd := '${os.quoted_path(thread_bool_wait_codegen_vexe)} -prealloc -o - ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, '${cmd}\n${res.output}'
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	assert res.output.contains('(thread_arg_main__worker *) malloc(sizeof(thread_arg_main__worker))'), res.output
 	assert res.output.contains('prealloc_scope = builtin__prealloc_scope_retain_current();'), res.output
 	assert res.output.contains('void* thread_prealloc_scope = builtin__prealloc_scope_begin();'), res.output
