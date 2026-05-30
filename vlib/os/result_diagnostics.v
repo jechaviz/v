@@ -96,6 +96,8 @@ pub fn process_exit_code_diagnostics(actual int, expected string, options ExitCo
 	}
 	if options.output != '' {
 		lines << 'vtest.assert.output=${os_diagnostic_value(options.output)}'
+	} else if options.stdout == '' && options.stderr == '' {
+		lines << 'vtest.assert.output_empty=true'
 	}
 	if options.stdout != '' {
 		lines << 'vtest.assert.stdout=${os_diagnostic_value(options.stdout)}'

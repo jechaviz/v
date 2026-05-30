@@ -317,6 +317,37 @@ fn c_compiler_failure_output(ccompiler string, res os.Result, tcc_output os.Resu
 	}
 }
 
+fn c_command_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn (mut v Builder) report_silent_c_compiler_failure(ccompiler string, cmd string, res os.Result) {
+	if res.exit_code == 0 || res.output.trim_space() != '' {
+		return
+	}
+	stage := if v.pref.is_prod { 'prod_c_compile_or_link' } else { 'c_compile_or_link' }
+	action := if v.pref.is_prod && !v.pref.no_prod_options {
+		'rerun_with_show_c_output_or_no_prod_options'
+	} else {
+		'rerun_with_show_c_output'
+	}
+	message := if v.pref.is_prod {
+		'C compiler exited with a non-zero status during -prod build without stdout/stderr'
+	} else {
+		'C compiler exited with a non-zero status without stdout/stderr'
+	}
+	eprintln(res.command_failure_report('v.builder.cc.command',
+		stage:   stage
+		reason:  'c_compiler_failed_without_output'
+		action:  action
+		message: message
+		command: cmd
+	))
+	eprintln('v.builder.cc.command.ccompiler=${c_command_report_value(ccompiler)}')
+	eprintln('v.builder.cc.command.prod=${v.pref.is_prod}')
+	eprintln('v.builder.cc.command.no_prod_options=${v.pref.no_prod_options}')
+}
+
 fn (mut v Builder) post_process_c_compiler_output(ccompiler string, res os.Result) {
 	v.post_process_c_compiler_output_with_report(ccompiler, res, ccompiler, res)
 }
@@ -1667,6 +1698,7 @@ pub fn (mut v Builder) cc() {
 					'Please reinstall it, or make it available in your PATH.\n\n' +
 					missing_compiler_info())
 			}
+			v.report_silent_c_compiler_failure(ccompiler, cmd, res)
 		}
 		// If tcc failed once, and the system C compiler has failed as well,
 		// print the tcc error instead since it may contain more useful information.
