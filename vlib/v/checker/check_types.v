@@ -608,6 +608,9 @@ fn (mut c Checker) check_basic(got ast.Type, expected ast.Type) bool {
 			}
 		}
 	}
+	if c.check_container_alias_types(got, expected) {
+		return true
+	}
 	if !unalias_got.is_ptr() && got_sym.kind == .array_fixed
 		&& unalias_expected.is_any_kind_of_pointer() {
 		// fixed array needs to be a struct, not a pointer
@@ -679,6 +682,46 @@ fn (mut c Checker) check_basic(got ast.Type, expected ast.Type) bool {
 		}
 	}
 	return false
+}
+
+fn (mut c Checker) check_container_alias_types(got ast.Type, expected ast.Type) bool {
+	if got.has_option_or_result() || expected.has_option_or_result() || got.is_any_kind_of_pointer()
+		|| expected.is_any_kind_of_pointer() {
+		return false
+	}
+	got_type := c.table.unaliased_type(got)
+	expected_type := c.table.unaliased_type(expected)
+	if got_type == expected_type {
+		return true
+	}
+	got_sym := c.table.final_sym(got_type)
+	expected_sym := c.table.final_sym(expected_type)
+	if got_sym.kind != expected_sym.kind {
+		return false
+	}
+	match got_sym.kind {
+		.array {
+			got_info := got_sym.info as ast.Array
+			expected_info := expected_sym.info as ast.Array
+			return got_info.nr_dims == expected_info.nr_dims
+				&& c.check_types(got_info.elem_type, expected_info.elem_type)
+		}
+		.array_fixed {
+			got_info := got_sym.info as ast.ArrayFixed
+			expected_info := expected_sym.info as ast.ArrayFixed
+			return got_info.size == expected_info.size
+				&& c.check_types(got_info.elem_type, expected_info.elem_type)
+		}
+		.map {
+			got_info := got_sym.info as ast.Map
+			expected_info := expected_sym.info as ast.Map
+			return c.check_types(got_info.key_type, expected_info.key_type)
+				&& c.check_types(got_info.value_type, expected_info.value_type)
+		}
+		else {
+			return false
+		}
+	}
 }
 
 fn (mut c Checker) check_matching_function_symbols(got_type_sym &ast.TypeSymbol, exp_type_sym &ast.TypeSymbol) bool {
