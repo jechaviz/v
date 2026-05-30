@@ -49,7 +49,7 @@ pub fn os_from_string(os_str string) !OS {
 		'nix' {
 			return .linux
 		}
-		'kolibrios', 'kolibri' {
+		'target_os', 'kolibrios', 'kolibri' {
 			return .kolibrios
 		}
 		'windows' {

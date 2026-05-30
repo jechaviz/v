@@ -400,7 +400,7 @@ pub fn (this_os OS) is_target_of(target string) bool {
 	if (this_os == .windows && target == 'nix')
 		|| (this_os != .windows && target == 'windows')
 		|| (this_os != .linux && target == 'linux')
-		|| (this_os != .kolibrios && target in ['kolibrios', 'kolibri'])
+		|| (this_os != .kolibrios && target in ['target_os', 'kolibrios', 'kolibri'])
 		|| (this_os != .macos && target in ['darwin', 'macos', 'mac'])
 		|| (!this_os.is_bsd_target() && target == 'bsd')
 		|| (this_os != .ios && target == 'ios')

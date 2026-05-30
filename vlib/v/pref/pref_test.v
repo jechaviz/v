@@ -114,18 +114,20 @@ fn test_mac_is_alias_for_macos() {
 	assert !pref.OS.linux.is_target_of('mac')
 }
 
-fn test_kolibrios_os_target_is_recognized() {
-	os_kind := pref.os_from_string('kolibrios') or {
+fn test_semantic_target_os_is_recognized() {
+	os_kind := pref.os_from_string('target_os') or {
 		assert false, err.msg()
 		return
 	}
 	assert os_kind == .kolibrios
+	assert pref.os_from_string('kolibrios') or { pref.OS._auto } == .kolibrios
 	assert pref.os_from_string('kolibri') or { pref.OS._auto } == .kolibrios
 	assert pref.OS.kolibrios.lower() == 'kolibrios'
 	assert pref.OS.kolibrios.str() == 'KolibriOS'
+	assert pref.OS.kolibrios.is_target_of('target_os')
 	assert pref.OS.kolibrios.is_target_of('kolibrios')
 	assert pref.OS.kolibrios.is_target_of('kolibri')
-	assert !pref.OS.linux.is_target_of('kolibrios')
+	assert !pref.OS.linux.is_target_of('target_os')
 }
 
 fn test_bsd_target_matches_macos_and_bsd_systems() {
