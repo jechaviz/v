@@ -13,7 +13,7 @@ fn test_check_examples_good() {
 	cmd := '${vexe} doc -comments -check-examples cmd/tools/vdoc/testdata/run_examples_good/main.v'
 	println('${@METHOD:30} running ${cmd} ...')
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	assert res.output.contains('module main'), res.output
 	assert res.output.contains('fn abc()'), res.output
 	assert res.output.contains("abc just prints 'xyz'"), res.output
@@ -25,7 +25,7 @@ fn test_check_examples_bad() {
 	cmd := '${vexe} doc -comments -check-examples cmd/tools/vdoc/testdata/run_examples_bad/main.v'
 	println('${@METHOD:30} running ${cmd} ...')
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	assert res.output.contains('module main'), res.output
 	assert res.output.contains('Example: assert 5 * 5 == 77'), res.output
 }

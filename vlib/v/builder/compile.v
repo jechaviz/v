@@ -12,7 +12,8 @@ pub type FnBackend = fn (mut b Builder)
 
 // should_find_windows_host_c_compiler reports whether Windows host compiler probing is needed.
 pub fn should_find_windows_host_c_compiler(pref_ &pref.Preferences) bool {
-	return pref_.backend == .c && pref_.os == .windows && !pref_.output_cross_c
+	return pref_.backend == .c && pref_.os == .windows && !pref_.output_cross_c && !pref_.check_only
+		&& !pref_.only_check_syntax
 }
 
 pub fn compile(command string, pref_ &pref.Preferences, backend_cb FnBackend) {
@@ -82,18 +83,18 @@ fn (mut b Builder) myfree() {
 	util.free_caches()
 }
 
-fn (b &Builder) exit_on_invalid_syntax() {
+fn (mut b Builder) exit_on_invalid_syntax() {
 	util.free_caches()
 	// V should exit with an exit code of 1, when there are errors,
 	// even when -silent is passed in combination to -check-syntax:
 	if b.pref.only_check_syntax {
 		for pf in b.parsed_files {
 			if pf.errors.len > 0 {
-				exit(1)
+				b.print_warnings_and_errors()
 			}
 		}
 		if b.checker.nr_errors > 0 {
-			exit(1)
+			b.print_warnings_and_errors()
 		}
 	}
 }

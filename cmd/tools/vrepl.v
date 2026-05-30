@@ -8,6 +8,7 @@ import term
 import rand
 import readline
 import os.cmdline
+import time
 import v.util.version
 
 struct Repl {
@@ -344,12 +345,23 @@ fn (r &Repl) check_fn_type_kind(new_line string) FnType {
 	// -usecache keeps repeated REPL checks responsive by reusing cached modules.
 	// -w suppresses warnings from this synthetic println probe.
 	// -check just does syntax and checker analysis without generating/running code.
-	os_response := execute_repl_v_command(vexe, ['-usecache', '-w', '-check', check_file]) or {
-		return FnType.none
-	}
+	check_args := ['-usecache', '-w', '-check', check_file]
+	sw := time.new_stopwatch()
+	os_response := execute_repl_v_command(vexe, check_args) or { return FnType.none }
+	check_duration := sw.elapsed().milliseconds()
 	str_response := convert_output(os_response.output)
 	if os_response.exit_code != 0 && str_response.contains('can not print void expressions') {
 		return FnType.void
+	}
+	if os_response.exit_code != 0 {
+		eprintln(os_response.command_failure_report('vrepl.check',
+			reason:  'check_probe_failed'
+			action:  'inspect_repl_check_probe'
+			message: 'REPL function type probe failed with an unexpected diagnostic'
+			command: repl_command_label(vexe, check_args)
+		))
+		eprintln('vrepl.check.duration_ms=${check_duration}')
+		eprintln('vrepl.check.temp_file=${check_file}')
 	}
 	return FnType.fn_type
 }

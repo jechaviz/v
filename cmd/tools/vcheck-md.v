@@ -656,11 +656,44 @@ fn cmdexecute(cmd string) int {
 fn silent_cmdexecute(cmd string) int {
 	verbose_println(cmd)
 	res := os.execute(cmd)
+	if res.exit_code < 0 {
+		eprintln(res.command_failure_report('vcheck_md.command',
+			reason:  'command_start_failed'
+			action:  'inspect_command_and_environment'
+			command: cmd
+		))
+	}
 	return res.exit_code
 }
 
 fn get_fmt_exit_code(vfile string, vexe string) int {
-	return silent_cmdexecute('${os.quoted_path(vexe)} fmt -verify ${os.quoted_path(vfile)}')
+	cmd := '${os.quoted_path(vexe)} fmt -verify ${os.quoted_path(vfile)}'
+	verbose_println(cmd)
+	res := os.execute(cmd)
+	if res.exit_code != 0 {
+		eprintln(res.command_failure_report('vcheck_md.command',
+			stage:   'fmt_verify'
+			reason:  'fmt_verify_failed'
+			action:  'inspect_formatting_output'
+			command: cmd
+		))
+	}
+	return res.exit_code
+}
+
+fn expected_failure_cmdexecute(cmd string, stage string) int {
+	verbose_println(cmd)
+	res := os.execute(cmd)
+	if res.exit_code < 0 || res.exit_code > 1 {
+		eprintln(res.command_failure_report('vcheck_md.command',
+			stage:   stage
+			reason:  'unexpected_validation_failure'
+			action:  'inspect_command_output'
+			message: 'expected this validation command to fail with exit code 1'
+			command: cmd
+		))
+	}
+	return res.exit_code
 }
 
 fn (mut f MDFile) check_examples() {
@@ -789,11 +822,14 @@ fn (mut f MDFile) check_examples() {
 					f.oks++
 				}
 				'failcompile' {
-					res :=
-						silent_cmdexecute('${os.quoted_path(vexe)} -w -Wfatal-errors -o ${os.quoted_path(cfile)} ${os.quoted_path(vfile)}')
-					if res == 0 || fmt_res != 0 {
+					res := expected_failure_cmdexecute('${os.quoted_path(vexe)} -w -Wfatal-errors -o ${os.quoted_path(cfile)} ${os.quoted_path(vfile)}',
+						'failcompile')
+					if res != 1 || fmt_res != 0 {
 						if res == 0 {
 							eprintln(eline(f.path, e.sline, 0, '`failcompile` example compiled'))
+						} else if res != 1 {
+							eprintln(eline(f.path, e.sline, 0,
+								'`failcompile` example failed with unexpected exit code ${res}'))
 						}
 						f.report_not_formatted_example_if_needed(e, fmt_res, vfile) or {
 							unsafe {
@@ -842,10 +878,14 @@ fn (mut f MDFile) check_examples() {
 					f.oks++
 				}
 				'badsyntax' {
-					res :=
-						silent_cmdexecute('${os.quoted_path(vexe)} -w -Wfatal-errors -check-syntax ${os.quoted_path(vfile)}')
-					if res == 0 {
+					res := expected_failure_cmdexecute('${os.quoted_path(vexe)} -w -Wfatal-errors -check-syntax ${os.quoted_path(vfile)}',
+						'badsyntax')
+					if res != 1 {
 						eprintln(eline(f.path, e.sline, 0, '`badsyntax` example can be parsed fine'))
+						if res != 0 {
+							eprintln(eline(f.path, e.sline, 0,
+								'`badsyntax` example failed with unexpected exit code ${res}'))
+						}
 						eprintln(vcontent)
 						should_cleanup_vfile = false
 						f.errors++

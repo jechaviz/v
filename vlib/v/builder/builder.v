@@ -90,7 +90,8 @@ pub fn new_builder(pref_ &pref.Preferences) Builder {
 	}
 	table.pointer_size = if pref_.m64 && pref_.backend != .wasm { 8 } else { 4 }
 	mut msvc := MsvcResult{}
-	if pref_.ccompiler_type == .msvc || pref.cc_from_string(pref_.ccompiler) == .msvc {
+	if !pref_.check_only && !pref_.only_check_syntax
+		&& (pref_.ccompiler_type == .msvc || pref.cc_from_string(pref_.ccompiler) == .msvc) {
 		$if windows {
 			msvc = find_msvc(pref_.m64) or {
 				MsvcResult{
@@ -1069,7 +1070,7 @@ pub fn (mut b Builder) print_warnings_and_errors() {
 		return
 	}
 
-	if b.pref.check_only {
+	if b.pref.check_only || b.pref.only_check_syntax {
 		if !b.pref.skip_notes && !b.pref.json_errors {
 			for file in b.parsed_files {
 				for err in file.notices {

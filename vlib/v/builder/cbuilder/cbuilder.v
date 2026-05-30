@@ -48,6 +48,15 @@ You can also seek #help on Discord: https://discord.gg/vlang
 		println('all .v files:')
 		println(files)
 	}
+	if b.pref.check_only || b.pref.only_check_syntax {
+		b.front_and_middle_stages(files) or {
+			if err.code() > 7000 {
+				return
+			}
+			builder.verror(err.msg())
+		}
+		return
+	}
 	mut out_name_c := b.get_vtmp_filename(b.pref.out_name, '.tmp.c')
 	if b.pref.is_shared {
 		out_name_c = b.get_vtmp_filename(b.pref.out_name, '.tmp.so.c')
