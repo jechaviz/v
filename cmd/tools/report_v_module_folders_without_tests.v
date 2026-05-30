@@ -55,11 +55,15 @@ fn main() {
 			n_test_v_files := v_test_files[folder]
 			if n_v_files > 1 && n_test_v_files == 0 {
 				println('> ${n_test_v_files:5} _test.v files, with ${n_v_files:5} .v files, in folder: ${folder}')
-				compilation :=
-					os.execute('${os.quoted_path(vexe)} -shared -W -Wfatal-errors -check ${os.quoted_path(folder)}')
+				compile_cmd := '${os.quoted_path(vexe)} -shared -W -Wfatal-errors -check ${os.quoted_path(folder)}'
+				compilation := os.execute(compile_cmd)
 				if compilation.exit_code != 0 {
-					eprintln('> ${folder} has parser/checker errors!')
-					eprintln(compilation.output)
+					eprintln(compilation.command_failure_report('v.module_audit.command',
+						reason:  'module_check_failed'
+						action:  'inspect_checker_output'
+						message: '${folder} has parser/checker errors'
+						command: compile_cmd
+					))
 				}
 				found++
 			}

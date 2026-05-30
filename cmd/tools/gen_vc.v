@@ -310,16 +310,24 @@ fn (mut gen_vc GenVC) command_execute(cmd string, dry bool) string {
 	gen_vc.logger.info('cmd: ${cmd}')
 	r := os.execute(cmd)
 	if r.exit_code < 0 {
-		gen_vc.logger.error('${err_msg_cmd_x}: "${cmd}" could not start.')
-		gen_vc.logger.error(r.output)
+		gen_vc.logger.error(r.command_failure_report('gen_vc.command',
+			reason:  'command_start_failed'
+			action:  'purge_repos_and_retry_later'
+			message: '${err_msg_cmd_x}: command could not start'
+			command: cmd
+		))
 		// something went wrong, better start fresh next time
 		gen_vc.purge_repos()
 		gen_vc.gen_error = true
 		return ''
 	}
 	if r.exit_code != 0 {
-		gen_vc.logger.error('${err_msg_cmd_x}: "${cmd}" failed.')
-		gen_vc.logger.error(r.output)
+		gen_vc.logger.error(r.command_failure_report('gen_vc.command',
+			reason:  'child_exit_nonzero'
+			action:  'purge_repos_and_retry_later'
+			message: '${err_msg_cmd_x}: command failed'
+			command: cmd
+		))
 		// something went wrong, better start fresh next time
 		gen_vc.purge_repos()
 		gen_vc.gen_error = true

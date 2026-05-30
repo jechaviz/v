@@ -56,6 +56,7 @@ fn write_bin2v_keep_content() ! {
 	eprintln('> running: ${cmd}')
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		return error_with_code(res.output.trim_space(), res.exit_code)
+		return error_with_code(res.exit_code_diagnostics('0', label: @FN, command: cmd),
+			res.exit_code)
 	}
 }

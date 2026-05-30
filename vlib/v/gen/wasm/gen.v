@@ -1860,7 +1860,15 @@ pub fn gen(files []&ast.File, mut table ast.Table, out_name string, w_pref &pref
 				err := p.stderr_slurp()
 				p.wait()
 				if p.code != 0 {
-					eprintln(err)
+					validate_cmd := '${os.quoted_path(rt)} ${os.quoted_path(out_name)}'
+					eprintln(os.process_command_failure_report('v.wasm.command', p.code,
+						stage:   'wasm_validate'
+						reason:  'wasm_validation_failed'
+						action:  'inspect_validator_output'
+						message: 'wasm-validate rejected generated WebAssembly'
+						command: validate_cmd
+						stderr:  err
+					))
 					g.w_error('validation failed, this should not happen. report an issue with the above messages, the webassembly generated, and appropriate code.')
 				}
 			} else {
@@ -1871,10 +1879,16 @@ pub fn gen(files []&ast.File, mut table ast.Table, out_name string, w_pref &pref
 			exe := $if windows { 'wasm-opt.exe' } $else { 'wasm-opt' }
 			if rt := os.find_abs_path_of_executable(exe) {
 				// -lmu: low memory unused, very important optimisation
-				res :=
-					os.execute('${os.quoted_path(rt)} -all -lmu -c -O4 ${os.quoted_path(out_name)} -o ${os.quoted_path(out_name)}')
+				wasm_opt_cmd := '${os.quoted_path(rt)} -all -lmu -c -O4 ${os.quoted_path(out_name)} -o ${os.quoted_path(out_name)}'
+				res := os.execute(wasm_opt_cmd)
 				if res.exit_code != 0 {
-					eprintln(res.output)
+					eprintln(res.command_failure_report('v.wasm.command',
+						stage:   'wasm_opt'
+						reason:  'wasm_optimization_failed'
+						action:  'inspect_optimizer_output'
+						message: 'wasm-opt failed to optimize generated WebAssembly'
+						command: wasm_opt_cmd
+					))
 					g.w_error('${rt} failed, this should not happen. Report an issue with the above messages, the webassembly generated, and appropriate code.')
 				}
 			} else {

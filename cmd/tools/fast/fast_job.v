@@ -38,8 +38,17 @@ fn check_output_repo(url string, branch string, folder string) {
 	}
 	cmd := 'git clone --filter=blob:none --branch=${branch}  ${url}  ${folder}'
 	elog('Note: ${folder} is missing. Cloning to `${folder}`, with: `${cmd}` ...')
-	res := os.system(cmd)
-	elog('... cloning done, result: ${res}')
+	res := os.execute(cmd)
+	if res.exit_code != 0 {
+		elog(res.command_failure_report('fast.clone',
+			reason:  'git_clone_failed'
+			action:  'retry_next_cycle'
+			message: 'failed to clone output repository'
+			command: cmd
+		))
+		return
+	}
+	elog('... cloning done.')
 }
 
 fn main() {
@@ -71,13 +80,19 @@ fn main() {
 		elog('------------------- Checking for updates, loop: ${i} ... -------------------')
 		os.chdir(fast_dir)!
 
-		res_pull := os.execute('git pull --rebase')
-		elog('> res_pull.output: ${res_pull.output}')
+		pull_cmd := 'git pull --rebase'
+		res_pull := os.execute(pull_cmd)
 		if res_pull.exit_code != 0 {
-			elog('Git pull failed. You may have uncommitted changes?')
+			elog(res_pull.command_failure_report('fast.update',
+				reason:  'git_pull_failed'
+				action:  'delay_and_retry_next_cycle'
+				message: 'git pull failed; there may be uncommitted changes'
+				command: pull_cmd
+			))
 			delay()
 			continue
 		}
+		elog('> res_pull.output: ${res_pull.output}')
 		if res_pull.output.contains('Already up to date.') {
 			if os.args.contains('-force-update') {
 				elog('The repository was already updated, but -force-update was passed too.')
@@ -92,9 +107,15 @@ fn main() {
 		os.system('ls -la ${os.quoted_path(vexe)}')
 
 		elog('recompiling ./fast')
-		recompile_fast_v_code := os.system('${os.quoted_path(vexe)} -keepc -g fast.v')
-		if recompile_fast_v_code != 0 {
-			elog('WARNING: could not recompile fast.v')
+		recompile_fast_cmd := '${os.quoted_path(vexe)} -keepc -g fast.v'
+		recompile_fast_res := os.execute(recompile_fast_cmd)
+		if recompile_fast_res.exit_code != 0 {
+			elog(recompile_fast_res.command_failure_report('fast.recompile',
+				reason:  'fast_recompile_failed'
+				action:  'delay_and_retry_next_cycle'
+				message: 'could not recompile fast.v'
+				command: recompile_fast_cmd
+			))
 			delay()
 			continue
 		}
@@ -103,11 +124,12 @@ fn main() {
 		elog('running ./fast -upload')
 		fast_exit_code := os.system('./fast -upload')
 		if fast_exit_code != 0 {
-			println('fast.upload.failed=true')
-			println('fast.upload.reason=child_exit_nonzero')
-			println('fast.upload.action=delay_and_retry_next_cycle')
-			println('fast.upload.message=fast upload command exited with a non-zero status')
-			println('fast.upload.exit_code=${fast_exit_code}')
+			println(os.process_command_failure_report('fast.upload', fast_exit_code,
+				reason:  'child_exit_nonzero'
+				action:  'delay_and_retry_next_cycle'
+				message: 'fast upload command exited with a non-zero status'
+				command: './fast -upload'
+			))
 		}
 
 		delay()

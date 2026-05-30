@@ -13,10 +13,15 @@ fn v2_ownership_exe() string {
 	}
 	// Try to build v2_ownership with -d ownership
 	vexe := os.join_path(vroot, 'v')
-	res := os.execute('${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
-		'cmd', 'v2', 'v2.v'))}')
+	cmd := '${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
+		'cmd', 'v2', 'v2.v'))}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('failed to build v2_ownership: ${res.output}')
+		panic(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'v2_ownership_build_failed'
+		))
 	}
 	return v2_ownership
 }

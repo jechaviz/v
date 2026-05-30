@@ -62,6 +62,12 @@ pub fn cmd_ok(location string, cmd string) os.Result {
 pub fn cmd_fail(location string, cmd string) os.Result {
 	println('> cmd_fail for cmd: "${cmd}"')
 	res := os.execute(cmd)
-	assert res.exit_code == 1, 'failure expected, but not found\n    location: ${location}\n    cmd:\n${cmd}\n    res:\n${res}\n'
+	assert res.exit_code == 1, res.exit_code_diagnostics('1',
+		label:   location
+		command: cmd
+		reason:  'expected_command_failure_missing'
+		action:  'inspect_command_output'
+	)
+
 	return res
 }

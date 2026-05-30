@@ -235,7 +235,12 @@ fn generate_screenshots(mut opt Options, output_path string) ! {
 			sh_result :=
 				opt.verbose_execute('${os.quoted_path(v_exe)} shader ${os.quoted_path(app_path)}')
 			if sh_result.exit_code != 0 {
-				opt.verbose_eprintln('Skipping shader compile for `${file}` v shader failed with:\n${sh_result.output}')
+				opt.verbose_eprintln(sh_result.command_failure_report('vgret.shader',
+					reason:  'shader_compile_failed'
+					action:  'skip_file_after_reporting_shader_failure'
+					message: 'Skipping shader compile for `${file}`'
+					command: '${os.quoted_path(v_exe)} shader ${os.quoted_path(app_path)}'
+				))
 				continue
 			}
 		}
@@ -285,10 +290,21 @@ fn compare_screenshots(opt Options, output_path string, target_path string) ! {
 					opt.verbose_eprintln('OUTPUT: \n${result.output}')
 				}
 				if result.exit_code != 0 {
-					eprintln('OUTPUT: \n${result.output}')
 					if result.exit_code == 1 {
+						eprintln(result.command_failure_report('vgret.compare',
+							reason:  'images_differ'
+							action:  'inspect_diff_artifact'
+							message: 'idiff reported an image difference'
+							command: diff_cmd
+						))
 						warns[src] = target
 					} else {
+						eprintln(result.command_failure_report('vgret.compare',
+							reason:  'idiff_failed'
+							action:  'inspect_idiff_output'
+							message: 'idiff failed while comparing screenshots'
+							command: diff_cmd
+						))
 						fails[src] = target
 					}
 				}
@@ -345,7 +361,12 @@ fn take_screenshots(opt Options, app AppConfig) ![]string {
 				result :=
 					opt.verbose_execute('${os.quoted_path(v_exe)} ${flags} -d gg_record run ${os.quoted_path(app.abs_path)}')
 				if result.exit_code != 0 {
-					return error('Failed taking screenshot of `${app.abs_path}`:\n${result.output}')
+					return error(result.command_failure_report('vgret.capture',
+						reason:  'gg_record_capture_failed'
+						action:  'inspect_capture_output'
+						message: 'Failed taking screenshot of `${app.abs_path}`'
+						command: '${os.quoted_path(v_exe)} ${flags} -d gg_record run ${os.quoted_path(app.abs_path)}'
+					))
 				}
 			}
 			'generic_screenshot' {
@@ -370,7 +391,13 @@ fn take_screenshots(opt Options, app AppConfig) ![]string {
 
 				if !p_app.is_alive() {
 					output := p_app.stdout_read() + '\n' + p_app.stderr_read()
-					return error('Failed starting app `${app.abs_path}` (before screenshot):\n${output}')
+					return error(os.process_command_failure_report('vgret.capture', p_app.code,
+						reason:  'app_exited_before_screenshot'
+						action:  'inspect_app_output'
+						message: 'App `${app.abs_path}` exited before a screenshot could be captured'
+						command: '${app.abs_path} ${flags.join(' ')}'
+						output:  output
+					))
 				}
 				if app.capture.wait_ms > 0 {
 					opt.verbose_eprintln('Waiting ${app.capture.wait_ms} before capturing')
@@ -378,7 +405,13 @@ fn take_screenshots(opt Options, app AppConfig) ![]string {
 				}
 				if !p_app.is_alive() {
 					output := p_app.stdout_slurp() + '\n' + p_app.stderr_slurp()
-					return error('App `${app.abs_path}` exited (${p_app.code}) before a screenshot could be captured:\n${output}')
+					return error(os.process_command_failure_report('vgret.capture', p_app.code,
+						reason:  'app_exited_before_screenshot'
+						action:  'inspect_app_output'
+						message: 'App `${app.abs_path}` exited before a screenshot could be captured'
+						command: '${app.abs_path} ${flags.join(' ')}'
+						output:  output
+					))
 				}
 				// Use ImageMagick's `import` tool to take the screenshot
 				out_file := os.join_path(out_path, os.file_name(app.path) +
@@ -386,7 +419,12 @@ fn take_screenshots(opt Options, app AppConfig) ![]string {
 				result := opt.verbose_execute('import -window root "${out_file}"')
 				if result.exit_code != 0 {
 					p_app.signal_kill()
-					return error('Failed taking screenshot of `${app.abs_path}` to "${out_file}":\n${result.output}')
+					return error(result.command_failure_report('vgret.capture',
+						reason:  'imagemagick_import_failed'
+						action:  'inspect_import_output'
+						message: 'Failed taking screenshot of `${app.abs_path}` to "${out_file}"'
+						command: 'import -window root "${out_file}"'
+					))
 				}
 
 				// When using regions the capture is split up into regions.len
@@ -408,7 +446,12 @@ fn take_screenshots(opt Options, app AppConfig) ![]string {
 							opt.verbose_execute('convert -extract ${region.width}x${region.height}+${region.x}+${region.y} "${out_file}" "${region_out_file}"')
 						if extract_result.exit_code != 0 {
 							p_app.signal_kill()
-							return error('Failed extracting region ${region_id} from screenshot of `${app.abs_path}` to "${region_out_file}":\n${result.output}')
+							return error(extract_result.command_failure_report('vgret.capture',
+								reason:  'imagemagick_extract_failed'
+								action:  'inspect_convert_output'
+								message: 'Failed extracting region ${region_id} from screenshot of `${app.abs_path}` to "${region_out_file}"'
+								command: 'convert -extract ${region.width}x${region.height}+${region.x}+${region.y} "${out_file}" "${region_out_file}"'
+							))
 						}
 					}
 					// When done, remove the original file that was split into regions.

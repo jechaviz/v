@@ -117,7 +117,12 @@ fn (app App) recompile_v() bool {
 		return true
 	} else {
 		println('> `${vself}` failed, running `make`...')
-		app.vprintln(self_result.output.trim_space())
+		eprintln(self_result.command_failure_report('vup.command',
+			reason:  'v_self_failed'
+			action:  'fall_back_to_make'
+			message: 'v self failed; falling back to make'
+			command: vself
+		))
 	}
 	return app.make(vself)
 }

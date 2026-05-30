@@ -133,7 +133,16 @@ fn test_run_git_fmt_hook_install() {
 	assert res.output.contains('> Both files are exactly the same.')
 	assert !res.output.contains('> Use `v git-fmt-hook install`')
 	assert res.output.contains('> Use `v git-fmt-hook remove`')
-	assert !res.output.contains('> Done.'), 'res:\n${res}'
+	status_cmd := '${os.quoted_path(vexe)} git-fmt-hook status'
+	assert !res.output.contains('> Done.'), os.process_command_failure_report('vgit_fmt_hook_test.command',
+		res.exit_code,
+		reason:  'unexpected_status_output'
+		action:  'inspect_status_output'
+		message: 'git-fmt-hook status printed an unexpected completion marker'
+		command: status_cmd
+		output:  res.output
+	)
+
 	os.execute_or_exit('git add -u')
 	os.execute_or_exit('git commit -m "this should be formatted"')
 	assert read_file('main.v') == formatted_content

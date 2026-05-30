@@ -17,10 +17,15 @@ fn main() {
 
 	// Build v2 compiler (with v1).
 	println('[*] Building v2...')
-	build_res := os.execute('${@VEXE} -gc none -cc cc ${v2_source} -o ${v2_binary}')
+	build_cmd := '${@VEXE} -gc none -cc cc ${v2_source} -o ${v2_binary}'
+	build_res := os.execute(build_cmd)
 	if build_res.exit_code != 0 {
-		eprintln('Error: Failed to build v2')
-		eprintln(build_res.output)
+		eprintln(build_res.command_failure_report('v2.gen.cleanc.tests.command',
+			stage:   'build_v2'
+			reason:  'v2_build_failed'
+			action:  'inspect_v2_build_output'
+			command: build_cmd
+		))
 		exit(1)
 	}
 
@@ -49,8 +54,13 @@ fn main() {
 		v2_cmd := '${v2_binary} -gc none -backend cleanc ${test_path} -o ${v2_output}'
 		v2_res := os.execute(v2_cmd)
 		if v2_res.exit_code != 0 {
-			eprintln('  [FAIL] v2 compilation failed')
-			eprintln(v2_res.output)
+			eprintln(v2_res.command_failure_report('v2.gen.cleanc.tests.command',
+				stage:   'v2_backend_compile'
+				reason:  'v2_backend_compile_failed'
+				action:  'inspect_backend_compiler_output'
+				message: 'v2 cleanc compilation failed'
+				command: v2_cmd
+			))
 			failed++
 			continue
 		}
@@ -64,10 +74,15 @@ fn main() {
 		}
 
 		// Run reference compiler (v1).
-		ref_res := os.execute('${@VEXE} -gc none -n -w -enable-globals run ${test_path}')
+		ref_cmd := '${@VEXE} -gc none -n -w -enable-globals run ${test_path}'
+		ref_res := os.execute(ref_cmd)
 		if ref_res.exit_code != 0 {
-			eprintln('  [FAIL] Reference compilation failed')
-			eprintln(ref_res.output)
+			eprintln(ref_res.command_failure_report('v2.gen.cleanc.tests.command',
+				stage:   'reference_run'
+				reason:  'reference_run_failed'
+				action:  'inspect_reference_output'
+				command: ref_cmd
+			))
 			failed++
 			continue
 		}

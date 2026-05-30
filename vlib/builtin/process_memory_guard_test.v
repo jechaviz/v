@@ -51,7 +51,11 @@ fn process_memory_guard_build_probe() !string {
 	cmd := '${os.quoted_path(@VEXE)} -o ${os.quoted_path(exe_path)} ${os.quoted_path(source_path)}'
 	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		return error('could not build memory guard probe:\n${cmd}\n${result.output}')
+		return error(result.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'memory_guard_probe_build_failed'
+		))
 	}
 	return exe_path
 }

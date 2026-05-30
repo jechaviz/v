@@ -20,6 +20,6 @@ fn test_mbedtls_compiles_with_tcc_on_arm64_macos() {
 	cmd := 'env VCACHE=${os.quoted_path(vcache)} ${os.quoted_path(vexe)} -nocache -cc tcc -gc none -no-retry-compilation -o ${os.quoted_path(out)} ${os.quoted_path(src)}'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('command failed:\n${cmd}\n${res.output}')
+		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 }

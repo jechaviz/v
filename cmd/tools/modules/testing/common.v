@@ -750,9 +750,14 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		if compile_r.exit_code != 0 {
 			ts.benchmark.fail()
 			tls_bench.fail()
+			compile_failure_report := compile_r.exit_code_diagnostics('0',
+				label:   @FN
+				command: cmd
+				reason:  'test_compilation_failed'
+				action:  'inspect_compiler_output_and_reproduce'
+			)
 			ts.append_message_with_duration(.fail, tls_bench.step_message_with_label_and_duration(benchmark.b_fail,
-				'${normalised_relative_file}\n>> compilation failed:\n${compile_r.output}',
-				cmd_duration,
+				'${normalised_relative_file}\n${compile_failure_report}', cmd_duration,
 				preparation: compile_cmd_duration
 			), cmd_duration, mtc)
 			ts.add_failed_cmd(reproduce_cmd)

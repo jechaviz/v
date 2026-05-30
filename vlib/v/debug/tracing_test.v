@@ -43,13 +43,19 @@ fn test_trace() {
 		}
 
 		compile_sw := time.new_stopwatch()
-		comp_res := os.system('${os.quoted_path(vexe)} -d trace test ${os.quoted_path(vfile)}')
+		comp_cmd := '${os.quoted_path(vexe)} -d trace test ${os.quoted_path(vfile)}'
+		comp_res := os.execute(comp_cmd)
 		cdur_ms := compile_sw.elapsed().milliseconds()
 		if be_verbose {
-			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res}')
+			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res.exit_code}')
 		}
-		if comp_res != 0 {
-			assert false, term.red('failed test cmd: ${vfile}')
+		if comp_res.exit_code != 0 {
+			assert false, term.red(comp_res.exit_code_diagnostics('0',
+				label:   @FN
+				command: comp_cmd
+				reason:  'trace_test_failed'
+				action:  'inspect_trace_test_output'
+			))
 		}
 		assert true
 		oks++

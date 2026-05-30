@@ -2955,9 +2955,13 @@ fn run_cc_cmd_or_exit(cmd string, stage string, show_cc bool) bool {
 		// command string which contains tcc in include/library flag paths.
 		cc_binary := cmd.all_before(' ')
 		if cc_binary.contains('tcc') {
-			eprintln('Failed to compile with tcc, falling back to cc')
-			eprintln('tcc cmd: ${cmd}')
-			eprintln(result.output)
+			eprintln(result.command_failure_report('v2.builder.command',
+				stage:   stage
+				reason:  'tcc_compile_failed_fallback_to_cc'
+				action:  'retry_with_system_cc'
+				message: 'Failed to compile with tcc, falling back to cc'
+				command: cmd
+			))
 			// Replace TCC binary with cc and strip TCC-specific include/lib
 			// paths. TCC's tgmath.h conflicts with macOS system headers,
 			// causing SIMD ambiguity errors in MetalKit when compiling as

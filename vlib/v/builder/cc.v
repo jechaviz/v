@@ -1738,9 +1738,25 @@ fn (mut b Builder) ensure_linuxroot_exists(sysroot string) {
 	}
 	if !os.is_dir(sysroot) {
 		println('Downloading files for Linux cross compilation (~77MB) ...')
-		os.system('git clone "${crossrepo_url}" ${os.quoted_path(sysroot)}')
+		clone_cmd := 'git clone "${crossrepo_url}" ${os.quoted_path(sysroot)}'
+		clone_res := os.execute(clone_cmd)
+		if clone_res.exit_code != 0 {
+			verror(clone_res.command_failure_report('v.builder.cc.command',
+				stage:   'linux_sysroot_clone'
+				reason:  'sysroot_clone_failed'
+				action:  'inspect_git_clone_output'
+				message: 'failed to clone Linux cross-compilation sysroot'
+				command: clone_cmd
+			))
+		}
 		if !os.exists(sysroot_git_config_path) {
-			verror('Failed to clone `${crossrepo_url}` to `${sysroot}`')
+			verror(os.process_command_failure_report('v.builder.cc.command', clone_res.exit_code,
+				stage:   'linux_sysroot_clone'
+				reason:  'sysroot_clone_incomplete'
+				action:  'remove_sysroot_and_retry_clone'
+				message: 'Linux cross-compilation sysroot clone did not create a git checkout'
+				command: clone_cmd
+			))
 		}
 		os.chmod(os.join_path(sysroot, 'ld.lld'), 0o755) or { panic(err) }
 	}
@@ -1762,9 +1778,25 @@ fn (mut b Builder) ensure_freebsdroot_exists(sysroot string) {
 	}
 	if !os.is_dir(sysroot) {
 		println('Downloading files for FreeBSD cross compilation (~458MB) ...')
-		os.system('git clone "${crossrepo_url}" ${os.quoted_path(sysroot)}')
+		clone_cmd := 'git clone "${crossrepo_url}" ${os.quoted_path(sysroot)}'
+		clone_res := os.execute(clone_cmd)
+		if clone_res.exit_code != 0 {
+			verror(clone_res.command_failure_report('v.builder.cc.command',
+				stage:   'freebsd_sysroot_clone'
+				reason:  'sysroot_clone_failed'
+				action:  'inspect_git_clone_output'
+				message: 'failed to clone FreeBSD cross-compilation sysroot'
+				command: clone_cmd
+			))
+		}
 		if !os.exists(sysroot_git_config_path) {
-			verror('Failed to clone `${crossrepo_url}` to `${sysroot}`')
+			verror(os.process_command_failure_report('v.builder.cc.command', clone_res.exit_code,
+				stage:   'freebsd_sysroot_clone'
+				reason:  'sysroot_clone_incomplete'
+				action:  'remove_sysroot_and_retry_clone'
+				message: 'FreeBSD cross-compilation sysroot clone did not create a git checkout'
+				command: clone_cmd
+			))
 		}
 	}
 	repaired := repair_cross_sysroot_git_symlink_placeholders(sysroot) or {

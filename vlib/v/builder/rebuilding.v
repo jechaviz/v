@@ -201,7 +201,15 @@ fn (mut b Builder) v_build_module(vexe string, imp_path string) {
 		eprintln('> Builder.v_build_module: ${rebuild_cmd}')
 	}
 	// eprintln('> Builder.v_build_module: ${rebuild_cmd}')
-	os.system(rebuild_cmd)
+	res := os.execute(rebuild_cmd)
+	if res.exit_code != 0 {
+		verror(res.command_failure_report('v.builder.rebuild_module',
+			stage:   'build-module'
+			reason:  'cache_module_rebuild_failed'
+			action:  'inspect_build_module_output'
+			command: rebuild_cmd
+		))
+	}
 }
 
 fn (mut b Builder) rebuild_cached_module(vexe string, imp_path string) string {

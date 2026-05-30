@@ -109,8 +109,12 @@ fn test_all() {
 		if res.exit_code != 0 {
 			bench.fail()
 			eprintln(bench.step_message_fail('file: ${test} could not be compiled.'))
-			eprintln(res.output)
-			eprintln('You can reproduce the failure with:\n${compile_cmd}')
+			eprintln(res.command_failure_report('v.valgrind_test.command',
+				stage:   'compile'
+				reason:  'test_compile_failed'
+				action:  'inspect_compiler_output_and_reproduce'
+				command: compile_cmd
+			))
 			continue
 		}
 		if test in skip_valgrind_files {
@@ -126,8 +130,12 @@ fn test_all() {
 		if valgrind_res.exit_code != 0 {
 			bench.fail()
 			eprintln(bench.step_message_fail('failed valgrind check for ${bold(test)}'))
-			eprintln(valgrind_res.output)
-			eprintln('You can reproduce the failure with:\n${compile_cmd} && ${valgrind_cmd}')
+			eprintln(valgrind_res.command_failure_report('v.valgrind_test.command',
+				stage:   'valgrind'
+				reason:  'valgrind_check_failed'
+				action:  'inspect_valgrind_output_and_reproduce'
+				command: '${compile_cmd} && ${valgrind_cmd}'
+			))
 			continue
 		}
 		bench.ok()

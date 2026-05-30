@@ -37,8 +37,11 @@ fn test_stmt_separator() {
 	compile_cmd := '${os.quoted_path(vexe)} -cg -skip-running -no-rsp -keepc -o ${os.quoted_path(genexe_file)} ${os.quoted_path(v_file)}'
 	eprintln('> compile_cmd: ${compile_cmd}')
 	time.sleep(1000 * time.millisecond) // improve chances of working on windows
-	compile_res := os.system(compile_cmd)
-	assert compile_res == 0
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
 
 	content := os.read_file(c_file)!
 	os.rm(v_file)!

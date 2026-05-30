@@ -528,7 +528,12 @@ pub fn check_module_is_installed(modulename string, is_verbose bool, need_update
 			}
 			update_res := os.execute(update_cmd)
 			if update_res.exit_code < 0 {
-				return error('can not start ${update_cmd}, error: ${update_res.output}')
+				return error(update_res.command_failure_report('v.module.update',
+					reason:  'module_update_start_failed'
+					action:  'inspect_update_command'
+					message: 'can not start module update command'
+					command: update_cmd
+				))
 			}
 			if update_res.exit_code != 0 {
 				eprintln('Warning: `${modulename}` exists, but is not updated.
@@ -549,8 +554,12 @@ and the existing module `${modulename}` may still work.')
 	cloning_res :=
 		os.execute('${os.quoted_path(vexe)} retry -- git clone ${os.quoted_path(murl)} ${os.quoted_path(mpath)}')
 	if cloning_res.exit_code != 0 {
-		return error_with_code('cloning failed, details: ${cloning_res.output}',
-			cloning_res.exit_code)
+		return error_with_code(cloning_res.command_failure_report('v.module.install',
+			reason:  'module_clone_failed'
+			action:  'inspect_git_clone_output'
+			message: 'cloning failed'
+			command: '${os.quoted_path(vexe)} retry -- git clone ${os.quoted_path(murl)} ${os.quoted_path(mpath)}'
+		), cloning_res.exit_code)
 	}
 	if !os.exists(mod_v_file) {
 		return error('even after cloning, ${mod_v_file} is still missing')

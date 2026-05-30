@@ -162,11 +162,16 @@ fn find_vs_by_reg(vswhere_dir string, host_arch string, target_arch string) !VsI
 		// VSWhere is guaranteed to be installed at this location now
 		// If its not there then end user needs to update their visual studio
 		// installation!
-		res :=
-			os.execute('"${vswhere_dir}\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath')
+		cmd := '"${vswhere_dir}\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath'
+		res := os.execute(cmd)
 		// println('res: "${res}"')
 		if res.exit_code != 0 {
-			return error_with_code(res.output, res.exit_code)
+			return error_with_code(res.command_failure_report('v.builder.msvc',
+				stage:   'find_visual_studio'
+				reason:  'vswhere_failed'
+				action:  'inspect_vswhere_output'
+				command: cmd
+			), res.exit_code)
 		}
 		res_output := res.output.trim_space()
 		version := os.read_file('${res_output}\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt') or {
@@ -420,8 +425,12 @@ pub fn (mut v Builder) cc_msvc() {
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
 		eprintln('================== ${c_compilation_error_title} (from msvc): ==============')
-		eprintln(res.output)
-		verror('msvc error')
+		verror(res.command_failure_report('v.builder.msvc',
+			stage:   'msvc_compile'
+			reason:  'msvc_compile_failed'
+			action:  'inspect_msvc_output'
+			command: cmd
+		))
 	}
 	util.timing_measure('C msvc')
 	if v.pref.show_c_output {
@@ -511,17 +520,24 @@ fn (mut v Builder) build_thirdparty_obj_file_with_msvc(mod string, path string, 
 			break
 		}
 		eprintln('---------------------------------------------------------------------')
-		eprintln('   msvc: failed to build a thirdparty object, try: ${i}/${thirdparty_obj_build_max_retries}')
-		eprintln('    cmd: ${cmd}')
-		eprintln(' output:')
-		eprintln(res.output)
+		eprintln(res.command_failure_report('v.builder.msvc',
+			stage:   'thirdparty_object_compile'
+			reason:  'thirdparty_object_compile_retryable_failure'
+			action:  'retry_after_short_delay'
+			message: 'msvc failed to build a thirdparty object, try ${i}/${thirdparty_obj_build_max_retries}'
+			command: cmd
+		))
 		eprintln('---------------------------------------------------------------------')
 		time.sleep(thirdparty_obj_build_retry_delay)
 	}
 	if res.exit_code != 0 {
-		verror('msvc: failed to build a thirdparty object after ${i}/${thirdparty_obj_build_max_retries} retries
-          cmd:\n${cmd}
-       result:\n${res.output}')
+		verror(res.command_failure_report('v.builder.msvc',
+			stage:   'thirdparty_object_compile'
+			reason:  'thirdparty_object_compile_failed'
+			action:  'inspect_msvc_output'
+			message: 'msvc failed to build a thirdparty object after ${i}/${thirdparty_obj_build_max_retries} retries'
+			command: cmd
+		))
 	}
 	if trace_thirdparty_obj_files {
 		println(res.output)

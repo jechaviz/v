@@ -48,7 +48,13 @@ fn (mut b Builder) prepare_cross_windows_icon_resource() !string {
 	cmd := '${os.quoted_path(windres)} -i ${os.quoted_path(rc_path)} -o ${os.quoted_path(obj_path)} -O coff'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		return error('failed to compile Windows icon resource with `${windres}`: ${res.output.trim_space()}')
+		return error(res.command_failure_report('v.builder.icon',
+			stage:   'windows_icon_resource_compile'
+			reason:  'windres_failed'
+			action:  'inspect_windres_output'
+			message: 'failed to compile Windows icon resource'
+			command: cmd
+		))
 	}
 	return obj_path
 }

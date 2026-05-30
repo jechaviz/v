@@ -48,12 +48,18 @@ fn test_debugger() {
 		}
 
 		compile_sw := time.new_stopwatch()
-		comp_res :=
-			os.system('${os.quoted_path(vexe)} -o ${os.quoted_path(output_file)} ${os.quoted_path(vfile)}')
+		compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(output_file)} ${os.quoted_path(vfile)}'
+		comp_res := os.execute(compile_cmd)
 		cdur_ms := compile_sw.elapsed().milliseconds()
 		if be_verbose {
-			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res}')
+			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res.exit_code}')
 		}
+		assert comp_res.exit_code == 0, comp_res.exit_code_diagnostics('0',
+			label:   @FN
+			command: compile_cmd
+			reason:  'interactive_test_compile_failed'
+			action:  'inspect_compiler_output'
+		)
 
 		verbose_options := if be_verbose { '-d' } else { '' }
 		expect_cmd := '${expect_exe} ${verbose_options} -c "cd ${expect_tests_path}" ${os.quoted_path(efile)} ${os.quoted_path(output_file)} ${os.quoted_path(vfile)}'
@@ -61,22 +67,21 @@ fn test_debugger() {
 			gprintln(term.cyan(expect_cmd))
 		}
 		sw := time.new_stopwatch()
-		mut res := 0
+		result := os.execute(expect_cmd)
+		edur_ms := sw.elapsed().milliseconds()
 		if be_verbose {
-			res = os.system(expect_cmd)
-		} else {
-			result := os.execute(expect_cmd)
-			res = result.exit_code
-			if res != 0 {
+			gprintln('>>>>>>>>>>> expect took: ${edur_ms} ms, res: ${result.exit_code}')
+			if result.output != '' {
 				eprintln(result.output)
 			}
 		}
-		edur_ms := sw.elapsed().milliseconds()
-		if be_verbose {
-			gprintln('>>>>>>>>>>> expect took: ${edur_ms} ms, res: ${res}')
-		}
-		if res != 0 {
-			assert false, term.red('failed expect cmd: ${expect_cmd}')
+		if result.exit_code != 0 {
+			assert false, term.red(result.exit_code_diagnostics('0',
+				label:   @FN
+				command: expect_cmd
+				reason:  'interactive_expect_failed'
+				action:  'inspect_expect_output'
+			))
 		}
 		assert true
 		oks++

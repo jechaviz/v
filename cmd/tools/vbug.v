@@ -20,9 +20,15 @@ fn vversion() string {
 fn get_vdoctor_output(is_verbose bool) string {
 	vexe := os.getenv('VEXE')
 	verbose_flag := if is_verbose { '-v' } else { '' }
-	result := os.execute('${os.quoted_path(vexe)} ${verbose_flag} doctor')
+	cmd := '${os.quoted_path(vexe)} ${verbose_flag} doctor'
+	result := os.execute(cmd)
 	if result.exit_code != 0 {
-		elog('> unable to get `v doctor` output: ${result.output}')
+		elog(result.command_failure_report('vbug.command',
+			reason:  'v_doctor_failed'
+			action:  'continue_without_v_doctor_output'
+			message: 'unable to get `v doctor` output'
+			command: cmd
+		))
 		return ''
 	}
 	return result.output
@@ -54,7 +60,12 @@ fn get_v_build_output(is_verbose bool, is_yes bool, file_path string, user_args 
 	if result.exit_code == 0 {
 		vexe = vdbg_path
 	} else {
-		elog('> unable to compile V in debug mode: ${result.output}\ncommand: ${vdbg_compilation_cmd}\n')
+		elog(result.command_failure_report('vbug.command',
+			reason:  'debug_compiler_build_failed'
+			action:  'continue_with_current_compiler'
+			message: 'unable to compile V in debug mode'
+			command: vdbg_compilation_cmd
+		))
 	}
 
 	result = runv('Compile',

@@ -97,6 +97,13 @@ fn run_ast_command(args []string) {
 	result := os.execute(cmd)
 	print(result.output)
 	if result.exit_code != 0 {
+		eprintln(result.command_failure_report('v2.command',
+			stage:   'vast2_run'
+			reason:  'vast2_run_failed'
+			action:  'inspect_vast2_output'
+			message: 'vast2 command failed'
+			command: cmd
+		))
 		exit(result.exit_code)
 	}
 }
@@ -299,18 +306,24 @@ fn run_test_self() {
 	}
 
 	// Verify that v3 runs and produces expected output
-	result := os.execute('${v3_bin} 2>&1')
+	v3_probe_cmd := '${v3_bin} 2>&1'
+	result := os.execute(v3_probe_cmd)
 	expected := 'At least 1 .v file expected'
 	if result.exit_code != 0 {
 		eprintln(result.command_failure_report('v2.self_compile',
 			reason:  'v3_probe_failed'
 			action:  'inspect_probe_output'
-			command: '${v3_bin} 2>&1'
+			command: v3_probe_cmd
 		))
 	}
 	if !result.output.contains(expected) {
-		eprintln("FAIL  v3 output check: expected '${expected}', got:")
-		eprintln(result.output)
+		eprintln(os.process_command_failure_report('v2.self_compile', result.exit_code,
+			reason:  'v3_probe_output_mismatch'
+			action:  'inspect_probe_output'
+			message: "v3 probe output did not contain expected text '${expected}'"
+			command: v3_probe_cmd
+			output:  result.output
+		))
 		for bin in [v3_bin, v4_bin, v5_bin] {
 			os.rm(bin) or {}
 			os.rm('${bin}.c') or {}

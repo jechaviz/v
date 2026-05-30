@@ -14,10 +14,15 @@ fn main() {
 	vroot := os.dir(@VEXE)
 	v2_source := os.join_path(vroot, 'cmd', 'v2', 'v2.v')
 	v2_binary := os.join_path(vroot, 'cmd', 'v2', 'v2')
-	build_res := os.execute('${@VEXE} -gc none -cc cc ${v2_source} -o ${v2_binary}')
+	build_cmd := '${@VEXE} -gc none -cc cc ${v2_source} -o ${v2_binary}'
+	build_res := os.execute(build_cmd)
 	if build_res.exit_code != 0 {
-		eprintln('Error: Failed to build v2')
-		eprintln(build_res.output)
+		eprintln(build_res.command_failure_report('v2.ssa_backend_test.command',
+			stage:   'build_v2'
+			reason:  'v2_build_failed'
+			action:  'inspect_v2_build_output'
+			command: build_cmd
+		))
 		exit(1)
 	}
 
@@ -75,8 +80,13 @@ fn main() {
 		ref_out := os.read_file(ref_output_path) or { '' }
 		os.rm(ref_output_path) or {}
 		if ref_res.exit_code != 0 {
-			eprintln('Error: Reference run failed')
-			eprintln(ref_out)
+			eprintln(ref_res.command_failure_report('v2.ssa_backend_test.command',
+				stage:   'reference_run'
+				reason:  'reference_run_failed'
+				action:  'inspect_reference_output'
+				command: ref_cmd
+				output:  ref_out
+			))
 			exit(1)
 		}
 		// Normalize newlines
@@ -107,8 +117,13 @@ fn main() {
 		v2_cmd := '${v2_binary} ${backend_flags} ${input_file} -o ${base_name}'
 		v2_res := os.execute(v2_cmd)
 		if v2_res.exit_code != 0 {
-			eprintln('Error: v2 compilation failed for backend ${backend}')
-			eprintln(v2_res.output)
+			eprintln(v2_res.command_failure_report('v2.ssa_backend_test.command',
+				stage:   'v2_backend_compile'
+				reason:  'v2_backend_compile_failed'
+				action:  'inspect_backend_compiler_output'
+				message: 'v2 compilation failed for backend ${backend}'
+				command: v2_cmd
+			))
 			had_failures = true
 			continue
 		}
@@ -154,7 +169,14 @@ fn main() {
 		os.rm(gen_output_path) or {}
 		if gen_res.exit_code != 0 {
 			if gen_res.exit_code == 124 || gen_res.exit_code == 142 || gen_res.exit_code == 14 {
-				eprintln('Error: Execution timed out (infinite loop detected) for backend ${backend}')
+				eprintln(gen_res.command_failure_report('v2.ssa_backend_test.command',
+					stage:   'generated_binary_run'
+					reason:  'generated_binary_timeout'
+					action:  'inspect_generated_binary_output'
+					message: 'Execution timed out (possible infinite loop) for backend ${backend}'
+					command: gen_cmd
+					output:  gen_out
+				))
 				had_failures = true
 				continue
 			}

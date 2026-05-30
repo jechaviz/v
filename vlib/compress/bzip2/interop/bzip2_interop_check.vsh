@@ -1,6 +1,7 @@
 #!/usr/bin/env -S v
 
 import compress.bzip2
+import os
 
 const compression_levels = [1, 6, 9]!
 
@@ -157,7 +158,12 @@ fn assert_equal_bytes(label string, expected []u8, got []u8) ! {
 fn must_succeed(command string, context string) ! {
 	res := execute(command)
 	if res.exit_code != 0 {
-		return error('${context}\ncommand: ${command}\nexit_code: ${res.exit_code}\n${res.output}')
+		return error(res.command_failure_report('bzip2_interop.command',
+			reason:  'interop_command_failed'
+			action:  'inspect_command_output'
+			message: context
+			command: command
+		))
 	}
 }
 

@@ -149,7 +149,11 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	eprint_time(sw,
 		'C compilation on ${cc_jobs} thread(s), processing ${cmds.len} commands, failed: ${failed}')
 	if failed > 0 {
-		return error_with_code('failed parallel C compilation', failed)
+		return error_with_code(os.process_command_failure_report('v.builder.parallel_cc', failed,
+			reason:  'parallel_c_compilation_failed'
+			action:  'inspect_failed_cc_command_reports_above'
+			message: 'failed parallel C compilation'
+		), failed)
 	}
 
 	mut ofiles := []string{}
@@ -179,7 +183,17 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	// so detect that pattern and treat it as a link failure too.
 	link_failed_with_tcc_dup := b.ccoptions.cc == .tcc && link_res.output.contains('defined twice')
 	if link_res.exit_code != 0 || link_failed_with_tcc_dup {
-		return error_with_code('failed to link after parallel C compilation', 1)
+		return error_with_code(link_res.command_failure_report('v.builder.parallel_cc',
+			stage:   'link'
+			reason:  if link_failed_with_tcc_dup {
+				'tcc_duplicate_symbol_output'
+			} else {
+				'parallel_c_link_failed'
+			}
+			action:  'inspect_linker_output'
+			message: 'failed to link after parallel C compilation'
+			command: link_cmd
+		), if link_res.exit_code == 0 { 1 } else { link_res.exit_code })
 	}
 }
 
@@ -194,9 +208,14 @@ fn build_parallel_o_cb(mut p pool.PoolProcessor, idx int, _wid int) voidptr {
 }
 
 fn eprint_result_time(sw time.StopWatch, label string, cmd string, res os.Result) {
-	eprint_time(sw, '${label}: `${cmd}` => ${res.exit_code}')
+	eprint_time(sw, '${label}: `${cmd}`')
 	if res.exit_code != 0 {
-		eprintln(res.output)
+		eprintln(res.command_failure_report('v.builder.parallel_cc',
+			stage:   label
+			reason:  'cc_command_failed'
+			action:  'inspect_compiler_output'
+			command: cmd
+		))
 	}
 }
 

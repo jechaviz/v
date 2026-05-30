@@ -18,9 +18,12 @@ fn testsuite_end() {
 fn run_v_ok(command string) string {
 	res := os.execute(command)
 	if res.exit_code != 0 {
-		eprintln('> failing cmd: ${command}')
-		eprintln('> output:\n${res.output}')
-		assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+		assert res.exit_code == 0, res.exit_code_diagnostics('0',
+			label:   @FN
+			command: command
+			reason:  'builder_test_command_failed'
+			action:  'inspect_command_output'
+		)
 	}
 	return res.output
 }

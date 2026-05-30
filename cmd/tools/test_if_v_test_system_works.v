@@ -93,7 +93,11 @@ fn check_ok(cmd string) MyResult {
 	println('>   check_ok cmd: ${cmd}')
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		eprintln('>   check_ok failed.\n${res.output}')
+		eprintln(res.command_failure_report('vtest_system_check.command',
+			reason:  'check_ok_failed'
+			action:  'inspect_command_output'
+			command: cmd
+		))
 		exit(1)
 	}
 	return res.output
@@ -103,7 +107,12 @@ fn check_fail(cmd string) MyResult {
 	println('> check_fail cmd: ${cmd}')
 	res := os.execute(cmd)
 	if res.exit_code == 0 {
-		eprintln('> check_fail succeeded, but it should have failed.\n${res.output}')
+		eprintln(res.command_failure_report('vtest_system_check.command',
+			reason:  'check_fail_unexpected_success'
+			action:  'inspect_command_output'
+			message: 'check_fail succeeded, but it should have failed'
+			command: cmd
+		))
 		exit(1)
 	}
 	return res.output
