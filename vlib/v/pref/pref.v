@@ -284,9 +284,27 @@ pub fn ensure_coroutines_runtime() ! {
 		so_url := 'https://raw.githubusercontent.com/vlang/photonbin/master/photonwrapper_${os.user_os()}_${arch}.so'
 		if !os.exists(so_path) {
 			println('coroutines .so not found, downloading...')
-			res := os.execute('${os.quoted_path(vexe)} download -o "${so_path}" "${so_url}"')
-			if res.exit_code != 0 || !os.exists(so_path) {
-				return error('coroutines .so could not be downloaded with `v download`. Download ${so_url}, place it in ${so_path} then try again.')
+			download_cmd := '${os.quoted_path(vexe)} download -o "${so_path}" "${so_url}"'
+			res := os.execute(download_cmd)
+			if res.exit_code != 0 {
+				return error(res.command_failure_report('v.pref.coroutines_download',
+					stage:   'download_photon_runtime'
+					command: download_cmd
+					reason:  'download_command_failed'
+					action:  'download_photon_runtime_manually'
+					message: 'coroutines .so could not be downloaded with `v download`; download ${so_url}, place it in ${so_path} then try again'
+				))
+			}
+			if !os.exists(so_path) {
+				return error(os.process_command_failure_report('v.pref.coroutines_download',
+					res.exit_code,
+					stage:   'download_photon_runtime'
+					command: download_cmd
+					reason:  'download_missing_artifact'
+					action:  'download_photon_runtime_manually'
+					message: 'v download completed but the coroutines runtime file was not created'
+					output:  res.output
+				))
 			}
 			println('done!')
 		}
@@ -344,6 +362,15 @@ fn run_code_in_tmp_vfile_and_exit(args []string, mut res Preferences, option_nam
 	res.vrun_elog('v.pref.run.failed=${run_failed}')
 	res.vrun_elog('v.pref.run.reason=${run_reason}')
 	res.vrun_elog('v.pref.run.exit_code=${tmp_result}')
+	if run_failed {
+		eprintln(os.process_command_failure_report('v.pref.run', tmp_result,
+			stage:   'run_tmp_vfile'
+			command: tmp_cmd
+			reason:  'tmp_run_failed'
+			action:  'inspect_tmp_run_output_or_reproduce_command'
+			message: 'temporary V run command exited with a non-zero status'
+		))
+	}
 
 	if output_option != '' {
 		res.vrun_elog('remove tmp exe file: ${tmp_exe_file_path}')

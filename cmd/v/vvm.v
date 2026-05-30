@@ -51,8 +51,32 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 	process.set_environment(envs)
 	process.wait()
 	exit_code := if process.code == -1 { 1 } else { process.code }
+	process_error := process.err
 	process.close()
+	if exit_code != 0 {
+		delegated_command := '${os.quoted_path(vversion_exe)} ${os.args[1..].map(os.quoted_path(it)).join(' ')}'
+		reason := if process_error != '' {
+			'vvmrc_delegate_start_failed'
+		} else {
+			'vvmrc_delegate_exit_nonzero'
+		}
+		eprintln(os.process_command_failure_report('v.vvmrc.delegate', exit_code,
+			stage:   'vvmrc_delegate'
+			command: delegated_command
+			reason:  reason
+			action:  'inspect_delegated_compiler_output_or_vvmrc_version'
+			message: 'delegated compiler selected by .vvmrc exited with a non-zero status'
+			stderr:  process_error
+		))
+		eprintln('v.vvmrc.delegate.file=${vvmrc_report_value(vvmrc_path)}')
+		eprintln('v.vvmrc.delegate.requested_version=${vvmrc_report_value(requested_version)}')
+		eprintln('v.vvmrc.delegate.executable=${vvmrc_report_value(vversion_exe)}')
+	}
 	exit(exit_code)
+}
+
+fn vvmrc_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
 }
 
 fn is_vvmrc_relevant_command(command string, prefs &pref.Preferences) bool {

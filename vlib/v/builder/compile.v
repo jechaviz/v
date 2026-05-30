@@ -10,6 +10,18 @@ import v.vmod
 
 pub type FnBackend = fn (mut b Builder)
 
+fn report_run_command_failure(command string, exit_code int, stderr string) {
+	eprintln(os.process_command_failure_report('v.run.command', exit_code,
+		stage:   'run_compiled_executable'
+		command: command
+		reason:  'compiled_executable_exit_nonzero'
+		action:  'inspect_child_output_or_run_executable_directly'
+		message: 'compiled executable exited with a non-zero status'
+		stderr:  stderr
+	))
+	eprintln('v.run.command.output_capture=inherited_stdio')
+}
+
 // should_find_windows_host_c_compiler reports whether Windows host compiler probing is needed.
 pub fn should_find_windows_host_c_compiler(pref_ &pref.Preferences) bool {
 	return pref_.backend == .c && pref_.os == .windows && !pref_.output_cross_c && !pref_.check_only
@@ -175,11 +187,12 @@ fn (mut b Builder) run_compiled_executable_and_exit() {
 		verror('can not run shared library ${run_file}')
 	}
 	mut ret := 0
+	mut run_process_error := ''
+	mut command_to_run := os.quoted_path(run_file)
+	if run_args.len > 0 {
+		command_to_run += ' ' + util.args_quote_paths(run_args)
+	}
 	if b.pref.use_os_system_to_run {
-		mut command_to_run := os.quoted_path(run_file)
-		if run_args.len > 0 {
-			command_to_run += ' ' + util.args_quote_paths(run_args)
-		}
 		ret = os.system(command_to_run)
 		// eprintln('> ret: ${ret:5} | command_to_run: ${command_to_run}')
 	} else {
@@ -198,11 +211,12 @@ fn (mut b Builder) run_compiled_executable_and_exit() {
 		$if !windows {
 			os.signal_opt(.quit, prev_quit_handler) or { serror('restore .quit', err) }
 		}
-		ret = run_process.code
-		if run_process.err != '' {
-			eprintln(run_process.err)
-		}
+		ret = if run_process.code < 0 { 1 } else { run_process.code }
+		run_process_error = run_process.err
 		run_process.close()
+	}
+	if ret != 0 {
+		report_run_command_failure(command_to_run, ret, run_process_error)
 	}
 	b.cleanup_run_executable_after_exit(compiled_file)
 	exit(ret)

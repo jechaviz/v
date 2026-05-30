@@ -99,7 +99,11 @@ fn test_vvmrc_delegates_to_matching_compiler_executable() {
 	envs[path_key] = '${bin_dir}${os.path_delimiter}${envs[path_key]}'
 	envs['V_SKIP_VVMRC'] = ''
 	res := run_v_command(project_dir, ['run', 'main.v'], envs)
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	assert res.exit_code == 0, os.process_exit_code_diagnostics(res.exit_code, '0',
+		label:  @FN
+		output: res.output
+	)
+
 	assert res.output.contains('${delegated_marker} run main.v'), res.output
 }
 
@@ -258,6 +262,46 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 	], envs)
 	assert os_none_after_run_res.exit_code == 1, os_none_after_run_res.output
 	assert os_none_after_run_res.output.contains('unknown operating system target `none`'), os_none_after_run_res.output
+}
+
+fn test_vvmrc_reports_silent_delegated_compiler_failure() {
+	tmp_root := os.join_path(os.vtmp_dir(), 'vvmrc_silent_delegate_test_${rand.ulid()}')
+	os.mkdir_all(tmp_root) or { panic(err) }
+	defer {
+		os.rmdir_all(tmp_root) or {}
+	}
+	bin_dir := os.join_path(tmp_root, 'bin')
+	os.mkdir_all(bin_dir) or { panic(err) }
+	fake_compiler_source := os.join_path(tmp_root, 'fake_failing_compiler.v')
+	os.write_file(fake_compiler_source, 'fn main() {\n\texit(17)\n}\n') or { panic(err) }
+	fake_compiler_exe := os.join_path(bin_dir, if os.user_os() == 'windows' {
+		'v${requested_vvm_test_version}.exe'
+	} else {
+		'v${requested_vvm_test_version}'
+	})
+	compile_res :=
+		os.execute('${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}')
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0', label: @FN)
+	project_dir := os.join_path(tmp_root, 'project')
+	os.mkdir_all(project_dir) or { panic(err) }
+	os.write_file(os.join_path(project_dir, '.vvmrc'), requested_vvm_test_version) or { panic(err) }
+	os.write_file(os.join_path(project_dir, 'main.v'), 'fn main() {}\n') or { panic(err) }
+	mut envs := os.environ()
+	path_key := find_path_env_key(envs)
+	envs[path_key] = '${bin_dir}${os.path_delimiter}${envs[path_key]}'
+	envs['V_SKIP_VVMRC'] = ''
+	res := run_v_command(project_dir, ['run', 'main.v'], envs)
+
+	assert res.exit_code == 17, os.process_exit_code_diagnostics(res.exit_code, '17',
+		label:  @FN
+		output: res.output
+	)
+
+	assert res.output.contains('v.vvmrc.delegate.failed=true'), res.output
+	assert res.output.contains('v.vvmrc.delegate.reason=vvmrc_delegate_exit_nonzero'), res.output
+	assert res.output.contains('v.vvmrc.delegate.output_empty=true'), res.output
+	assert res.output.contains('v.vvmrc.delegate.file='), res.output
+	assert res.output.contains('v.vvmrc.delegate.requested_version=${requested_vvm_test_version}'), res.output
 }
 
 fn run_v_command(work_dir string, args []string, envs map[string]string) CmdResult {

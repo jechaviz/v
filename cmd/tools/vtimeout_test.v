@@ -1,6 +1,7 @@
 // vtest retry: 3
 import os
 import time
+import rand
 
 const qvexe = os.quoted_path(@VEXE)
 
@@ -55,4 +56,30 @@ fn test_exit_with_timeout() {
 	depend_on_command('sleep') or { return }
 	res := execute('${qvexe} timeout 0.5 sleep 3')
 	assert res.exit_code == 124, res.exit_code_diagnostics('124', label: @FN)
+	assert res.output.contains('vtimeout.command.failed=true'), res.output
+	assert res.output.contains('vtimeout.command.reason=timeout'), res.output
+	assert res.output.contains('vtimeout.command.output_empty=true'), res.output
+}
+
+fn test_child_exit_reports_diagnostics() {
+	tmp_dir := os.join_path(os.vtmp_dir(), 'vtimeout_silent_child_${rand.ulid()}')
+	os.mkdir_all(tmp_dir) or { panic(err) }
+	defer {
+		os.rmdir_all(tmp_dir) or {}
+	}
+	source_path := os.join_path(tmp_dir, 'silent_child.v')
+	exe_path := os.join_path(tmp_dir, 'silent_child')
+	os.write_file(source_path, 'fn main() {\n\texit(17)\n}\n') or { panic(err) }
+	build_cmd := '${qvexe} -o ${os.quoted_path(exe_path)} ${os.quoted_path(source_path)}'
+	build_res := os.execute(build_cmd)
+	assert build_res.exit_code == 0, build_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: build_cmd
+	)
+
+	res := execute('${qvexe} timeout 10 ${os.quoted_path(exe_path)}')
+	assert res.exit_code == 17, res.exit_code_diagnostics('17', label: @FN)
+	assert res.output.contains('vtimeout.command.failed=true'), res.output
+	assert res.output.contains('vtimeout.command.reason=child_exit_nonzero'), res.output
+	assert res.output.contains('vtimeout.command.output_empty=true'), res.output
 }

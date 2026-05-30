@@ -46,6 +46,8 @@ fn test_retry() {
 	dump_on_ci(res)
 	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0', label: @FN)
 	assert res.output.contains('error: exceeded maximum number of retries (3)!')
+	assert res.output.contains('vretry.command.failed=true'), res.output
+	assert res.output.contains('vretry.command.reason=retries_exhausted'), res.output
 
 	pass_cmd := '${vexe} run cmd/tools/check_retry.vsh'
 	res = run('${vexe} retry ${pass_cmd}')

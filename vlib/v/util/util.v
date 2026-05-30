@@ -27,6 +27,12 @@ fn tool_report_value(value string) string {
 	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
 }
 
+fn tool_command(tool_exe string, args []string) string {
+	mut parts := [os.quoted_path(tool_exe)]
+	parts << args.map(os.quoted_path(it))
+	return parts.join(' ')
+}
+
 fn report_tool_compilation_failure(tool_name string, tool_source string, command string, result os.Result, action string) {
 	output := result.output.trim_space()
 	eprintln('v.tool.failed=true')
@@ -335,16 +341,33 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 
 @[noreturn]
 fn run_tool_process_and_exit(tool_exe string, args []string) {
+	command := tool_command(tool_exe, args)
 	mut process := os.new_process(tool_exe)
 	process.set_args(args)
 	process.run()
 	if process.err != '' {
-		eprintln('> error while executing: ${tool_exe} ${args}')
-		eprintln('> ${process.err}')
+		eprintln(os.process_command_failure_report('v.tool.command', 1,
+			stage:   'run_tool_process'
+			command: command
+			reason:  'tool_process_start_failed'
+			action:  'inspect_tool_executable_and_arguments'
+			message: 'could not start delegated V tool process'
+			stderr:  process.err
+		))
 		exit(1)
 	}
 	process.wait()
-	exit(if process.code < 0 { 1 } else { process.code })
+	exit_code := if process.code < 0 { 1 } else { process.code }
+	if exit_code != 0 {
+		eprintln(os.process_command_failure_report('v.tool.command', exit_code,
+			stage:   'run_tool_process'
+			command: command
+			reason:  'tool_child_exit_nonzero'
+			action:  'inspect_tool_output_or_rerun_tool_directly'
+			message: 'delegated V tool exited with a non-zero status'
+		))
+	}
+	exit(exit_code)
 }
 
 @[if trace_launch_tool ?]
@@ -357,13 +380,11 @@ fn tlog(s string) {
 fn cmd_system(cmd string) {
 	res := os.system(cmd)
 	if res != 0 {
-		for line in os.process_command_failure_report('v.tool.command', res,
+		eprintln(os.process_command_failure_report('v.tool.command', res,
 			reason:  'tool_command_failed'
 			action:  'inspect_command_output'
 			command: cmd
-		).split_into_lines() {
-			tlog(line)
-		}
+		))
 	}
 	exit(res)
 }
