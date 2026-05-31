@@ -31,6 +31,7 @@ fn execute(cmd string) os.Result {
 	eprintln('vtimeout_test.command.reason=${reason}')
 	eprintln('vtimeout_test.command.duration_ms=${dt}')
 	eprintln('vtimeout_test.command.exit_code=${res.exit_code}')
+	eprintln('vtimeout_test.command.exit_code_meaning=${os.process_exit_code_meaning(res.exit_code)}')
 	eprintln('vtimeout_test.command.output_len=${res.output.len}')
 	eprintln('vtimeout_test.command.command=${cmd}')
 	return res
@@ -58,7 +59,7 @@ fn test_exit_with_timeout() {
 	assert res.exit_code == 124, res.exit_code_diagnostics('124', label: @FN)
 	assert res.output.contains('vtimeout.command.failed=true'), res.output
 	assert res.output.contains('vtimeout.command.reason=timeout'), res.output
-	assert res.output.contains('vtimeout.command.output_empty=true'), res.output
+	assert res.output.contains('vtimeout.command.output_capture=inherited_stdio'), res.output
 }
 
 fn test_child_exit_reports_diagnostics() {
@@ -81,5 +82,5 @@ fn test_child_exit_reports_diagnostics() {
 	assert res.exit_code == 17, res.exit_code_diagnostics('17', label: @FN)
 	assert res.output.contains('vtimeout.command.failed=true'), res.output
 	assert res.output.contains('vtimeout.command.reason=child_exit_nonzero'), res.output
-	assert res.output.contains('vtimeout.command.output_empty=true'), res.output
+	assert res.output.contains('vtimeout.command.output_capture=inherited_stdio'), res.output
 }

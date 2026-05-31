@@ -44,12 +44,15 @@ mut:
 }
 
 fn report_oldv_command_failure(cmd string, result os.Result) {
-	scripting.cprintln_strong('#      command failed: true')
-	scripting.cprintln_strong('#              reason: child_exit_nonzero')
-	scripting.cprintln_strong('#              action: report_previous_version_command_failure')
-	scripting.cprintln_strong('#             message: oldv command exited with a non-zero status')
-	scripting.cprintln_strong('#           exit_code: ${result.exit_code:-4d}')
-	scripting.cprintln_strong('#             command: ${cmd}')
+	report := result.command_failure_report('oldv.command',
+		reason:  'child_exit_nonzero'
+		action:  'report_previous_version_command_failure'
+		message: 'oldv command exited with a non-zero status'
+		command: cmd
+	)
+	for line in report.split_into_lines() {
+		scripting.cprintln_strong('# ${line}')
+	}
 }
 
 fn (mut c Context) compile_oldv_if_needed() {

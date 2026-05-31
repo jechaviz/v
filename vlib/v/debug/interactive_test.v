@@ -52,7 +52,7 @@ fn test_debugger() {
 		comp_res := os.execute(compile_cmd)
 		cdur_ms := compile_sw.elapsed().milliseconds()
 		if be_verbose {
-			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res.exit_code}')
+			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res.exit_code}, comp_res_meaning: ${os.process_exit_code_meaning(comp_res.exit_code)}')
 		}
 		assert comp_res.exit_code == 0, comp_res.exit_code_diagnostics('0',
 			label:   @FN
@@ -70,7 +70,7 @@ fn test_debugger() {
 		result := os.execute(expect_cmd)
 		edur_ms := sw.elapsed().milliseconds()
 		if be_verbose {
-			gprintln('>>>>>>>>>>> expect took: ${edur_ms} ms, res: ${result.exit_code}')
+			gprintln('>>>>>>>>>>> expect took: ${edur_ms} ms, res: ${result.exit_code}, res_meaning: ${os.process_exit_code_meaning(result.exit_code)}')
 			if result.output != '' {
 				eprintln(result.output)
 			}

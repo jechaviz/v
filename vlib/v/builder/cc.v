@@ -1645,7 +1645,7 @@ pub fn (mut v Builder) cc() {
 		vcache.dlog('| Builder.' + @FN,
 			'>       v.pref.use_cache: ${v.pref.use_cache} | v.pref.retry_compilation: ${v.pref.retry_compilation}')
 		vcache.dlog('| Builder.' + @FN,
-			'>      v.builder.cc.failed=${res.exit_code != 0} | v.builder.cc.exit_code=${res.exit_code} | cmd: ${cmd}')
+			'>      v.builder.cc.failed=${res.exit_code != 0} | v.builder.cc.exit_code=${res.exit_code} | v.builder.cc.exit_code_meaning=${os.process_exit_code_meaning(res.exit_code)} | cmd: ${cmd}')
 		vcache.dlog('| Builder.' + @FN, '>  response_file_content:\n${response_file_content}')
 		if res.exit_code != 0 {
 			// Some GCC+linker setups fail bootstrapping with `-flto` and then report a missing `main` symbol.

@@ -178,7 +178,7 @@ fn run_in_background(cmd string) {
 		res := os.execute(cmd)
 		background_failed := res.exit_code != 0
 		background_reason := if background_failed { 'child_exit_nonzero' } else { 'completed' }
-		log.warn('vtest.background.failed=${background_failed} | vtest.background.reason=${background_reason} | vtest.background.exit_code=${res.exit_code} | vtest.background.output_len=${res.output.len}')
+		log.warn('vtest.background.failed=${background_failed} | vtest.background.reason=${background_reason} | vtest.background.exit_code=${res.exit_code} | vtest.background.exit_code_meaning=${os.process_exit_code_meaning(res.exit_code)} | vtest.background.output_len=${res.output.len}')
 		if res.exit_code != 0 {
 			eprintln(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 		}

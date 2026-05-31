@@ -24,6 +24,6 @@ fn test_run_reports_silent_child_exit() {
 	assert res.output.contains('v.run.command.failed=true'), res.output
 	assert res.output.contains('v.run.command.stage=run_compiled_executable'), res.output
 	assert res.output.contains('v.run.command.reason=compiled_executable_exit_nonzero'), res.output
-	assert res.output.contains('v.run.command.output_empty=true'), res.output
+	assert res.output.contains('v.run.command.output_capture=inherited_stdio'), res.output
 	assert res.output.contains('v.run.command.command='), res.output
 }

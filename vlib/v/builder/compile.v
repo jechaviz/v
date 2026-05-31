@@ -12,14 +12,14 @@ pub type FnBackend = fn (mut b Builder)
 
 fn report_run_command_failure(command string, exit_code int, stderr string) {
 	eprintln(os.process_command_failure_report('v.run.command', exit_code,
-		stage:   'run_compiled_executable'
-		command: command
-		reason:  'compiled_executable_exit_nonzero'
-		action:  'inspect_child_output_or_run_executable_directly'
-		message: 'compiled executable exited with a non-zero status'
-		stderr:  stderr
+		stage:          'run_compiled_executable'
+		command:        command
+		reason:         'compiled_executable_exit_nonzero'
+		action:         'inspect_child_output_or_run_executable_directly'
+		message:        'compiled executable exited with a non-zero status'
+		stderr:         stderr
+		output_capture: 'inherited_stdio'
 	))
-	eprintln('v.run.command.output_capture=inherited_stdio')
 }
 
 // should_find_windows_host_c_compiler reports whether Windows host compiler probing is needed.

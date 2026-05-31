@@ -313,14 +313,34 @@ fn (mut context Context) kill_pgroup() {
 fn (mut context Context) run_before_cmd() {
 	if context.cmd_before_run != '' {
 		context.elog('> run_before_cmd: "${context.cmd_before_run}"')
-		os.system(context.cmd_before_run)
+		exit_code := os.system(context.cmd_before_run)
+		if exit_code != 0 {
+			eprintln(os.process_command_failure_report('vwatch.command', exit_code,
+				stage:          'before_run'
+				command:        context.cmd_before_run
+				reason:         'before_run_command_failed'
+				action:         'inspect_before_run_command'
+				message:        'v watch before-run command exited with a non-zero status'
+				output_capture: 'inherited_stdio'
+			))
+		}
 	}
 }
 
 fn (mut context Context) run_after_cmd() {
 	if context.cmd_after_run != '' {
 		context.elog('> run_after_cmd: "${context.cmd_after_run}"')
-		os.system(context.cmd_after_run)
+		exit_code := os.system(context.cmd_after_run)
+		if exit_code != 0 {
+			eprintln(os.process_command_failure_report('vwatch.command', exit_code,
+				stage:          'after_run'
+				command:        context.cmd_after_run
+				reason:         'after_run_command_failed'
+				action:         'inspect_after_run_command'
+				message:        'v watch after-run command exited with a non-zero status'
+				output_capture: 'inherited_stdio'
+			))
+		}
 	}
 }
 

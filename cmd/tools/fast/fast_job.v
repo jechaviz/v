@@ -31,6 +31,21 @@ fn delay() {
 	time.sleep(sleep_period * time.second)
 }
 
+fn run_logged_system(stage string, cmd string) int {
+	exit_code := os.system(cmd)
+	if exit_code != 0 {
+		elog(os.process_command_failure_report('fast_job.command', exit_code,
+			stage:          stage
+			command:        cmd
+			reason:         'system_command_failed'
+			action:         'delay_and_retry_next_cycle'
+			message:        'fast job system command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
+	}
+	return exit_code
+}
+
 fn check_output_repo(url string, branch string, folder string) {
 	if os.exists(folder) {
 		elog('Note: ${folder} already exists; using it.')
@@ -103,8 +118,8 @@ fn main() {
 		}
 
 		elog('recompiling V')
-		os.system('${os.quoted_path(vexe)} self')
-		os.system('ls -la ${os.quoted_path(vexe)}')
+		run_logged_system('recompile_v', '${os.quoted_path(vexe)} self')
+		run_logged_system('inspect_v_binary', 'ls -la ${os.quoted_path(vexe)}')
 
 		elog('recompiling ./fast')
 		recompile_fast_cmd := '${os.quoted_path(vexe)} -keepc -g fast.v'
@@ -119,16 +134,17 @@ fn main() {
 			delay()
 			continue
 		}
-		os.system('ls -la fast fast.v')
+		run_logged_system('inspect_fast_binary', 'ls -la fast fast.v')
 
 		elog('running ./fast -upload')
-		fast_exit_code := os.system('./fast -upload')
+		fast_exit_code := run_logged_system('upload_fast_results', './fast -upload')
 		if fast_exit_code != 0 {
 			println(os.process_command_failure_report('fast.upload', fast_exit_code,
-				reason:  'child_exit_nonzero'
-				action:  'delay_and_retry_next_cycle'
-				message: 'fast upload command exited with a non-zero status'
-				command: './fast -upload'
+				reason:         'child_exit_nonzero'
+				action:         'delay_and_retry_next_cycle'
+				message:        'fast upload command exited with a non-zero status'
+				command:        './fast -upload'
+				output_capture: 'inherited_stdio'
 			))
 		}
 

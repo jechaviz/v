@@ -484,7 +484,19 @@ fn (upd VlsUpdater) run(fp flag.FlagParser) ! {
 			}
 		}
 	} else if upd.pass_to_ls {
-		exit(os.system('${upd.ls_path} ${upd.args.join(' ')}'))
+		ls_cmd := '${upd.ls_path} ${upd.args.join(' ')}'
+		exit_code := os.system(ls_cmd)
+		if exit_code != 0 {
+			eprintln(os.process_command_failure_report('vls.command', exit_code,
+				stage:          'pass_to_language_server'
+				command:        ls_cmd
+				reason:         'language_server_command_failed'
+				action:         'inspect_vls_output_or_run_language_server_directly'
+				message:        'delegated V language server command exited with a non-zero status'
+				output_capture: 'inherited_stdio'
+			))
+		}
+		exit(exit_code)
 	} else if upd.is_help {
 		println(fp.usage())
 		exit(0)

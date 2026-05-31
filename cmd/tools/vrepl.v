@@ -156,7 +156,17 @@ fn run_shell(command string) {
 
 		os.chdir(dir) or { eprintln('`${command}` failed, err: ${err}') }
 	} else {
-		os.system(command)
+		exit_code := os.system(command)
+		if exit_code != 0 {
+			eprintln(os.process_command_failure_report('vrepl.shell', exit_code,
+				stage:          'shell_escape'
+				command:        command
+				reason:         'shell_command_failed'
+				action:         'inspect_shell_command_output'
+				message:        'REPL shell escape command exited with a non-zero status'
+				output_capture: 'inherited_stdio'
+			))
+		}
 	}
 }
 

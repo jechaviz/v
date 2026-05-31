@@ -299,7 +299,7 @@ fn test_vvmrc_reports_silent_delegated_compiler_failure() {
 
 	assert res.output.contains('v.vvmrc.delegate.failed=true'), res.output
 	assert res.output.contains('v.vvmrc.delegate.reason=vvmrc_delegate_exit_nonzero'), res.output
-	assert res.output.contains('v.vvmrc.delegate.output_empty=true'), res.output
+	assert res.output.contains('v.vvmrc.delegate.output_capture=inherited_stdio'), res.output
 	assert res.output.contains('v.vvmrc.delegate.file='), res.output
 	assert res.output.contains('v.vvmrc.delegate.requested_version=${requested_vvm_test_version}'), res.output
 }

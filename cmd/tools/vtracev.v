@@ -16,11 +16,12 @@ fn main() {
 	exit_code := os.system(tracev_cmd)
 	if exit_code != 0 {
 		eprintln(os.process_command_failure_report('vtracev.command', exit_code,
-			stage:   'compile_tracev'
-			command: tracev_cmd
-			reason:  'tracev_compilation_failed'
-			action:  'inspect_tracev_build_output'
-			message: 'tracev helper compilation exited with a non-zero status'
+			stage:          'compile_tracev'
+			command:        tracev_cmd
+			reason:         'tracev_compilation_failed'
+			action:         'inspect_tracev_build_output'
+			message:        'tracev helper compilation exited with a non-zero status'
+			output_capture: 'inherited_stdio'
 		))
 		exit(exit_code)
 	}

@@ -77,6 +77,7 @@ pub fn verbose_trace_exec_result(x os.Result) {
 		cprintln('#   cmd.reason     : ${reason}')
 		cprintln('#   cmd.action     : ${action}')
 		cprintln('#   cmd.exit_code  : ${x.exit_code.str():-4s}')
+		cprintln('#   cmd.exit_code_meaning : ${os.process_exit_code_meaning(x.exit_code)}')
 		cprintln('#   cmd.output     :')
 		mut lnum := 1
 		lines := x.output.split_into_lines()

@@ -34,21 +34,14 @@ fn tool_command(tool_exe string, args []string) string {
 }
 
 fn report_tool_compilation_failure(tool_name string, tool_source string, command string, result os.Result, action string) {
-	output := result.output.trim_space()
-	eprintln('v.tool.failed=true')
-	eprintln('v.tool.reason=tool_compilation_failed')
-	eprintln('v.tool.action=${action}')
-	eprintln('v.tool.message=cannot compile V helper tool')
 	eprintln('v.tool.name=${tool_report_value(tool_name)}')
 	eprintln('v.tool.source=${tool_report_value(tool_source)}')
-	eprintln('v.tool.command=${tool_report_value(command)}')
-	eprintln('v.tool.exit_code=${result.exit_code}')
-	if output == '' {
-		eprintln('v.tool.output_empty=true')
-	} else {
-		eprintln('v.tool.output:')
-		eprintln(output)
-	}
+	eprintln(result.command_failure_report('v.tool.compilation',
+		reason:  'tool_compilation_failed'
+		action:  action
+		message: 'cannot compile V helper tool'
+		command: command
+	))
 }
 
 const const_tabs = [
@@ -264,7 +257,7 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 				compile_sw := time.new_stopwatch()
 				tool_compilation := os.execute(compilation_command)
 				os.chdir(current_work_dir) or {}
-				tlog('v.tool.compilation.failed=${tool_compilation.exit_code != 0}, v.tool.compilation.exit_code=${tool_compilation.exit_code}, v.tool.compilation.duration_ms=${compile_sw.elapsed().milliseconds()}')
+				tlog('v.tool.compilation.failed=${tool_compilation.exit_code != 0}, v.tool.compilation.exit_code=${tool_compilation.exit_code}, v.tool.compilation.exit_code_meaning=${os.process_exit_code_meaning(tool_compilation.exit_code)}, v.tool.compilation.duration_ms=${compile_sw.elapsed().milliseconds()}')
 				if tool_compilation.exit_code == 0 {
 					break
 				} else {
@@ -360,11 +353,12 @@ fn run_tool_process_and_exit(tool_exe string, args []string) {
 	exit_code := if process.code < 0 { 1 } else { process.code }
 	if exit_code != 0 {
 		eprintln(os.process_command_failure_report('v.tool.command', exit_code,
-			stage:   'run_tool_process'
-			command: command
-			reason:  'tool_child_exit_nonzero'
-			action:  'inspect_tool_output_or_rerun_tool_directly'
-			message: 'delegated V tool exited with a non-zero status'
+			stage:          'run_tool_process'
+			command:        command
+			reason:         'tool_child_exit_nonzero'
+			action:         'inspect_tool_output_or_rerun_tool_directly'
+			message:        'delegated V tool exited with a non-zero status'
+			output_capture: 'inherited_stdio'
 		))
 	}
 	exit(exit_code)
@@ -381,9 +375,10 @@ fn cmd_system(cmd string) {
 	res := os.system(cmd)
 	if res != 0 {
 		eprintln(os.process_command_failure_report('v.tool.command', res,
-			reason:  'tool_command_failed'
-			action:  'inspect_command_output'
-			command: cmd
+			reason:         'tool_command_failed'
+			action:         'inspect_command_output'
+			command:        cmd
+			output_capture: 'inherited_stdio'
 		))
 	}
 	exit(res)

@@ -121,7 +121,18 @@ fn (ctx Context) watch_for_changes(file string) {
 			ctx.write_file_or_print(file)
 			if ctx.is_compile {
 				file_name := file[0..(file.len - os.file_ext(file).len)]
-				os.system('v -o ${file_name}.c ${file}')
+				cmd := 'v -o ${file_name}.c ${file}'
+				exit_code := os.system(cmd)
+				if exit_code != 0 {
+					eprintln(os.process_command_failure_report('vast.command', exit_code,
+						stage:          'watch_compile'
+						command:        cmd
+						reason:         'watch_compile_failed'
+						action:         'inspect_generated_source_and_compile_command'
+						message:        'V AST watch compile command exited with a non-zero status'
+						output_capture: 'inherited_stdio'
+					))
+				}
 			}
 		}
 		timestamp = new_timestamp

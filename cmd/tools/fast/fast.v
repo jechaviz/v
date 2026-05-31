@@ -32,7 +32,18 @@ fn elog(msg string) {
 
 fn lsystem(cmd string) int {
 	elog('lsystem: ${cmd}')
-	return os.system(cmd)
+	exit_code := os.system(cmd)
+	if exit_code != 0 {
+		elog(os.process_command_failure_report('fast.command', exit_code,
+			stage:          'system_command'
+			command:        cmd
+			reason:         'system_command_failed'
+			action:         'inspect_fast_log_and_command_output'
+			message:        'fast tool system command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
+	}
+	return exit_code
 }
 
 fn lexec(cmd string) string {
@@ -91,12 +102,13 @@ fn main() {
 		elog('Fetching updates...')
 		ret := lsystem('${vdir}/v up')
 		if ret != 0 {
-			elog('fast.update.failed=true')
-			elog('fast.update.reason=child_exit_nonzero')
-			elog('fast.update.action=abort_rebase_and_skip_benchmark_until_v_update_succeeds')
-			elog('fast.update.message=failed to update V before benchmarking')
-			elog('fast.update.exit_code=${ret}')
-			elog('fast.update.command=${vdir}/v up')
+			elog(os.process_command_failure_report('fast.update', ret,
+				reason:         'child_exit_nonzero'
+				action:         'abort_rebase_and_skip_benchmark_until_v_update_succeeds'
+				message:        'failed to update V before benchmarking'
+				command:        '${vdir}/v up'
+				output_capture: 'inherited_stdio'
+			))
 			// A failed `git pull --rebase` (e.g. on a shallow CI checkout)
 			// leaves the worktree with conflict markers in source files,
 			// which would break any subsequent V compilation step. Restore
@@ -257,7 +269,17 @@ fn main() {
 fn measure(cmd string, description string) int {
 	elog('  Measuring ${description}, warmups: ${warmup_samples}, samples: ${max_samples}, discard: ${discard_highest_samples}, with cmd: `${cmd}`')
 	for _ in 0 .. warmup_samples {
-		os.system(cmd)
+		warmup_exit_code := os.system(cmd)
+		if warmup_exit_code != 0 {
+			elog(os.process_command_failure_report('fast.command', warmup_exit_code,
+				stage:          'benchmark_warmup'
+				command:        cmd
+				reason:         'benchmark_warmup_failed'
+				action:         'inspect_benchmark_command_output'
+				message:        'fast benchmark warmup command exited with a non-zero status'
+				output_capture: 'inherited_stdio'
+			))
+		}
 	}
 	mut runs := []int{}
 	for r in 0 .. max_samples {

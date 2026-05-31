@@ -9,18 +9,15 @@ mut:
 	cmd_args []string
 }
 
-fn vtimeout_report_value(value string) string {
-	return value.replace('\r', '\\r').replace('\n', '\\n')
-}
-
 fn report_vtimeout_command_failure(cmd_args []string, exit_code int, reason string) {
 	command := cmd_args.join(' ')
-	eprintln('vtimeout.command.failed=true')
-	eprintln('vtimeout.command.reason=${reason}')
-	eprintln('vtimeout.command.action=report_command_start_failure')
-	eprintln('vtimeout.command.message=cannot execute command before applying timeout')
-	eprintln('vtimeout.command.exit_code=${exit_code}')
-	eprintln('vtimeout.command.command=${vtimeout_report_value(command)}')
+	eprintln(os.process_command_failure_report('vtimeout.command', exit_code,
+		stage:   'start_child'
+		command: command
+		reason:  reason
+		action:  'report_command_start_failure'
+		message: 'cannot execute command before applying timeout'
+	))
 }
 
 fn report_vtimeout_exit(cmd_args []string, exit_code int, reason string) {
@@ -38,11 +35,12 @@ fn report_vtimeout_exit(cmd_args []string, exit_code int, reason string) {
 		'command exited with a non-zero status'
 	}
 	eprintln(os.process_command_failure_report('vtimeout.command', exit_code,
-		stage:   'wait_for_child'
-		command: cmd_args.join(' ')
-		reason:  reason
-		action:  action
-		message: message
+		stage:          'wait_for_child'
+		command:        cmd_args.join(' ')
+		reason:         reason
+		action:         action
+		message:        message
+		output_capture: 'inherited_stdio'
 	))
 }
 

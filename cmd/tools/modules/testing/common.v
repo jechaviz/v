@@ -865,6 +865,7 @@ fn test_run_failure_attempt_report(retry int, max_retry int, exit_code int, outp
 		'vtest.run.retry=${retry}',
 		'vtest.run.max_retry=${max_retry}',
 		'vtest.run.exit_code=${exit_code}',
+		'vtest.run.exit_code_meaning=${os.process_exit_code_meaning(exit_code)}',
 		'vtest.run.output_len=${output_len}',
 	].join('\n')
 }

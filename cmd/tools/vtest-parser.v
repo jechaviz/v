@@ -224,7 +224,7 @@ fn (mut context Context) process_whole_file_in_worker(path string) (int, int) {
 				command: cmd
 			))
 		} else {
-			context.log('vtest_parser.worker.failed=false | vtest_parser.worker.reason=completed | vtest_parser.worker.exit_code=${res.exit_code}')
+			context.log('vtest_parser.worker.failed=false | vtest_parser.worker.reason=completed | vtest_parser.worker.exit_code=${res.exit_code} | vtest_parser.worker.exit_code_meaning=${os.process_exit_code_meaning(res.exit_code)}')
 		}
 		if res.exit_code != 0 {
 			fails++

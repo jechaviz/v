@@ -47,7 +47,7 @@ fn run_new_generic_solver_tests(root_label string, test_cmd string, expected_sum
 	res := os.execute(test_cmd)
 	nested_failed := res.exit_code != 0
 	nested_reason := if nested_failed { 'child_exit_nonzero' } else { 'completed' }
-	log.info('vtest.nested.failed=${nested_failed} | vtest.nested.reason=${nested_reason} | vtest.nested.exit_code=${res.exit_code} | vtest.nested.command=${test_cmd}')
+	log.info('vtest.nested.failed=${nested_failed} | vtest.nested.reason=${nested_reason} | vtest.nested.exit_code=${res.exit_code} | vtest.nested.exit_code_meaning=${os.process_exit_code_meaning(res.exit_code)} | vtest.nested.command=${test_cmd}')
 
 	res_lines := res.output.split_into_lines()
 	if vtrace_output {

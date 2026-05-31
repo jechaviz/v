@@ -4,9 +4,10 @@ import log
 const should_clean = os.args.contains('-c')
 
 struct FailedCommand {
-	command   string
-	exit_code int
-	output    string
+	command        string
+	exit_code      int
+	output         string
+	output_capture string
 }
 
 fn main() {
@@ -97,8 +98,16 @@ fn main() {
 		glsl_files := os.walk_ext(pf, '.glsl')
 		if glsl_files.len > 0 {
 			if pf !in glsl_folders {
-				log.debug('>>> found .glsl files in ${pf} ... running `v shader ${pf}` ...')
-				os.system('${os.quoted_path(@VEXE)} shader ${os.quoted_path(pf)}')
+				shader_cmd := '${os.quoted_path(@VEXE)} shader ${os.quoted_path(pf)}'
+				log.debug('>>> found .glsl files in ${pf} ... running `${shader_cmd}` ...')
+				shader_exit_code := os.system(shader_cmd)
+				if shader_exit_code != 0 {
+					failed_commands << FailedCommand{
+						command:        shader_cmd
+						exit_code:      shader_exit_code
+						output_capture: 'inherited_stdio'
+					}
+				}
 				glsl_folders[pf] = true
 			}
 		}
@@ -129,10 +138,11 @@ fn main() {
 			log.error('>>> FAILED command ${idx + 1:4}/${failed_commands.len:-4}:')
 			log.error(os.process_command_failure_report('vshould_compile_all.command',
 				fcmd.exit_code,
-				reason:  'compile_failed'
-				action:  'inspect_command_output'
-				command: fcmd.command
-				output:  fcmd.output
+				reason:         'compile_failed'
+				action:         'inspect_command_output'
+				command:        fcmd.command
+				output:         fcmd.output
+				output_capture: fcmd.output_capture
 			))
 		}
 		log.info('Summary: ${failed_commands.len:4}/${files.len:-4} file(s) failed to compile.')

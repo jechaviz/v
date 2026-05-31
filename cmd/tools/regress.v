@@ -77,5 +77,16 @@ fn main() {
 
 fn execute(cmd string) int {
 	eprintln('### ${cmd}')
-	return os.system(cmd)
+	exit_code := os.system(cmd)
+	if exit_code != 0 {
+		eprintln(os.process_command_failure_report('regress.command', exit_code,
+			stage:          'bisect_command'
+			command:        cmd
+			reason:         'bisect_command_failed'
+			action:         'inspect_git_bisect_or_wrapped_command_output'
+			message:        'regression helper command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
+	}
+	return exit_code
 }

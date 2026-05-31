@@ -47,7 +47,7 @@ fn test_trace() {
 		comp_res := os.execute(comp_cmd)
 		cdur_ms := compile_sw.elapsed().milliseconds()
 		if be_verbose {
-			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res.exit_code}')
+			gprintln('>>>>>>>>>>> compilation took ${cdur_ms} ms, comp_res: ${comp_res.exit_code}, comp_res_meaning: ${os.process_exit_code_meaning(comp_res.exit_code)}')
 		}
 		if comp_res.exit_code != 0 {
 			assert false, term.red(comp_res.exit_code_diagnostics('0',

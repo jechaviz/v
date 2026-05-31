@@ -44,11 +44,22 @@ fn main() {
 			last.all_before_last('.v')
 		}
 		if os.exists(output_name) {
-			ret := os.system('./' + output_name)
+			run_cmd := './' + output_name
+			ret := os.system(run_cmd)
 			os.rm(output_name) or {}
 			c_file := output_name + '.c'
 			if !prefs.keep_c && os.exists(c_file) {
 				os.rm(c_file) or {}
+			}
+			if ret != 0 {
+				eprintln(os.process_command_failure_report('v2.test_binary', ret,
+					stage:          'auto_run_test_binary'
+					command:        run_cmd
+					reason:         'compiled_test_binary_failed'
+					action:         'inspect_test_output_or_rerun_binary_directly'
+					message:        'compiled v2 test binary exited with a non-zero status'
+					output_capture: 'inherited_stdio'
+				))
 			}
 			exit(ret)
 		}
@@ -221,9 +232,10 @@ fn run_test_self() {
 			failed_files << short_name
 			eprintln(' FAIL  [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms  ${short_name}')
 			eprintln(os.process_command_failure_report('v2.test_self.compile', compile_ret,
-				reason:  'test_compile_failed'
-				action:  'rerun_without_output_redirection'
-				command: compile_cmd
+				reason:         'test_compile_failed'
+				action:         'rerun_without_output_redirection'
+				command:        compile_cmd
+				output_capture: 'redirected_to_null'
 			))
 			os.rm(out_bin) or {}
 			os.rm('${out_bin}.c') or {}
@@ -240,9 +252,10 @@ fn run_test_self() {
 			failed_files << short_name
 			eprintln(' FAIL  [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms, R: ${run_ms:7.1} ms  ${short_name}')
 			eprintln(os.process_command_failure_report('v2.test_self.run', run_ret,
-				reason:  'test_binary_failed'
-				action:  'rerun_without_output_redirection'
-				command: out_bin + ' > /dev/null 2>&1'
+				reason:         'test_binary_failed'
+				action:         'rerun_without_output_redirection'
+				command:        out_bin + ' > /dev/null 2>&1'
+				output_capture: 'redirected_to_null'
 			))
 		} else {
 			passed++
@@ -291,9 +304,10 @@ fn run_test_self() {
 		if ret != 0 || !os.exists(out) {
 			eprintln(' FAIL  ${label}  (${ms:.1} ms)')
 			eprintln(os.process_command_failure_report('v2.self_compile', ret,
-				reason:  'self_compile_failed'
-				action:  'rerun_without_output_redirection'
-				command: cmd
+				reason:         'self_compile_failed'
+				action:         'rerun_without_output_redirection'
+				command:        cmd
+				output_capture: 'redirected_to_null'
 			))
 			// Clean up
 			for bin in [v3_bin, v4_bin, v5_bin] {

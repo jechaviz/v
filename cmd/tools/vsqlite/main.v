@@ -109,12 +109,12 @@ fn report_sqlite_result_failure(operation string, code int, action string, state
 }
 
 fn report_vsqlite_shell_failure(shell_cmd string, result os.Result) {
-	eprintln('vsqlite.shell.failed=true')
-	eprintln('vsqlite.shell.reason=child_exit_nonzero')
-	eprintln('vsqlite.shell.action=report_command_failure_and_continue_repl')
-	eprintln('vsqlite.shell.message=.shell command exited with a non-zero status')
-	eprintln('vsqlite.shell.exit_code=${result.exit_code}')
-	eprintln('vsqlite.shell.command=${vsqlite_report_value(shell_cmd)}')
+	eprintln(result.command_failure_report('vsqlite.shell',
+		command: shell_cmd
+		reason:  'child_exit_nonzero'
+		action:  'report_command_failure_and_continue_repl'
+		message: '.shell command exited with a non-zero status'
+	))
 }
 
 struct App {

@@ -29,8 +29,17 @@ import term
 
 fn main() {
 	// This hook cares only about the changed V files, that will be committed, as reported by git itself:
-	changed :=
-		os.execute('git diff --cached --name-only --diff-filter=ACMR -- "*.v" "*.vsh" "*.vv"')
+	changed_cmd := 'git diff --cached --name-only --diff-filter=ACMR -- "*.v" "*.vsh" "*.vv"'
+	changed := os.execute(changed_cmd)
+	if changed.exit_code != 0 {
+		eprintln(changed.command_failure_report('v.pre_commit.command',
+			reason:  'git_diff_failed'
+			action:  'inspect_git_repository_state'
+			message: 'pre-commit hook could not list staged V files'
+			command: changed_cmd
+		))
+		exit(1)
+	}
 
 	all_changed_vfiles := changed.output.trim_space().split('\n')
 	// _input.vv files are NOT formatted on purpose.
@@ -69,7 +78,29 @@ fn main() {
 		}
 		// vfmt on
 		all_vfiles_on_a_line := vfiles.map(os.quoted_path(it)).join(' ')
-		os.system('${os.quoted_path(@VEXE)} fmt -w ${all_vfiles_on_a_line}')
-		os.system('git add ${all_vfiles_on_a_line}')
+		fmt_cmd := '${os.quoted_path(@VEXE)} fmt -w ${all_vfiles_on_a_line}'
+		fmt_exit_code := os.system(fmt_cmd)
+		if fmt_exit_code != 0 {
+			eprintln(os.process_command_failure_report('v.pre_commit.command', fmt_exit_code,
+				reason:         'fmt_write_failed'
+				action:         'inspect_formatter_output'
+				message:        'pre-commit hook failed while formatting staged V files'
+				command:        fmt_cmd
+				output_capture: 'inherited_stdio'
+			))
+			exit(fmt_exit_code)
+		}
+		git_add_cmd := 'git add ${all_vfiles_on_a_line}'
+		git_add_exit_code := os.system(git_add_cmd)
+		if git_add_exit_code != 0 {
+			eprintln(os.process_command_failure_report('v.pre_commit.command', git_add_exit_code,
+				reason:         'git_add_failed'
+				action:         'inspect_git_repository_state'
+				message:        'pre-commit hook failed while staging formatted V files'
+				command:        git_add_cmd
+				output_capture: 'inherited_stdio'
+			))
+			exit(git_add_exit_code)
+		}
 	}
 }

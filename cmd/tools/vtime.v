@@ -9,10 +9,6 @@ mut:
 	cmd_line_opts []string
 }
 
-fn vtime_report_value(value string) string {
-	return value.replace('\r', '\\r').replace('\n', '\\n')
-}
-
 fn main() {
 	mut ctx := Context{}
 	args := arguments()
@@ -38,12 +34,14 @@ fn main() {
 	elapsed := sw.elapsed()
 	stook_time := '${f64(elapsed.microseconds()) / 1000.0:8.3f} ms'
 	if ecode != 0 {
-		eprintln('vtime.command.failed=true')
-		eprintln('vtime.command.reason=child_exit_nonzero')
-		eprintln('vtime.command.action=report_timing_and_return_child_status')
-		eprintln('vtime.command.message=timed command exited with a non-zero status')
-		eprintln('vtime.command.exit_code=${ecode}')
-		eprintln('vtime.command.command=${vtime_report_value(cmd)}')
+		eprintln(os.process_command_failure_report('vtime.command', ecode,
+			stage:          'timed_command'
+			command:        cmd
+			reason:         'child_exit_nonzero'
+			action:         'report_timing_and_return_child_status'
+			message:        'timed command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
 	}
 	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Status: ${ecode:3}. Command: ${term.ecolorize(term.green,
 		cmd)}')

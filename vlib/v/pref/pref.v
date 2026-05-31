@@ -362,13 +362,15 @@ fn run_code_in_tmp_vfile_and_exit(args []string, mut res Preferences, option_nam
 	res.vrun_elog('v.pref.run.failed=${run_failed}')
 	res.vrun_elog('v.pref.run.reason=${run_reason}')
 	res.vrun_elog('v.pref.run.exit_code=${tmp_result}')
+	res.vrun_elog('v.pref.run.exit_code_meaning=${os.process_exit_code_meaning(tmp_result)}')
 	if run_failed {
 		eprintln(os.process_command_failure_report('v.pref.run', tmp_result,
-			stage:   'run_tmp_vfile'
-			command: tmp_cmd
-			reason:  'tmp_run_failed'
-			action:  'inspect_tmp_run_output_or_reproduce_command'
-			message: 'temporary V run command exited with a non-zero status'
+			stage:          'run_tmp_vfile'
+			command:        tmp_cmd
+			reason:         'tmp_run_failed'
+			action:         'inspect_tmp_run_output_or_reproduce_command'
+			message:        'temporary V run command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
 		))
 	}
 

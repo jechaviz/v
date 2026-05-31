@@ -39,6 +39,15 @@ fn runv(label string, user_cmd string) os.Result {
 	elog('> ${label} using: ${term.ecolorize(term.magenta, user_cmd)}')
 	result = os.execute(user_cmd)
 	print(result.output)
+	if result.exit_code != 0 {
+		elog(result.command_failure_report('vbug.command',
+			stage:   label
+			reason:  'command_failed'
+			action:  'include_failure_in_bug_report_context'
+			message: 'v bug diagnostic command exited with a non-zero status'
+			command: user_cmd
+		))
+	}
 	return result
 }
 

@@ -284,20 +284,13 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 }
 
 fn report_v2_compilation_failure(source string, command string, result os.Result) {
-	output := result.output.trim_space()
-	eprintln('v.delegate.failed=true')
-	eprintln('v.delegate.reason=v2_compilation_failed')
-	eprintln('v.delegate.action=abort_delegated_compiler_launch')
-	eprintln('v.delegate.message=cannot compile delegated v2 compiler source: ${delegate_report_value(source)}')
-	eprintln('v.delegate.exit_code=${result.exit_code}')
+	eprintln(result.command_failure_report('v.delegate',
+		command: command
+		reason:  'v2_compilation_failed'
+		action:  'abort_delegated_compiler_launch'
+		message: 'cannot compile delegated v2 compiler source: ${delegate_report_value(source)}'
+	))
 	eprintln('v.delegate.source=${delegate_report_value(source)}')
-	eprintln('v.delegate.command=${delegate_report_value(command)}')
-	if output == '' {
-		eprintln('v.delegate.output_empty=true')
-	} else {
-		eprintln('v.delegate.output:')
-		eprintln(output)
-	}
 }
 
 fn delegate_report_value(value string) string {

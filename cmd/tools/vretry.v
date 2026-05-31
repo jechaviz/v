@@ -22,11 +22,12 @@ fn report_vretry_failure(cmd string, exit_code int, reason string, context Conte
 		'command failed after the configured retry count'
 	}
 	eprintln(os.process_command_failure_report('vretry.command', exit_code,
-		stage:   'retry_command'
-		command: cmd
-		reason:  reason
-		action:  action
-		message: message
+		stage:          'retry_command'
+		command:        cmd
+		reason:         reason
+		action:         action
+		message:        message
+		output_capture: 'inherited_stdio'
 	))
 	eprintln('vretry.command.retries=${context.retries}')
 	eprintln('vretry.command.timeout_seconds=${context.timeout.seconds()}')

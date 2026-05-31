@@ -50,7 +50,8 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 	envs['VEXE'] = vversion_exe
 	process.set_environment(envs)
 	process.wait()
-	exit_code := if process.code == -1 { 1 } else { process.code }
+	delegate_exit_code := process.code
+	exit_code := if delegate_exit_code == -1 { 1 } else { delegate_exit_code }
 	process_error := process.err
 	process.close()
 	if exit_code != 0 {
@@ -60,13 +61,14 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 		} else {
 			'vvmrc_delegate_exit_nonzero'
 		}
-		eprintln(os.process_command_failure_report('v.vvmrc.delegate', exit_code,
-			stage:   'vvmrc_delegate'
-			command: delegated_command
-			reason:  reason
-			action:  'inspect_delegated_compiler_output_or_vvmrc_version'
-			message: 'delegated compiler selected by .vvmrc exited with a non-zero status'
-			stderr:  process_error
+		eprintln(os.process_command_failure_report('v.vvmrc.delegate', delegate_exit_code,
+			stage:          'vvmrc_delegate'
+			command:        delegated_command
+			reason:         reason
+			action:         'inspect_delegated_compiler_output_or_vvmrc_version'
+			message:        'delegated compiler selected by .vvmrc exited with a non-zero status'
+			stderr:         process_error
+			output_capture: 'inherited_stdio'
 		))
 		eprintln('v.vvmrc.delegate.file=${vvmrc_report_value(vvmrc_path)}')
 		eprintln('v.vvmrc.delegate.requested_version=${vvmrc_report_value(requested_version)}')

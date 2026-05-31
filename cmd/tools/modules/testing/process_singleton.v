@@ -51,7 +51,14 @@ fn process_singleton_system(cmd string) int {
 		return os.system(cmd)
 	}
 	mut gate := process_singleton_acquire_for_command(cmd) or {
-		eprintln(err.msg())
+		eprintln(os.process_command_failure_report('vtest.process.system', -1,
+			stage:   'acquire_process_singleton'
+			command: cmd
+			reason:  'process_singleton_acquire_failed'
+			action:  'inspect_process_singleton_lock_or_disable_singleton'
+			message: 'could not acquire process singleton before running command'
+			stderr:  err.msg()
+		))
 		return -1
 	}
 	old_held := os.getenv(process_singleton_held_env)

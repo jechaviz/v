@@ -29,24 +29,24 @@ fn show_failure_output(output string) {
 
 fn report_command_failure(phase string, run_index int, cmd string, result os.Result, duration i64) {
 	duration_ms := f64(duration) / 1000.0
-	eprintln('\nvrepeat.command.failed=true')
-	eprintln('vrepeat.command.reason=child_exit_nonzero')
-	eprintln('vrepeat.command.action=stop_or_use_ignore_failed')
-	eprintln('vrepeat.command.message=command exited with a non-zero status during ${phase}')
+	eprintln('')
+	eprintln(result.command_failure_report('vrepeat.command',
+		stage:   phase
+		command: cmd
+		reason:  'child_exit_nonzero'
+		action:  'stop_or_use_ignore_failed'
+		message: 'command exited with a non-zero status during ${phase}'
+	))
 	eprintln('vrepeat.command.phase=${phase}')
 	if run_index > 0 {
 		eprintln('vrepeat.command.run_index=${run_index}')
 	}
-	eprintln('vrepeat.command.exit_code=${result.exit_code}')
 	eprintln('vrepeat.command.duration_ms=${duration_ms}')
-	eprintln('vrepeat.command.command=${vrepeat_report_value(cmd)}')
 	eprintln('vrepeat.command.advice=Use -e or --ignore to ignore failed commands.')
-	eprintln('vrepeat.command.output:')
-	show_failure_output(result.output)
-}
-
-fn vrepeat_report_value(value string) string {
-	return value.replace('\r', '\\r').replace('\n', '\\n')
+	if result.output != '' {
+		eprintln('vrepeat.command.output:')
+		show_failure_output(result.output)
+	}
 }
 
 const max_fail_percent = 100 * 1000

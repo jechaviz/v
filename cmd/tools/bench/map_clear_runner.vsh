@@ -27,9 +27,10 @@ for i := start; i <= end; i += step {
 	run_code := os.system(run_cmd)
 	if run_code != 0 {
 		eprintln(os.process_command_failure_report('map_clear_runner.command', run_code,
-			reason:  'benchmark_command_failed'
-			action:  'inspect_benchmark_command'
-			command: run_cmd
+			reason:         'benchmark_command_failed'
+			action:         'inspect_benchmark_command'
+			command:        run_cmd
+			output_capture: 'inherited_stdio'
 		))
 	}
 }

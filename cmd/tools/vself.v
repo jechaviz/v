@@ -402,10 +402,21 @@ fn list_folder(short_v_name string, bmessage string, message string) {
 	if bmessage != '' {
 		println(bmessage)
 	}
-	if os.user_os() == 'windows' {
-		os.system('dir ${short_v_name}*.exe')
+	cmd := if os.user_os() == 'windows' {
+		'dir ${short_v_name}*.exe'
 	} else {
-		os.system('ls -lartd ${short_v_name}*')
+		'ls -lartd ${short_v_name}*'
+	}
+	exit_code := os.system(cmd)
+	if exit_code != 0 {
+		eprintln(os.process_command_failure_report('vself.command', exit_code,
+			stage:          'list_debug_outputs'
+			command:        cmd
+			reason:         'debug_listing_failed'
+			action:         'inspect_build_folder'
+			message:        'debug listing command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
 	}
 	println(message)
 }

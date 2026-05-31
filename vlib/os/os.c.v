@@ -464,7 +464,7 @@ pub fn system(cmd string) int {
 		}
 	}
 	if ret == -1 {
-		print_c_errno()
+		print_c_errno(cmd)
 	}
 	$if !windows {
 		pret, is_signaled := posix_wait4_to_exit_status(ret)
@@ -593,13 +593,19 @@ pub fn rmdir(path string) ! {
 }
 
 // print_c_errno will print the current value of `C.errno`.
-fn print_c_errno() {
+fn print_c_errno(cmd string) {
 	e := C.errno
 	se := unsafe { cstring_to_vstring(C.strerror(e)) }
 	eprintln('os.system.failed=true')
 	eprintln('os.system.reason=libc_system_failed')
 	eprintln('os.system.action=report_errno_and_return_failure')
 	eprintln('os.system.message=C.system returned -1')
+	eprintln('os.system.exit_code=-1')
+	eprintln('os.system.exit_code_meaning=${process_exit_code_meaning(-1)}')
+	eprintln('os.system.command=${os_diagnostic_value(cmd)}')
+	if possible_causes := process_exit_code_possible_causes(-1) {
+		eprintln('os.system.possible_causes=${possible_causes}')
+	}
 	eprintln('os.system.errno=${e}')
 	eprintln('os.system.error=${se}')
 }

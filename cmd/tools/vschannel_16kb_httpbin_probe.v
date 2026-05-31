@@ -114,6 +114,7 @@ fn run_parent_mode() {
 		println('vschannel_probe.result.size=${size}')
 		println('vschannel_probe.result.expected=${expect_text}')
 		println('vschannel_probe.result.exit_code=${exit_code}')
+		println('vschannel_probe.result.exit_code_meaning=${os.process_exit_code_meaning(exit_code)}')
 		if verbose || !success {
 			if stdout.len > 0 {
 				println(stdout)

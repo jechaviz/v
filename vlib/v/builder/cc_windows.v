@@ -22,7 +22,12 @@ pub fn (mut v Builder) find_win_cc() ! {
 	ccompiler_version_res := os.execute(cmd_version)
 	if ccompiler_version_res.exit_code != 0 {
 		if v.pref.is_verbose {
-			println('failed command: `${cmd_version}`')
+			println(ccompiler_version_res.command_failure_report('v.builder.cc_probe',
+				stage:   'preferred_ccompiler_probe'
+				reason:  'ccompiler_probe_failed'
+				action:  'try_msvc_or_bundled_tcc'
+				command: cmd_version
+			))
 			println('${v.pref.ccompiler} not found, looking for msvc...')
 		}
 		if !v.cached_msvc.valid {
@@ -34,9 +39,20 @@ pub fn (mut v Builder) find_win_cc() ! {
 				tcc_version_res := os.execute('${os.quoted_path(thirdparty_tcc)} -v')
 				if tcc_version_res.exit_code != 0 {
 					if v.pref.is_verbose {
-						println('tcc not found')
+						println(tcc_version_res.command_failure_report('v.builder.cc_probe',
+							stage:   'bundled_tcc_probe'
+							reason:  'bundled_tcc_probe_failed'
+							action:  'install_c_compiler_or_rebootstrap_v'
+							command: '${os.quoted_path(thirdparty_tcc)} -v'
+						))
 					}
-					return error('tcc not found')
+					return error(tcc_version_res.command_failure_report('v.builder.cc_probe',
+						stage:   'bundled_tcc_probe'
+						reason:  'bundled_tcc_probe_failed'
+						action:  'install_c_compiler_or_rebootstrap_v'
+						message: 'tcc not found'
+						command: '${os.quoted_path(thirdparty_tcc)} -v'
+					))
 				}
 				v.pref.ccompiler = thirdparty_tcc
 				v.pref.ccompiler_type = .tinyc

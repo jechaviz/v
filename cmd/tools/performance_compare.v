@@ -181,7 +181,18 @@ fn (c Context) compare_v_performance(label string, commands []string) string {
 	if c.vgo.verbose {
 		println(comparison_cmd)
 	}
-	os.system(comparison_cmd)
+	exit_code := os.system(comparison_cmd)
+	if exit_code != 0 {
+		eprintln(os.process_command_failure_report('performance_compare.command', exit_code,
+			stage:          'run_hyperfine'
+			command:        comparison_cmd
+			reason:         'hyperfine_failed'
+			action:         'inspect_hyperfine_command_and_environment'
+			message:        'hyperfine comparison command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
+		exit(2)
+	}
 	println('The detailed performance comparison report was saved to: ${cmd_stats_file} .')
 	println('')
 	return cmd_stats_file

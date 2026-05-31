@@ -121,7 +121,21 @@ fn main() {
 		if ctx.should_run {
 			run_cmd := '${os.quoted_path(vexe)} run ${os.quoted_path(fpath)}'
 			log.info(' Executing: ${run_cmd}')
-			os.system(run_cmd)
+			run_exit_code := os.system(run_cmd)
+			if run_exit_code != 0 {
+				eprintln(os.process_command_failure_report('vdownload.command', run_exit_code,
+					stage:          'run_downloaded_file'
+					command:        run_cmd
+					reason:         'downloaded_file_run_failed'
+					action:         'inspect_downloaded_file_output_or_rerun_command'
+					message:        'downloaded V file exited with a non-zero status'
+					output_capture: 'inherited_stdio'
+				))
+				errors++
+				if !ctx.continue_on_failure {
+					break
+				}
+			}
 		}
 		if ctx.delete_after_run {
 			log.info(' Removing: ${fpath}')

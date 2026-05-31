@@ -490,6 +490,9 @@ fn windows_execute_failure_output(reason string, action string, message string, 
 		'os.exec.action=${action}',
 		'os.exec.message=${windows_execute_report_value(message)}',
 		'os.exec.exit_code=${error_num}',
+		'os.exec.exit_code_meaning=host_api_error_before_child_start',
+		'os.exec.error_code=${error_num}',
+		'os.exec.error_kind=win32_api_error',
 		'os.exec.error=${windows_execute_report_value(error_msg)}',
 	]
 	if display_cmd != '' {
