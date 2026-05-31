@@ -43,7 +43,7 @@ fn main() {
 			output_capture: 'inherited_stdio'
 		))
 	}
-	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Status: ${ecode:3}. Command: ${term.ecolorize(term.green,
+	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Status: ${ecode:3} (${os.process_exit_code_meaning(ecode)}). Command: ${term.ecolorize(term.green,
 		cmd)}')
 	exit(ecode)
 }

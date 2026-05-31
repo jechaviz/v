@@ -167,6 +167,7 @@ fn process_singleton_queue_timeout_message(cmd string, lock_path string, wait_ms
 		'vtest.process.action=abort_before_child_start',
 		'vtest.process.message=V did not start another instance because the singleton queue timed out.',
 		'vtest.process.exit_code=-1',
+		'vtest.process.exit_code_meaning=${os.process_exit_code_meaning(-1)}',
 		'vtest.process.queue_timeout_ms=${wait_ms}',
 		'vtest.process.lock_path=${lock_path}',
 		'vtest.process.command=${cmd}',
