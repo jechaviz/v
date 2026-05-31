@@ -329,17 +329,44 @@ pub fn mkdir(path string, params MkdirParams) ! {
 	}
 }
 
+fn nix_execute_failure_output(reason string, action string, message string, display_cmd string, child_output string, error_num int) string {
+	mut error_code := -1
+	mut error_kind := ''
+	mut error_msg := ''
+	if error_num != 0 {
+		error_code = error_num
+		error_kind = 'posix_errno'
+		error_msg = posix_get_error_msg(error_num)
+	}
+	return process_command_failure_report('os.exec', -1,
+		command:        display_cmd
+		reason:         reason
+		action:         action
+		message:        message
+		output:         child_output
+		output_capture: 'pipe'
+		output_empty:   child_output == ''
+		error_code:     error_code
+		error_kind:     error_kind
+		error:          error_msg
+	)
+}
+
 // execute starts the specified command, waits for it to complete, and returns its output.
 pub fn execute(cmd string) Result {
 	mut pid := 0
 	mut read_fd := -1
 	v_os_execute_lock()
 	rc := C.v_os_execute_capture_start(&char(cmd.str), &pid, &read_fd)
+	start_errno := int(C.errno)
 	v_os_execute_unlock()
 	if rc != 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec("${cmd}") failed'
+			output:    nix_execute_failure_output('capture_start_failed',
+				'inspect_shell_command_and_process_limits',
+				'failed to start shell command capture (capture_start returned ${rc})', cmd, '',
+				start_errno)
 		}
 	}
 	soutput := fd_slurp(read_fd).join('')
@@ -353,9 +380,12 @@ pub fn execute(cmd string) Result {
 		if C.errno == C.EINTR {
 			continue
 		}
+		wait_errno := int(C.errno)
 		return Result{
 			exit_code: -1
-			output:    soutput
+			output:    nix_execute_failure_output('waitpid_failed',
+				'inspect_process_lifecycle_and_reap_child',
+				'failed while waiting for shell command to finish', cmd, soutput, wait_errno)
 		}
 	}
 	exit_code, _ := posix_wait4_to_exit_status(status)
@@ -370,7 +400,9 @@ pub fn exec(args []string) Result {
 	if args.len == 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec requires at least one argument'
+			output:    nix_execute_failure_output('missing_argv',
+				'pass_at_least_one_argument_to_os_exec', 'exec requires at least one argument', '',
+				'', 0)
 		}
 	}
 	mut cargs := []&char{cap: args.len + 1}
@@ -378,15 +410,20 @@ pub fn exec(args []string) Result {
 		cargs << &char(arg.str)
 	}
 	cargs << &char(unsafe { nil })
+	display_cmd := args.join(' ')
 	mut pid := 0
 	mut read_fd := -1
 	v_os_execute_lock()
 	rc := C.v_os_exec_capture_start(cargs.data, &pid, &read_fd)
+	start_errno := int(C.errno)
 	v_os_execute_unlock()
 	if rc != 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec("${args[0]}") failed'
+			output:    nix_execute_failure_output('capture_start_failed',
+				'inspect_exec_arguments_and_process_limits',
+				'failed to start argv command capture (capture_start returned ${rc})', display_cmd,
+				'', start_errno)
 		}
 	}
 	soutput := fd_slurp(read_fd).join('')
@@ -400,9 +437,12 @@ pub fn exec(args []string) Result {
 		if C.errno == C.EINTR {
 			continue
 		}
+		wait_errno := int(C.errno)
 		return Result{
 			exit_code: -1
-			output:    soutput
+			output:    nix_execute_failure_output('waitpid_failed',
+				'inspect_process_lifecycle_and_reap_child',
+				'failed while waiting for argv command to finish', display_cmd, soutput, wait_errno)
 		}
 	}
 	exit_code, _ := posix_wait4_to_exit_status(status)

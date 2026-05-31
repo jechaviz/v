@@ -41,7 +41,7 @@ fn test_conditional_executable_removal() {
 	dump(original_file_list_)
 	assert executable !in original_file_list_
 
-	assert os.execute('${os.quoted_path(vexe)} run .').output.trim_space() == 'Hello World!'
+	assert run_v_ok('${os.quoted_path(vexe)} run .').trim_space() == 'Hello World!'
 	after_run_file_list := os.ls(test_path)!.filter(os.exists(it))
 	dump(after_run_file_list)
 	assert executable !in after_run_file_list
@@ -49,12 +49,12 @@ fn test_conditional_executable_removal() {
 	compile_dir_res := os.execute('${os.quoted_path(vexe)} .')
 	assert compile_dir_res.exit_code == 0, compile_dir_res.exit_code_diagnostics('0', label: @FN)
 
-	assert os.execute('./${executable}').output.trim_space() == 'Hello World!'
+	assert run_v_ok('./${executable}').trim_space() == 'Hello World!'
 	after_compilation__ := os.ls(test_path)!
 	dump(after_compilation__)
 	assert executable in after_compilation__
 
-	assert os.execute('${os.quoted_path(vexe)} run .').output.trim_space() == 'Hello World!'
+	assert run_v_ok('${os.quoted_path(vexe)} run .').trim_space() == 'Hello World!'
 	after_second_run___ := os.ls(test_path)!
 	dump(after_second_run___)
 	assert executable in after_second_run___
@@ -161,11 +161,18 @@ pub struct BS{}
 	assert executable !in original_file_list_
 
 	cmd := '${os.quoted_path(vexe)} -o ${executable} filelist/main.v -file-list "filelist/part_a.v,filelist/part_b.v,"'
-	os.execute(cmd)
+	compile_res := os.execute(cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+		reason:  'filelist_compile_failed'
+		action:  'inspect_filelist_compile_output'
+	)
+
 	after_compile_file_list := os.ls(test_path)!.filter(os.exists(it))
 	dump(after_compile_file_list)
 	assert executable in after_compile_file_list
-	assert os.execute('./${executable}').output.trim_space() == 'AS{}=>BS{}'
+	assert run_v_ok('./${executable}').trim_space() == 'AS{}=>BS{}'
 }
 
 fn test_run_custom_base_url_uses_project_root_lookup() {

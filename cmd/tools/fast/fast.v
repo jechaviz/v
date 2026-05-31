@@ -50,7 +50,14 @@ fn lexec(cmd string) string {
 	elog('  lexec: ${cmd}')
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		elog('  lexec FAILED, exit_code: ${res.exit_code}, output:\n${res.output}')
+		elog(res.command_failure_report('fast.command',
+			stage:   'execute_command'
+			command: cmd
+			reason:  'execute_command_failed'
+			action:  'stop_dependent_fast_step_and_inspect_output'
+			message: 'fast tool execute command exited with a non-zero status'
+		))
+		exit(if res.exit_code < 0 { 1 } else { res.exit_code })
 	}
 	return res.output.trim_right('\r\n')
 }
@@ -63,7 +70,13 @@ fn lexec_check(cmd string) bool {
 	elog('  lexec_check: ${cmd}')
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		elog('  lexec_check FAILED, exit_code: ${res.exit_code}, output:\n${res.output}')
+		elog(res.command_failure_report('fast.command',
+			stage:   'execute_check_command'
+			command: cmd
+			reason:  'execute_check_command_failed'
+			action:  'skip_dependent_fast_step_and_inspect_output'
+			message: 'fast tool checked command exited with a non-zero status'
+		))
 		return false
 	}
 	return true

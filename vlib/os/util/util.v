@@ -20,5 +20,5 @@ pub fn execute_with_timeout(cmd string, timeout i64) ?os.Result {
 			return none
 		}
 	}
-	return os.Result{}
+	return none
 }

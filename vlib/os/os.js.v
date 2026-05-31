@@ -130,10 +130,20 @@ pub fn join_path_single(base string, elem string) string {
 pub fn execute(cmd string) Result {
 	mut exit_code := 0
 	mut out := ''
+	mut spawn_failure_reason := ''
+	mut spawn_error := ''
 	#let commands = cmd.str.split(' ');
 	#let output = $child_process.spawnSync(commands[0],commands.slice(1,commands.length));
-	#exit_code = new int(output.status)
-	#out = new string(output.stdout + '')
+	#exit_code = new int(output.status === null ? -1 : output.status)
+	#out = new string((output.stdout ? output.stdout + '' : '') + (output.stderr ? output.stderr + '' : ''))
+	#spawn_failure_reason = output.status === null && !output.stdout && !output.stderr ? new string('spawn_sync_failed') : new string('')
+	#spawn_error = output.error ? new string(output.error + '') : ''
+	if spawn_failure_reason != '' {
+		out = js_execute_failure_output(spawn_failure_reason,
+			'inspect_shell_command_and_node_process_limits',
+			'failed to start or wait for shell command with child_process.spawnSync', cmd,
+			spawn_error)
+	}
 
 	return Result{
 		exit_code: exit_code
@@ -141,20 +151,45 @@ pub fn execute(cmd string) Result {
 	}
 }
 
+fn js_execute_failure_output(reason string, action string, message string, display_cmd string, error_msg string) string {
+	return process_command_failure_report('os.exec', -1,
+		command:        display_cmd
+		reason:         reason
+		action:         action
+		message:        message
+		output_capture: 'pipe'
+		output_empty:   true
+		error_kind:     'node_spawn_sync_error'
+		error:          error_msg
+	)
+}
+
 // exec starts the specified command with arguments, waits for it to complete, and returns its output.
 pub fn exec(args []string) Result {
 	if args.len == 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec requires at least one argument'
+			output:    js_execute_failure_output('missing_argv',
+				'pass_at_least_one_argument_to_os_exec', 'exec requires at least one argument', '',
+				'')
 		}
 	}
 	mut exit_code := 0
 	mut out := ''
+	mut spawn_failure_reason := ''
+	mut spawn_error := ''
 	#let commands = args.arr.map((x) => x.valueOf() + '');
 	#let output = $child_process.spawnSync(commands[0], commands.slice(1, commands.length));
 	#exit_code = new int(output.status === null ? -1 : output.status)
 	#out = new string((output.stdout ? output.stdout + '' : '') + (output.stderr ? output.stderr + '' : ''))
+	#spawn_failure_reason = output.status === null && !output.stdout && !output.stderr ? new string('spawn_sync_failed') : new string('')
+	#spawn_error = output.error ? new string(output.error + '') : ''
+	if spawn_failure_reason != '' {
+		out = js_execute_failure_output(spawn_failure_reason,
+			'inspect_exec_arguments_and_node_process_limits',
+			'failed to start or wait for argv command with child_process.spawnSync',
+			args.join(' '), spawn_error)
+	}
 
 	return Result{
 		exit_code: exit_code

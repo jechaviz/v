@@ -171,17 +171,30 @@ fn (app App) show_current_v_version() {
 		return
 	}
 	vout := os.execute('${os.quoted_path(vexe_path)} version')
-	if vout.exit_code >= 0 {
-		mut vversion := vout.output.trim_space()
-		if vout.exit_code == 0 {
-			latest_v_commit := vversion.split(' ').last().all_after('.')
-			latest_v_commit_time := os.execute('git show -s --format=%ci ${latest_v_commit}')
-			if latest_v_commit_time.exit_code == 0 {
-				vversion += ', timestamp: ' + latest_v_commit_time.output.trim_space()
-			}
-		}
-		println('Current V version: ${vversion}')
+	if vout.exit_code != 0 {
+		eprintln(vout.command_failure_report('vup.command',
+			reason:  'v_version_failed'
+			action:  'skip_current_version_display'
+			message: 'unable to get current V version'
+			command: '${os.quoted_path(vexe_path)} version'
+		))
+		println('Current V version: unavailable.')
+		return
 	}
+	mut vversion := vout.output.trim_space()
+	latest_v_commit := vversion.split(' ').last().all_after('.')
+	latest_v_commit_time := os.execute('git show -s --format=%ci ${latest_v_commit}')
+	if latest_v_commit_time.exit_code == 0 {
+		vversion += ', timestamp: ' + latest_v_commit_time.output.trim_space()
+	} else {
+		app.vprintln(latest_v_commit_time.command_failure_report('vup.command',
+			reason:  'git_show_commit_time_failed'
+			action:  'continue_without_current_version_timestamp'
+			message: 'unable to get timestamp for current V commit'
+			command: 'git show -s --format=%ci ${latest_v_commit}'
+		))
+	}
+	println('Current V version: ${vversion}')
 }
 
 fn (app App) current_vexe_name() string {

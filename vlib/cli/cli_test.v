@@ -21,7 +21,16 @@ fn test_cli_programs() {
 			continue
 		}
 		expected_out := os.read_file(out_path)!.replace('\r\n', '\n')
-		test_out := os.execute('${vexe} run ${test}').output.replace('\r\n', '\n')
+		cmd := '${vexe} run ${test}'
+		res := os.execute(cmd)
+		assert res.exit_code == 0, res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'cli_fixture_failed'
+			action:  'inspect_cli_fixture_output'
+		)
+
+		test_out := res.output.replace('\r\n', '\n')
 		diff_ := diff.compare_text(expected_out, test_out)!
 		if diff_ != '' {
 			println(term.red('FAIL'))

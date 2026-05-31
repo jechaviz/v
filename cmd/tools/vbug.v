@@ -13,7 +13,18 @@ fn olog(msg string) {
 
 fn vversion() string {
 	vexe := os.getenv('VEXE')
-	return os.execute('${os.quoted_path(vexe)} version').output.trim_space()
+	cmd := '${os.quoted_path(vexe)} version'
+	result := os.execute(cmd)
+	if result.exit_code != 0 {
+		elog(result.command_failure_report('vbug.command',
+			reason:  'v_version_failed'
+			action:  'continue_with_unavailable_version'
+			message: 'unable to get `v version` output'
+			command: cmd
+		))
+		return '<unavailable>'
+	}
+	return result.output.trim_space()
 }
 
 // get output from `v doctor`

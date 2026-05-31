@@ -51,22 +51,29 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 	process.set_environment(envs)
 	process.wait()
 	delegate_exit_code := process.code
-	exit_code := if delegate_exit_code == -1 { 1 } else { delegate_exit_code }
+	exit_code := if delegate_exit_code < 0 { 1 } else { delegate_exit_code }
 	process_error := process.err
 	process.close()
 	if exit_code != 0 {
 		delegated_command := '${os.quoted_path(vversion_exe)} ${os.args[1..].map(os.quoted_path(it)).join(' ')}'
-		reason := if process_error != '' {
+		reason := if delegate_exit_code < 0 {
+			'vvmrc_delegate_start_or_wait_failed'
+		} else if process_error != '' {
 			'vvmrc_delegate_start_failed'
 		} else {
 			'vvmrc_delegate_exit_nonzero'
+		}
+		message := if delegate_exit_code < 0 {
+			'delegated compiler selected by .vvmrc could not be started or waited for'
+		} else {
+			'delegated compiler selected by .vvmrc exited with a non-zero status'
 		}
 		eprintln(os.process_command_failure_report('v.vvmrc.delegate', delegate_exit_code,
 			stage:          'vvmrc_delegate'
 			command:        delegated_command
 			reason:         reason
 			action:         'inspect_delegated_compiler_output_or_vvmrc_version'
-			message:        'delegated compiler selected by .vvmrc exited with a non-zero status'
+			message:        message
 			stderr:         process_error
 			output_capture: 'inherited_stdio'
 		))

@@ -110,7 +110,17 @@ fn get_all_processes() []string {
 		// TODO
 		return []
 	} $else {
-		return os.execute('ps ax').output.split_any('\r\n')
+		ps_result := os.execute('ps ax')
+		if ps_result.exit_code != 0 {
+			eprintln(ps_result.command_failure_report('vtest.process_list',
+				reason:  'process_listing_failed'
+				action:  'continue_without_process_snapshot'
+				message: 'unable to list host processes'
+				command: 'ps ax'
+			))
+			return []
+		}
+		return ps_result.output.split_any('\r\n')
 	}
 }
 

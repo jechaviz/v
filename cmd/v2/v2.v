@@ -138,6 +138,31 @@ fn should_auto_run_test_binary(prefs &pref.Preferences) bool {
 	return true
 }
 
+fn v2_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn system_redirecting_to_log(command string, log_path string) int {
+	return os.system('${command} > ${os.quoted_path(log_path)} 2>&1')
+}
+
+fn command_log_output(log_path string) string {
+	return os.read_file(log_path) or { 'unable to read command log `${log_path}`: ${err}' }
+}
+
+fn command_failure_report_with_log(prefix string, exit_code int, reason string, action string, message string, command string, log_path string) string {
+	output := command_log_output(log_path)
+	return os.process_command_failure_report(prefix, exit_code,
+		reason:         reason
+		action:         action
+		message:        message
+		command:        command
+		output:         output
+		output_capture: 'redirected_to_log'
+		output_empty:   output == ''
+	) + '\n${prefix}.log=${v2_report_value(log_path)}'
+}
+
 // get_files extracts source files from args, excluding options and their values
 fn get_files(args []string) []string {
 	return pref.source_files_from_args(args)
@@ -222,44 +247,43 @@ fn run_test_self() {
 		base := os.file_name(test_file).all_before_last('.v')
 		out_bin := os.join_path(os.temp_dir(), 'v2_test_self_${base}')
 
-		// Compile (use os.system to avoid pipe deadlocks with popen/GC)
-		compile_cmd := '${vexe} -o ${out_bin} "${test_file}" > /dev/null 2>&1'
-		compile_ret := os.system(compile_cmd)
+		// Compile via os.system to avoid pipe deadlocks with popen/GC.
+		compile_cmd := '${vexe} -o ${out_bin} "${test_file}"'
+		compile_log := '${out_bin}.compile.log'
+		compile_ret := system_redirecting_to_log(compile_cmd, compile_log)
 		compile_ms := f64(time.since(t1)) / f64(time.millisecond)
 
 		if compile_ret != 0 || !os.exists(out_bin) {
 			failed++
 			failed_files << short_name
 			eprintln(' FAIL  [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms  ${short_name}')
-			eprintln(os.process_command_failure_report('v2.test_self.compile', compile_ret,
-				reason:         'test_compile_failed'
-				action:         'rerun_without_output_redirection'
-				command:        compile_cmd
-				output_capture: 'redirected_to_null'
-			))
+			eprintln(command_failure_report_with_log('v2.test_self.compile', compile_ret,
+				'test_compile_failed', 'inspect_reported_log_or_rerun_command',
+				'v2 test-self compile command failed', compile_cmd, compile_log))
 			os.rm(out_bin) or {}
 			os.rm('${out_bin}.c') or {}
 			continue
 		}
+		os.rm(compile_log) or {}
 
 		// Run the compiled binary
 		t2 := time.now()
-		run_ret := os.system(out_bin + ' > /dev/null 2>&1')
+		run_cmd := out_bin
+		run_log := '${out_bin}.run.log'
+		run_ret := system_redirecting_to_log(run_cmd, run_log)
 		run_ms := f64(time.since(t2)) / f64(time.millisecond)
 
 		if run_ret != 0 {
 			failed++
 			failed_files << short_name
 			eprintln(' FAIL  [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms, R: ${run_ms:7.1} ms  ${short_name}')
-			eprintln(os.process_command_failure_report('v2.test_self.run', run_ret,
-				reason:         'test_binary_failed'
-				action:         'rerun_without_output_redirection'
-				command:        out_bin + ' > /dev/null 2>&1'
-				output_capture: 'redirected_to_null'
-			))
+			eprintln(command_failure_report_with_log('v2.test_self.run', run_ret,
+				'test_binary_failed', 'inspect_reported_log_or_rerun_binary_directly',
+				'v2 test-self binary failed', run_cmd, run_log))
 		} else {
 			passed++
 			eprintln('OK    [${i + 1:4}/${total}] C: ${compile_ms:7.1} ms, R: ${run_ms:7.1} ms  ${short_name}')
+			os.rm(run_log) or {}
 		}
 
 		os.rm(out_bin) or {}
@@ -298,17 +322,15 @@ fn run_test_self() {
 		out := step[1]
 		label := step[2]
 		ts := time.now()
-		cmd := '${compiler} -gc none -o ${out} -backend ${backend} "${v2_source}" > /dev/null 2>&1'
-		ret := os.system(cmd)
+		cmd := '${compiler} -gc none -o ${out} -backend ${backend} "${v2_source}"'
+		log_path := '${out}.self_compile.log'
+		ret := system_redirecting_to_log(cmd, log_path)
 		ms := f64(time.since(ts)) / f64(time.millisecond)
 		if ret != 0 || !os.exists(out) {
 			eprintln(' FAIL  ${label}  (${ms:.1} ms)')
-			eprintln(os.process_command_failure_report('v2.self_compile', ret,
-				reason:         'self_compile_failed'
-				action:         'rerun_without_output_redirection'
-				command:        cmd
-				output_capture: 'redirected_to_null'
-			))
+			eprintln(command_failure_report_with_log('v2.self_compile', ret, 'self_compile_failed',
+				'inspect_reported_log_or_rerun_command', 'v2 self-compilation command failed', cmd,
+				log_path))
 			// Clean up
 			for bin in [v3_bin, v4_bin, v5_bin] {
 				os.rm(bin) or {}
@@ -316,6 +338,7 @@ fn run_test_self() {
 			}
 			exit(1)
 		}
+		os.rm(log_path) or {}
 		eprintln('OK    ${label}  (${ms:.1} ms)')
 	}
 

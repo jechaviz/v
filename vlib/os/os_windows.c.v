@@ -470,7 +470,10 @@ pub fn execute(cmd string) Result {
 	if windows_execute_has_forbidden_shell_operator(cmd) {
 		return Result{
 			exit_code: -1
-			output:    '&&, || and \\n are not allowed in shell commands'
+			output:    windows_execute_validation_failure_output('forbidden_shell_operator',
+				'use_os_raw_execute_or_pass_argv_to_os_exec',
+				'&&, || and \\n are not allowed in shell commands', cmd,
+				'command_rejected_before_start;unsupported_shell_operator')
 		}
 	}
 	if args := windows_direct_execute_args(cmd) {
@@ -479,26 +482,33 @@ pub fn execute(cmd string) Result {
 	return unsafe { raw_execute(cmd) }
 }
 
-fn windows_execute_report_value(value string) string {
-	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+fn windows_execute_validation_failure_output(reason string, action string, message string, display_cmd string, possible_causes string) string {
+	return process_command_failure_report('os.exec', -1,
+		command:         display_cmd
+		reason:          reason
+		action:          action
+		message:         message
+		output_capture:  'not_started'
+		output_empty:    true
+		possible_causes: possible_causes
+		error_kind:      'validation_error'
+		error:           message
+	)
 }
 
 fn windows_execute_failure_output(reason string, action string, message string, error_num int, error_msg string, display_cmd string) string {
-	mut lines := [
-		'os.exec.failed=true',
-		'os.exec.reason=${reason}',
-		'os.exec.action=${action}',
-		'os.exec.message=${windows_execute_report_value(message)}',
-		'os.exec.exit_code=${error_num}',
-		'os.exec.exit_code_meaning=host_api_error_before_child_start',
-		'os.exec.error_code=${error_num}',
-		'os.exec.error_kind=win32_api_error',
-		'os.exec.error=${windows_execute_report_value(error_msg)}',
-	]
-	if display_cmd != '' {
-		lines << 'os.exec.command=${windows_execute_report_value(display_cmd)}'
-	}
-	return lines.join('\n')
+	return process_command_failure_report('os.exec', error_num,
+		command:           display_cmd
+		reason:            reason
+		action:            action
+		message:           message
+		output_capture:    'pipe'
+		output_empty:      true
+		exit_code_meaning: 'host_api_error_before_child_start'
+		error_code:        error_num
+		error_kind:        'win32_api_error'
+		error:             error_msg
+	)
 }
 
 fn windows_direct_execute_args(cmd string) ?[]string {
@@ -555,7 +565,9 @@ pub fn exec(args []string) Result {
 	if args.len == 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec requires at least one argument'
+			output:    windows_execute_validation_failure_output('missing_argv',
+				'pass_at_least_one_argument_to_os_exec', 'exec requires at least one argument', '',
+				'command_rejected_before_start;missing_arguments')
 		}
 	}
 	mut command_line := requote_arg(args[0])

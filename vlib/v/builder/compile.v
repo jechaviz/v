@@ -11,12 +11,22 @@ import v.vmod
 pub type FnBackend = fn (mut b Builder)
 
 fn report_run_command_failure(command string, exit_code int, stderr string) {
+	reason := if exit_code < 0 {
+		'compiled_executable_start_or_wait_failed'
+	} else {
+		'compiled_executable_exit_nonzero'
+	}
+	message := if exit_code < 0 {
+		'compiled executable could not be started or waited for'
+	} else {
+		'compiled executable exited with a non-zero status'
+	}
 	eprintln(os.process_command_failure_report('v.run.command', exit_code,
 		stage:          'run_compiled_executable'
 		command:        command
-		reason:         'compiled_executable_exit_nonzero'
+		reason:         reason
 		action:         'inspect_child_output_or_run_executable_directly'
-		message:        'compiled executable exited with a non-zero status'
+		message:        message
 		stderr:         stderr
 		output_capture: 'inherited_stdio'
 	))
@@ -187,6 +197,7 @@ fn (mut b Builder) run_compiled_executable_and_exit() {
 		verror('can not run shared library ${run_file}')
 	}
 	mut ret := 0
+	mut report_ret := 0
 	mut run_process_error := ''
 	mut command_to_run := os.quoted_path(run_file)
 	if run_args.len > 0 {
@@ -194,6 +205,7 @@ fn (mut b Builder) run_compiled_executable_and_exit() {
 	}
 	if b.pref.use_os_system_to_run {
 		ret = os.system(command_to_run)
+		report_ret = ret
 		// eprintln('> ret: ${ret:5} | command_to_run: ${command_to_run}')
 	} else {
 		mut run_process := os.new_process(run_file)
@@ -211,12 +223,13 @@ fn (mut b Builder) run_compiled_executable_and_exit() {
 		$if !windows {
 			os.signal_opt(.quit, prev_quit_handler) or { serror('restore .quit', err) }
 		}
-		ret = if run_process.code < 0 { 1 } else { run_process.code }
+		report_ret = run_process.code
+		ret = if report_ret < 0 { 1 } else { report_ret }
 		run_process_error = run_process.err
 		run_process.close()
 	}
 	if ret != 0 {
-		report_run_command_failure(command_to_run, ret, run_process_error)
+		report_run_command_failure(command_to_run, report_ret, run_process_error)
 	}
 	b.cleanup_run_executable_after_exit(compiled_file)
 	exit(ret)

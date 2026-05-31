@@ -329,8 +329,17 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 fn detect_musl(mut res Preferences) {
 	res.is_glibc = true
 	res.is_musl = false
-	musl := os.execute('ldd --version').output.contains('musl')
-	if musl {
+	ldd_result := os.execute('ldd --version')
+	if ldd_result.exit_code != 0 {
+		eprintln(ldd_result.command_failure_report('v.pref.detect_musl',
+			reason:  'ldd_version_failed'
+			action:  'continue_assuming_glibc'
+			message: 'unable to inspect libc with `ldd --version`'
+			command: 'ldd --version'
+		))
+		return
+	}
+	if ldd_result.output.contains('musl') {
 		res.is_musl = true
 		res.is_glibc = false
 	}

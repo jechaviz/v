@@ -16,15 +16,21 @@ pub:
 @[params]
 pub struct CommandFailureDiagnostics {
 pub:
-	stage          string
-	command        string
-	reason         string = 'child_exit_nonzero'
-	action         string = 'inspect_command_output_and_reproduce'
-	message        string = 'command exited with a non-zero status'
-	output         string
-	stdout         string
-	stderr         string
-	output_capture string
+	stage             string
+	command           string
+	reason            string = 'child_exit_nonzero'
+	action            string = 'inspect_command_output_and_reproduce'
+	message           string = 'command exited with a non-zero status'
+	output            string
+	stdout            string
+	stderr            string
+	output_capture    string
+	output_empty      bool
+	exit_code_meaning string
+	possible_causes   string
+	error_code        int = -1
+	error_kind        string
+	error             string
 }
 
 // exit_code_diagnostics returns a structured assertion message for command results.
@@ -53,15 +59,22 @@ pub fn (result Result) command_failure_report(prefix string, options CommandFail
 
 // process_command_failure_report returns a structured message for process failures.
 pub fn process_command_failure_report(prefix string, actual int, options CommandFailureDiagnostics) string {
+	exit_code_meaning := if options.exit_code_meaning != '' {
+		options.exit_code_meaning
+	} else {
+		process_exit_code_meaning(actual)
+	}
 	mut lines := [
 		'${prefix}.failed=true',
 		'${prefix}.reason=${options.reason}',
 		'${prefix}.action=${options.action}',
 		'${prefix}.message=${os_diagnostic_value(options.message)}',
 		'${prefix}.exit_code=${actual}',
-		'${prefix}.exit_code_meaning=${process_exit_code_meaning(actual)}',
+		'${prefix}.exit_code_meaning=${exit_code_meaning}',
 	]
-	if possible_causes := process_exit_code_possible_causes(actual) {
+	if options.possible_causes != '' {
+		lines << '${prefix}.possible_causes=${os_diagnostic_value(options.possible_causes)}'
+	} else if possible_causes := process_exit_code_possible_causes(actual) {
 		lines << '${prefix}.possible_causes=${possible_causes}'
 	}
 	if options.stage != '' {
@@ -75,7 +88,8 @@ pub fn process_command_failure_report(prefix string, actual int, options Command
 	}
 	if options.output != '' {
 		lines << '${prefix}.output=${os_diagnostic_value(options.output)}'
-	} else if options.stdout == '' && options.stderr == '' && options.output_capture == '' {
+	} else if options.output_empty
+		|| (options.stdout == '' && options.stderr == '' && options.output_capture == '') {
 		lines << '${prefix}.output_empty=true'
 	}
 	if options.stdout != '' {
@@ -83,6 +97,15 @@ pub fn process_command_failure_report(prefix string, actual int, options Command
 	}
 	if options.stderr != '' {
 		lines << '${prefix}.stderr=${os_diagnostic_value(options.stderr)}'
+	}
+	if options.error_code != -1 {
+		lines << '${prefix}.error_code=${options.error_code}'
+	}
+	if options.error_kind != '' {
+		lines << '${prefix}.error_kind=${os_diagnostic_value(options.error_kind)}'
+	}
+	if options.error != '' {
+		lines << '${prefix}.error=${os_diagnostic_value(options.error)}'
 	}
 	return lines.join('\n')
 }

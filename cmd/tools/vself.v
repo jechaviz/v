@@ -174,7 +174,18 @@ fn pgo_compiler_kind(args []string) string {
 	cc_file_name := os.file_name(ccompiler)
 	if cc_file_name.contains('clang') || cc_file_name.contains('gcc')
 		|| cc_file_name.contains('g++') || ccompiler == 'cc' {
-		cc_ver := os.execute('${os.quoted_path(ccompiler)} --version').output
+		cc_version_cmd := '${os.quoted_path(ccompiler)} --version'
+		cc_version_result := os.execute(cc_version_cmd)
+		if cc_version_result.exit_code != 0 {
+			eprintln(cc_version_result.command_failure_report('vself.pgo',
+				reason:  'c_compiler_version_failed'
+				action:  'continue_without_pgo_compiler_detection'
+				message: 'unable to detect C compiler version for PGO selection'
+				command: cc_version_cmd
+			))
+			return ''
+		}
+		cc_ver := cc_version_result.output
 		if cc_ver.contains('clang') {
 			_ := find_llvm_profdata() or { return '' }
 			return 'clang'

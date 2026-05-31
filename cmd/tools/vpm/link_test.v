@@ -16,10 +16,20 @@ fn testsuite_end() {
 
 fn execute_in_dir(dir string, cmd string) os.Result {
 	old_dir := os.getwd()
-	os.chdir(dir) or { return os.Result{
-		exit_code: -1
-		output:    'failed to chdir: ${err}'
-	} }
+	os.chdir(dir) or {
+		return os.Result{
+			exit_code: -1
+			output:    os.process_command_failure_report('vpm.test.chdir', -1,
+				stage:          'change_working_directory'
+				command:        cmd
+				reason:         'chdir_failed'
+				action:         'inspect_test_directory_and_permissions'
+				message:        'failed to change directory before executing command'
+				stderr:         err.msg()
+				output_capture: 'not_started'
+			)
+		}
+	}
 	defer {
 		os.chdir(old_dir) or {}
 	}

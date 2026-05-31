@@ -162,7 +162,15 @@ fn process_guard_execute_command(cmd string) os.Result {
 		mut gate := process_singleton_acquire_for_command(cmd) or {
 			return os.Result{
 				exit_code: -1
-				output:    err.msg()
+				output:    os.process_command_failure_report('vtest.resource.singleton', -1,
+					stage:          'acquire_process_singleton'
+					command:        cmd
+					reason:         'process_singleton_acquire_failed'
+					action:         'inspect_process_singleton_lock_or_disable_singleton'
+					message:        'could not acquire process singleton before running guarded command'
+					stderr:         err.msg()
+					output_capture: 'not_started'
+				)
 			}
 		}
 		old_held := os.getenv(process_singleton_held_env)

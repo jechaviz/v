@@ -1068,10 +1068,15 @@ fn execute_repl_v_command(v_path string, args []string) !os.Result {
 		stdout_output := process.stdout_slurp()
 		stderr_output := process.stderr_slurp()
 		exit_code := process.code
+		process_error := process.err
 		process.close()
+		mut output := stdout_output + stderr_output
+		if exit_code < 0 && process_error != '' {
+			output += process_error
+		}
 		return os.Result{
 			exit_code: exit_code
-			output:    stdout_output + stderr_output
+			output:    output
 		}
 	} $else {
 		mut cmd := os.quoted_path(v_path)

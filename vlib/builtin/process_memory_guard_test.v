@@ -76,7 +76,14 @@ fn process_memory_guard_run_probe(exe_path string, values map[string]string) os.
 	if process.status == .not_started || process.err != '' {
 		return os.Result{
 			exit_code: -1
-			output:    process.err
+			output:    os.process_command_failure_report('process_memory_guard.fixture', -1,
+				command:        exe_path
+				reason:         'fixture_start_failed'
+				action:         'inspect_fixture_executable_and_environment'
+				message:        'failed to start process memory guard fixture'
+				stderr:         process.err
+				output_capture: 'not_started'
+			)
 		}
 	}
 	process.wait()
