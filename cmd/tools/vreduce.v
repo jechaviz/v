@@ -446,7 +446,16 @@ fn reduce_scope(content string, error_msg string, command string, do_fmt bool, f
 }
 
 fn vfmt_file(rpdc_file_path string) {
-	os.execute('${os.quoted_path(@VEXE)} fmt -w ${rpdc_file_path}')
+	cmd := '${os.quoted_path(@VEXE)} fmt -w ${os.quoted_path(rpdc_file_path)}'
+	res := os.execute(cmd)
+	if res.exit_code != 0 {
+		eprintln(res.command_failure_report('vreduce.command',
+			reason:  'vfmt_reduced_file_failed'
+			action:  'inspect_formatter_output_and_reduced_file'
+			message: 'failed to format reduced V file'
+			command: cmd
+		))
+	}
 	final_content := os.read_file(rpdc_file_path) or { panic(err) }
 	show_code_stats(final_content, label: 'Code size after formatting')
 }

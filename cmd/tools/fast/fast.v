@@ -284,8 +284,16 @@ fn measure(cmd string, description string) int {
 	mut runs := []int{}
 	for r in 0 .. max_samples {
 		sw := time.new_stopwatch()
-		os.execute(cmd)
+		sample_res := os.execute(cmd)
 		sample := int(sw.elapsed().milliseconds())
+		if sample_res.exit_code != 0 {
+			elog(sample_res.command_failure_report('fast.command',
+				reason:  'benchmark_sample_failed'
+				action:  'inspect_benchmark_command_output'
+				message: 'fast benchmark sample command exited with a non-zero status'
+				command: cmd
+			))
+		}
 		runs << sample
 		elog('  Sample ${r + 1:2}/${max_samples:2} ... ${sample} ms')
 	}
@@ -321,6 +329,14 @@ fn measure_steps_minimal(vdir string) !(int, int, int, int, int) {
 fn measure_steps_one_sample(vdir string) (int, int, int, int, int, string) {
 	cmd := '${vdir}/vprod ${voptions} -o v.c cmd/v'
 	resp := os.execute(cmd)
+	if resp.exit_code != 0 {
+		elog(resp.command_failure_report('fast.steps',
+			reason:  'measure_steps_command_failed'
+			action:  'inspect_measure_steps_output'
+			message: 'fast step measurement command exited with a non-zero status'
+			command: cmd
+		))
+	}
 
 	mut scan, mut parse, mut check, mut cgen, mut vlines := 0, 0, 0, 0, 0
 	lines := resp.output.split_into_lines()
