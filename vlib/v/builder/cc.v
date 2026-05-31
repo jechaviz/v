@@ -9,6 +9,7 @@ import v.ast
 import v.cflag
 import v.pref
 import v.util
+import v.util.vflags as util_vflags
 import v.vcache
 import term
 
@@ -319,6 +320,14 @@ fn c_compiler_failure_output(ccompiler string, res os.Result, tcc_output os.Resu
 
 fn c_command_report_value(value string) string {
 	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn run_c_command(cmd string) os.Result {
+	$if windows {
+		return os.exec(util_vflags.tokenize_to_args(cmd))
+	} $else {
+		return os.execute(cmd)
+	}
 }
 
 fn (mut v Builder) report_silent_c_compiler_failure(ccompiler string, cmd string, res os.Result) {
@@ -1629,19 +1638,13 @@ pub fn (mut v Builder) cc() {
 		mut res := os.Result{}
 		$if windows {
 			if v.pref.show_c_output {
-				res = os.execute(cmd)
+				res = run_c_command(cmd)
 			} else {
 				cc_log_path := '${v.out_name_c}.cc.log'
-				exit_code := os.system('${cmd} > ${os.quoted_path(cc_log_path)} 2>&1')
-				output := if exit_code == 0 { '' } else { os.read_file(cc_log_path) or { '' } }
-				if exit_code == 0 {
-					os.rm(cc_log_path) or {}
-				} else {
+				res = run_c_command(cmd)
+				if res.exit_code != 0 && res.output != '' {
+					os.write_file(cc_log_path, res.output) or {}
 					v.pref.cleanup_files << cc_log_path
-				}
-				res = os.Result{
-					exit_code: exit_code
-					output:    output
 				}
 			}
 		} $else {
@@ -2596,7 +2599,7 @@ fn (mut v Builder) build_thirdparty_obj_file(mod string, path string, moduleflag
 	if trace_thirdparty_obj_files {
 		println('>>> build_thirdparty_obj_files cmd: ${cmd}')
 	}
-	res := os.execute(cmd)
+	res := run_c_command(cmd)
 	os.chdir(current_folder) or {}
 	if res.exit_code != 0 {
 		eprintln('> Failed build_thirdparty_obj_file cmd')
