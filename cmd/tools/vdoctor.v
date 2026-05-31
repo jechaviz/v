@@ -250,7 +250,16 @@ fn (mut a App) git_info() string {
 		return 'N/A'
 	}
 	mut out := a.cmd(command: 'git -C . describe --abbrev=8 --dirty --always --tags').trim_space()
-	os.execute('git -C . remote add V_REPO https://github.com/vlang/v') // ignore failure (i.e. remote exists)
+	remote_add_cmd := 'git -C . remote add V_REPO https://github.com/vlang/v'
+	remote_add_res := os.execute(remote_add_cmd)
+	if remote_add_res.exit_code != 0 && !remote_add_res.output.contains('already exists') {
+		a.println(remote_add_res.command_failure_report('vdoctor.command',
+			reason:  'v_repo_remote_add_failed'
+			action:  'inspect_git_remote_configuration'
+			message: 'v doctor could not add the V_REPO remote before checking version drift'
+			command: remote_add_cmd
+		))
+	}
 	if '-skip-github' !in os.args {
 		fetch_cmd := '${os.quoted_path(a.vexe)} timeout 5.1 "git -C . fetch V_REPO"' // usually takes ~0.6s; 5 seconds should be enough for even the slowest networks
 		fetch_res := os.execute(fetch_cmd)
