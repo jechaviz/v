@@ -252,7 +252,16 @@ fn (mut a App) git_info() string {
 	mut out := a.cmd(command: 'git -C . describe --abbrev=8 --dirty --always --tags').trim_space()
 	os.execute('git -C . remote add V_REPO https://github.com/vlang/v') // ignore failure (i.e. remote exists)
 	if '-skip-github' !in os.args {
-		os.execute('${os.quoted_path(a.vexe)} timeout 5.1 "git -C . fetch V_REPO"') // usually takes ~0.6s; 5 seconds should be enough for even the slowest networks
+		fetch_cmd := '${os.quoted_path(a.vexe)} timeout 5.1 "git -C . fetch V_REPO"' // usually takes ~0.6s; 5 seconds should be enough for even the slowest networks
+		fetch_res := os.execute(fetch_cmd)
+		if fetch_res.exit_code != 0 {
+			a.println(fetch_res.command_failure_report('vdoctor.command',
+				reason:  'v_repo_fetch_failed'
+				action:  'inspect_network_or_run_v_doctor_skip_github'
+				message: 'v doctor could not fetch V_REPO while checking version drift'
+				command: fetch_cmd
+			))
+		}
 	}
 	commit_count := a.cmd(command: 'git rev-list @{0}...V_REPO/master --right-only --count').int()
 	if commit_count > 0 {

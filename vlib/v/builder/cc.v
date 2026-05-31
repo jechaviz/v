@@ -1552,7 +1552,17 @@ pub fn (mut v Builder) cc() {
 							eprintln('> creating ${cpp_atomic_h_path} ...')
 						}
 						cppgenv := '${@VEXEROOT}/thirdparty/stdatomic/nix/cpp/gen.v'
-						os.execute('${os.quoted_path(vexe)} run ${os.quoted_path(cppgenv)} ${os.quoted_path(ccompiler)}')
+						cppgen_cmd := '${os.quoted_path(vexe)} run ${os.quoted_path(cppgenv)} ${os.quoted_path(ccompiler)}'
+						cppgen_res := os.execute(cppgen_cmd)
+						if cppgen_res.exit_code != 0 {
+							eprintln(cppgen_res.command_failure_report('v.builder.cc.command',
+								stage:   'stdatomic_cpp_header_generation'
+								reason:  'stdatomic_header_generation_failed'
+								action:  'inspect_generator_output'
+								message: 'failed to generate the C++ stdatomic compatibility header'
+								command: cppgen_cmd
+							))
+						}
 						break
 					}
 				}

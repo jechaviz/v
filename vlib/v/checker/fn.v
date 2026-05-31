@@ -2124,7 +2124,17 @@ fn (mut c Checker) fn_call(mut node ast.CallExpr, mut continue_check &bool) ast.
 			tmp_c_file_with_includes.write_string(includes.join('\n')) or { panic(err) }
 			tmp_c_file_with_includes.close()
 
-			os.execute('${os.quoted_path(@VEXE)} translate fndef ${name[2..]} tmp.c')
+			translate_cmd := '${os.quoted_path(@VEXE)} translate fndef ${name[2..]} tmp.c'
+			translate_res := os.execute(translate_cmd)
+			if translate_res.exit_code != 0 {
+				eprintln(translate_res.command_failure_report('v.checker.translate',
+					stage:   'missing_c_function_autogen'
+					reason:  'translate_fndef_failed'
+					action:  'inspect_translate_output_or_define_function_manually'
+					message: 'failed to autogenerate a missing C function definition'
+					command: translate_cmd
+				))
+			}
 			x := os.read_file('__cdefs_autogen.v') or {
 				for mut arg in node.args {
 					c.expr(mut arg.expr)

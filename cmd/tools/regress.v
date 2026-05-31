@@ -61,18 +61,18 @@ fn main() {
 			panic('can not compile ${oldvexe}')
 		}
 	}
-	os.execute('git checkout master')
-	os.execute('git bisect reset')
-	os.execute('git checkout ${context.new_commit}')
-	os.execute('git bisect start')
-	os.execute('git bisect new')
-	os.execute('git checkout ${context.old_commit}')
-	os.execute('git bisect old')
+	execute('git checkout master')
+	execute('git bisect reset')
+	execute('git checkout ${context.new_commit}')
+	execute('git bisect start')
+	execute('git bisect new')
+	execute('git checkout ${context.old_commit}')
+	execute('git bisect old')
 	println(term.colorize(term.bright_yellow, term.header('', '-')))
 	execute('git bisect run ${os.quoted_path(oldvexe)} --bisect -c "${context.command}"')
 	println(term.colorize(term.bright_yellow, term.header('', '-')))
-	os.execute('git bisect reset')
-	os.execute('git checkout master')
+	execute('git bisect reset')
+	execute('git checkout master')
 }
 
 fn execute(cmd string) int {
