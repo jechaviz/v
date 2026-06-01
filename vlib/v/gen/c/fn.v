@@ -7422,15 +7422,13 @@ fn (mut g Gen) write_fn_attrs(attrs []ast.Attr) string {
 			'irq_handler' {
 				g.write('__IRQHANDLER ')
 			}
-			'_cold' {
+			'cold', '_cold' {
 				// GCC/clang attributes
-				// prefixed by _ to indicate they're for advanced users only and not really supported by V.
-				// source for descriptions: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#Common-Function-Attributes
 				// The cold attribute on functions is used to inform the compiler that the function is unlikely
 				// to be executed. The function is optimized for size rather than speed and on many targets it
 				// is placed into a special subsection of the text section so all cold functions appear close
 				// together, improving code locality of non-cold parts of program.
-				g.write('__attribute__((cold)) ')
+				g.write('__VCOLD ')
 			}
 			'_constructor' {
 				// The constructor attribute causes the function to be called automatically before execution
@@ -7447,10 +7445,10 @@ fn (mut g Gen) write_fn_attrs(attrs []ast.Attr) string {
 				// every call inside this function is inlined, if possible.
 				g.write('__attribute__((flatten)) ')
 			}
-			'_hot' {
+			'hot', '_hot' {
 				// The hot attribute on a function is used to inform the compiler that the function is a hot
 				// spot of the compiled program.
-				g.write('__attribute__((hot)) ')
+				g.write('__VHOT ')
 			}
 			'_malloc' {
 				// This tells the compiler that a function is malloc-like, i.e., that the pointer P returned by

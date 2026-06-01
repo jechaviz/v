@@ -54,6 +54,8 @@ const c_common_macros = '
 #define E_STRUCT_DECL
 #define E_STRUCT
 #define __NOINLINE __attribute__((noinline))
+#define __VHOT
+#define __VCOLD
 #define __IRQHANDLER __attribute__((interrupt))
 #define __V_architecture 0
 #if defined(__x86_64__) || defined(_M_AMD64)
@@ -135,6 +137,12 @@ const c_common_macros = '
 	#undef E_STRUCT
 	#define E_STRUCT_DECL unsigned char _dummy_pad
 	#define E_STRUCT 0
+#endif
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__TINYC__) && !defined(_MSC_VER)
+	#undef __VHOT
+	#undef __VCOLD
+	#define __VHOT __attribute__((hot))
+	#define __VCOLD __attribute__((cold))
 #endif
 #if defined(__has_include) && !defined(__TINYC__)
 	#if __has_include(<execinfo.h>) && !defined(_WIN32)

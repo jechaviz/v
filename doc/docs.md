@@ -7723,6 +7723,8 @@ performance, memory usage, or size.
 | Tuning Operation         | Benefits                        | Drawbacks                                         |
 |--------------------------|---------------------------------|---------------------------------------------------|
 | `@[inline]`              | Performance                     | Increased executable size                         |
+| `@[hot]`                 | Performance, code locality      | Only a compiler hint; profile first               |
+| `@[cold]`                | Performance, code locality      | Only a compiler hint; profile first               |
 | `@[direct_array_access]` | Performance                     | Safety risks                                      |
 | `@[packed]`              | Memory usage                    | Potential performance loss                        |
 | `@[minify]`              | Performance, Memory usage       | May break binary serialization/reflection         |
@@ -7748,6 +7750,22 @@ cases, may be beneficial for performance, but may impact the size of your execut
 
 - Large functions, as it might cause code bloat and actually decrease performance.
 - Large functions in `if` expressions - may have negative impact on instructions cache.
+
+#### `@[hot]` and `@[cold]`
+
+You can tag functions with `@[hot]` or `@[cold]` to tell supported C compilers that a function is
+expected to be on a hot or cold execution path. V emits portable no-op macros when the backend C
+compiler does not support the hint.
+
+**When to Use**
+
+- `@[hot]` for small, frequently called kernels after profiling confirms they dominate runtime.
+- `@[cold]` for rare diagnostic, error, fallback, or slow-path functions.
+
+**When to Avoid**
+
+- Before measuring. Wrong hot/cold hints can hurt code locality.
+- As a replacement for data-oriented design, preallocation, or simpler algorithms.
 
 #### `@[direct_array_access]`
 

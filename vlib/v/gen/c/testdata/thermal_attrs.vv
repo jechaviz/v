@@ -1,0 +1,22 @@
+module main
+
+@[hot]
+fn close_direction_kernel(close []f64) f64 {
+	if close.len < 2 {
+		return 0.0
+	}
+	mut total := 0.0
+	for i in 1 .. close.len {
+		total += close[i] - close[i - 1]
+	}
+	return total
+}
+
+@[cold]
+fn cold_error_value() f64 {
+	return -1.0
+}
+
+fn main() {
+	println(close_direction_kernel([1.0, 1.5, 2.25]) + cold_error_value())
+}
