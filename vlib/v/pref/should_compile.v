@@ -142,8 +142,8 @@ const platform_specific_postfixes = [
 	'_darwin.v',
 	'_macos.c.v',
 	'_macos.v',
-	'_kolibrios.c.v',
-	'_kolibrios.v',
+	'_target_os.c.v',
+	'_target_os.v',
 	'_linux.c.v',
 	'_linux.v',
 	'_default.c.v',
@@ -275,8 +275,8 @@ pub fn (prefs &Preferences) should_compile_c(file string) bool {
 	if prefs.os != .linux && (file.ends_with('_linux.c.v') || file.ends_with('_linux.v')) {
 		return false
 	}
-	if prefs.os != .kolibrios
-		&& (file.ends_with('_kolibrios.c.v') || file.ends_with('_kolibrios.v')) {
+	if prefs.os != .target_os
+		&& (file.ends_with('_target_os.c.v') || file.ends_with('_target_os.v')) {
 		return false
 	}
 
@@ -400,7 +400,7 @@ pub fn (this_os OS) is_target_of(target string) bool {
 	if (this_os == .windows && target == 'nix')
 		|| (this_os != .windows && target == 'windows')
 		|| (this_os != .linux && target == 'linux')
-		|| (this_os != .kolibrios && target in ['target_os', 'kolibrios', 'kolibri'])
+		|| (this_os != .target_os && target == 'target_os')
 		|| (this_os != .macos && target in ['darwin', 'macos', 'mac'])
 		|| (!this_os.is_bsd_target() && target == 'bsd')
 		|| (this_os != .ios && target == 'ios')

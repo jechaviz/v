@@ -119,14 +119,10 @@ fn test_semantic_target_os_is_recognized() {
 		assert false, err.msg()
 		return
 	}
-	assert os_kind == .kolibrios
-	assert pref.os_from_string('kolibrios') or { pref.OS._auto } == .kolibrios
-	assert pref.os_from_string('kolibri') or { pref.OS._auto } == .kolibrios
-	assert pref.OS.kolibrios.lower() == 'kolibrios'
-	assert pref.OS.kolibrios.str() == 'KolibriOS'
-	assert pref.OS.kolibrios.is_target_of('target_os')
-	assert pref.OS.kolibrios.is_target_of('kolibrios')
-	assert pref.OS.kolibrios.is_target_of('kolibri')
+	assert os_kind == .target_os
+	assert pref.OS.target_os.lower() == 'target_os'
+	assert pref.OS.target_os.str() == 'TargetOS'
+	assert pref.OS.target_os.is_target_of('target_os')
 	assert !pref.OS.linux.is_target_of('target_os')
 }
 
@@ -260,12 +256,12 @@ fn test_bsd_specific_files_are_filtered_by_target_os() {
 	assert filtered_file_names_for_os(.windows, ['mod_bsd.c.v', 'mod_bsd.v']).len == 0
 }
 
-fn test_kolibrios_specific_files_are_filtered_by_target_os() {
-	files := ['main.v', 'mod_kolibrios.c.v', 'mod_kolibrios.v', 'mod_linux.c.v', 'mod_linux.v']
-	assert filtered_file_names_for_os(.kolibrios, files) == [
+fn test_semantic_specific_files_are_filtered_by_target_os() {
+	files := ['main.v', 'mod_target_os.c.v', 'mod_target_os.v', 'mod_linux.c.v', 'mod_linux.v']
+	assert filtered_file_names_for_os(.target_os, files) == [
 		'main.v',
-		'mod_kolibrios.c.v',
-		'mod_kolibrios.v',
+		'mod_target_os.c.v',
+		'mod_target_os.v',
 	]
 	assert filtered_file_names_for_os(.linux, files) == ['main.v', 'mod_linux.c.v', 'mod_linux.v']
 }

@@ -10,7 +10,7 @@ pub enum OS {
 	ios
 	macos
 	linux
-	kolibrios
+	target_os
 	windows
 	freebsd
 	openbsd
@@ -49,8 +49,8 @@ pub fn os_from_string(os_str string) !OS {
 		'nix' {
 			return .linux
 		}
-		'target_os', 'kolibrios', 'kolibri' {
-			return .kolibrios
+		'target_os' {
+			return .target_os
 		}
 		'windows' {
 			return .windows
@@ -145,7 +145,7 @@ pub fn (o OS) lower() string {
 	return match o {
 		._auto { '' }
 		.linux { 'linux' }
-		.kolibrios { 'kolibrios' }
+		.target_os { 'target_os' }
 		.windows { 'windows' }
 		.macos { 'macos' }
 		.ios { 'ios' }
@@ -186,7 +186,7 @@ pub fn (o OS) str() string {
 		.ios { return 'iOS' }
 		.macos { return 'MacOS' }
 		.linux { return 'Linux' }
-		.kolibrios { return 'KolibriOS' }
+		.target_os { return 'TargetOS' }
 		.windows { return 'Windows' }
 		.freebsd { return 'FreeBSD' }
 		.openbsd { return 'OpenBSD' }

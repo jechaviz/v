@@ -3,7 +3,7 @@ module ast
 import v.pref
 
 pub const valid_comptime_if_os = ['windows', 'ios', 'macos', 'mac', 'mach', 'darwin', 'hpux', 'gnu',
-	'qnx', 'linux', 'target_os', 'kolibrios', 'freebsd', 'openbsd', 'netbsd', 'bsd', 'dragonfly', 'android',
+	'qnx', 'linux', 'target_os', 'freebsd', 'openbsd', 'netbsd', 'bsd', 'dragonfly', 'android',
 	'termux', 'solaris', 'haiku', 'serenity', 'vinix', 'plan9', 'wasm32_emscripten']
 pub const valid_comptime_if_compilers = ['gcc', 'tinyc', 'clang', 'mingw', 'msvc', 'cplusplus']
 pub const valid_comptime_if_platforms = ['amd64', 'i386', 'aarch64', 'arm64', 'arm32', 'rv64',
@@ -190,7 +190,6 @@ pub const system_ident_map = {
 	'qnx':                '__QNX__'
 	'linux':              '__linux__'
 	'target_os':          '__target_os__'
-	'kolibrios':          '__kolibrios__'
 	'serenity':           '__serenity__'
 	'plan9':              '__plan9__'
 	'vinix':              '__vinix__'
