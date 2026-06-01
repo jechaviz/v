@@ -760,16 +760,14 @@ fn source_root_from_vmod_root(vmod_root string) !string {
 
 fn find_module_path_from_vmod_root(vmod_root string, mod string) !string {
 	manifest := manifest_from_vmod_root(vmod_root)!
-	if manifest.base_url == '' {
-		return error('module not found')
-	}
 	tail_path := mod_tail_after_vmod_name(mod, manifest.name) or {
 		return error('module not found')
 	}
+	source_root := if manifest.base_url == '' { vmod_root } else { manifest.source_root(vmod_root) }
 	if tail_path == '' {
-		return error('module not found')
+		return source_root
 	}
-	try_path := os.join_path(manifest.source_root(vmod_root), tail_path)
+	try_path := os.join_path(source_root, tail_path)
 	if os.is_dir(try_path) {
 		return try_path
 	}
