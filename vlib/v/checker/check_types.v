@@ -703,8 +703,7 @@ fn (mut c Checker) check_container_alias_types(got ast.Type, expected ast.Type) 
 		.array {
 			got_info := got_sym.info as ast.Array
 			expected_info := expected_sym.info as ast.Array
-			return got_info.nr_dims == expected_info.nr_dims
-				&& c.check_types(got_info.elem_type, expected_info.elem_type)
+			return c.compatible_array_infos(got_info, expected_info)
 		}
 		.array_fixed {
 			got_info := got_sym.info as ast.ArrayFixed
@@ -722,6 +721,11 @@ fn (mut c Checker) check_container_alias_types(got ast.Type, expected ast.Type) 
 			return false
 		}
 	}
+}
+
+fn (mut c Checker) compatible_array_infos(got_info ast.Array, expected_info ast.Array) bool {
+	return got_info.nr_dims == expected_info.nr_dims
+		&& c.check_types(got_info.elem_type, expected_info.elem_type)
 }
 
 fn (mut c Checker) check_matching_function_symbols(got_type_sym &ast.TypeSymbol, exp_type_sym &ast.TypeSymbol) bool {

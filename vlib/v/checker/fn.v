@@ -2571,8 +2571,6 @@ fn (mut c Checker) fn_call(mut node ast.CallExpr, mut continue_check &bool) ast.
 				continue
 			}
 			if param_typ_sym.info is ast.Array && arg_typ_sym.info is ast.Array {
-				param_elem_type := c.table.unaliased_type(param_typ_sym.info.elem_type)
-				arg_elem_type := c.table.unaliased_type(arg_typ_sym.info.elem_type)
 				param_nr_muls := param.typ.nr_muls()
 				arg_nr_muls := if call_arg.is_mut {
 					arg_typ.nr_muls() + 1
@@ -2580,8 +2578,7 @@ fn (mut c Checker) fn_call(mut node ast.CallExpr, mut continue_check &bool) ast.
 					arg_typ.nr_muls()
 				}
 				if param_nr_muls == arg_nr_muls
-					&& param_typ_sym.info.nr_dims == arg_typ_sym.info.nr_dims
-					&& param_elem_type == arg_elem_type {
+					&& c.compatible_array_infos(arg_typ_sym.info, param_typ_sym.info) {
 					continue
 				}
 			} else if arg_typ_sym.info is ast.MultiReturn {
@@ -3869,11 +3866,8 @@ fn (mut c Checker) method_call(mut node ast.CallExpr, mut continue_check &bool) 
 			param_typ_sym := c.table.sym(exp_arg_typ)
 			arg_typ_sym := c.table.sym(got_arg_typ)
 			if param_typ_sym.info is ast.Array && arg_typ_sym.info is ast.Array {
-				param_elem_type := c.table.unaliased_type(param_typ_sym.info.elem_type)
-				arg_elem_type := c.table.unaliased_type(arg_typ_sym.info.elem_type)
 				if exp_arg_typ.nr_muls() == got_arg_typ.nr_muls()
-					&& param_typ_sym.info.nr_dims == arg_typ_sym.info.nr_dims
-					&& param_elem_type == arg_elem_type {
+					&& c.compatible_array_infos(arg_typ_sym.info, param_typ_sym.info) {
 					continue
 				}
 			}

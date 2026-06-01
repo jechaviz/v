@@ -36,6 +36,14 @@ fn takes_alias_list(items pub_alias_total.ItemList) int {
 	return sum
 }
 
+fn takes_alias_elem_list(items []pub_alias_total.ItemAlias) int {
+	mut sum := 0
+	for item in items {
+		sum += item.value
+	}
+	return sum
+}
+
 fn test_pub_alias_item_return_cross_module() {
 	assert parent_item_from_alias(3).value == 3
 	assert alias_item_from_parent(4).value == 4
@@ -48,6 +56,19 @@ fn test_pub_alias_array_return_cross_module() {
 	assert takes_alias_list(items) == 3
 	assert takes_parent_list(pub_alias_total.alias_list_from_parent(items)) == 3
 	assert takes_alias_list(alias_list_from_parent(items)) == 3
+}
+
+fn test_pub_alias_array_element_return_cross_module() {
+	assert takes_parent_list(pub_alias_total.make_alias_items()) == 2
+	assert takes_alias_elem_list(pub_alias_total.make_parent_list()) == 3
+	assert takes_parent_list(pub_alias_total.make_alias_item_list()) == 8
+
+	mut parent_items := []pub_alias_total.Item{}
+	parent_items = pub_alias_total.make_alias_items()
+	mut alias_items := []pub_alias_total.ItemAlias{}
+	alias_items = pub_alias_total.make_parent_list()
+	assert takes_parent_list(parent_items) == 2
+	assert takes_alias_elem_list(alias_items) == 3
 }
 
 fn source_item_from_public(value int) pub_alias_source.SourceItem {

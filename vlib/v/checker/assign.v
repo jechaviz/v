@@ -874,9 +874,8 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 				// `mut arr := [u8(1),2,3]`
 				// `arr = [u8(4),5,6]`
 				left_info := left_sym.info as ast.Array
-				left_elem_type := c.table.unaliased_type(left_info.elem_type)
 				if left_type_unwrapped.nr_muls() == right_type_unwrapped.nr_muls()
-					&& left_info.nr_dims == right_info.nr_dims && left_elem_type == right_elem_type {
+					&& c.compatible_array_infos(right_info, left_info) {
 					continue
 				}
 			}
