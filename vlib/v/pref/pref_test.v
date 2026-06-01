@@ -126,6 +126,37 @@ fn test_semantic_target_os_is_recognized() {
 	assert !pref.OS.linux.is_target_of('target_os')
 }
 
+fn test_target_api_debug_flags_parse_for_target_os() {
+	prefs, _ := pref.parse_args_and_show_errors([], [
+		'-os',
+		'target_os',
+		'-target_api-no-assemble',
+		'-target_api-emit-asm',
+		'out/app.asm',
+		'-target_api-fasm',
+		'tools/fasm.exe',
+		'-target_api-runtime',
+		'runtime/target_runtime.inc',
+		'main.v',
+	], false)
+	assert prefs.os == .target_os
+	assert prefs.target_api_no_assemble
+	assert prefs.target_api_emit_asm == 'out/app.asm'
+	assert prefs.target_api_fasm == 'tools/fasm.exe'
+	assert prefs.target_api_runtime == 'runtime/target_runtime.inc'
+	assert prefs.build_options.contains('-target_api-no-assemble')
+}
+
+fn test_target_os_defaults_to_i386_no_gc_without_cross_c_compiler() {
+	target := os.join_path(vroot, 'examples', 'hello_world.v')
+	prefs, _ := pref.parse_args_and_show_errors([], ['', '-os', 'target_os', target], false)
+	assert prefs.os == .target_os
+	assert prefs.arch == .i386
+	assert prefs.gc_mode == .no_gc
+	assert prefs.ccompiler == pref.default_tcc_compiler() || prefs.ccompiler == ''
+	assert 'target_os' in prefs.compile_defines
+}
+
 fn test_bsd_target_matches_macos_and_bsd_systems() {
 	for os_kind in [pref.OS.macos, .freebsd, .openbsd, .netbsd, .dragonfly] {
 		assert os_kind.is_target_of('bsd')

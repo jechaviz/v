@@ -87,6 +87,9 @@ fn (mut p Preferences) setup_os_and_arch_when_not_explicitly_set() {
 	}
 
 	if !p.output_cross_c && p.os != host_os {
+		if p.os == .target_os && p.arch == ._auto {
+			p.set_default_arch(.i386)
+		}
 		if p.os == .linux && p.arch == ._auto {
 			// The bundled linuxroot sysroot currently only contains x86_64 runtime files.
 			p.set_default_arch(.amd64)
@@ -243,7 +246,8 @@ pub fn (mut p Preferences) fill_with_defaults() {
 		p.parse_define('cross') // TODO: remove when `$if cross {` works
 	}
 	if p.gc_mode == .unknown {
-		if p.backend != .c || p.building_v || p.is_bare {
+		if p.backend != .c || p.building_v || p.is_bare || p.os == .windows || p.os == .target_os
+			|| p.is_musl {
 			p.gc_mode = .no_gc
 			p.build_options << ['-gc', 'none']
 		} else {
@@ -415,6 +419,9 @@ fn safe_default_output_name(filename string) string {
 
 fn (mut p Preferences) find_cc_if_cross_compiling() {
 	if p.os == get_host_os() {
+		return
+	}
+	if p.os == .target_os {
 		return
 	}
 	if p.ccompiler_set_by_flag {

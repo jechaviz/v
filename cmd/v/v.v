@@ -13,6 +13,7 @@ import v.util.vflags as util_vflags
 import v.util.version
 import v.builder
 import v.builder.cbuilder
+import v.builder.target_osbuilder
 
 @[markused]
 const external_tools = [
@@ -314,6 +315,10 @@ fn cached_v2_executable_path(vroot string, is_ownership bool) string {
 }
 
 fn rebuild(prefs &pref.Preferences) {
+	if prefs.os == .target_os && prefs.backend == .c {
+		builder.compile('build', prefs, target_osbuilder.compile_target_os)
+		return
+	}
 	match prefs.backend {
 		.c {
 			$if no_bootstrapv ? {

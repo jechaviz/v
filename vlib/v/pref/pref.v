@@ -242,17 +242,21 @@ pub mut:
 	experimental      bool // enable experimental features
 	skip_unused       bool // skip generating C code for functions, that are not used
 
-	use_color           ColorOutput // whether the warnings/errors should use ANSI color escapes.
-	cleanup_files       []string    // list of temporary *.tmp.c and *.tmp.c.rsp files. Cleaned up on successful builds.
-	build_options       []string    // list of options, that should be passed down to `build-module`, if needed for -usecache
-	cache_manager       vcache.CacheManager
-	gc_mode             GarbageCollectionMode = .unknown // .no_gc, .boehm, .boehm_leak, ...
-	gc_set_by_flag      bool              // true when the compiler receives `-gc`
-	assert_failure_mode AssertFailureMode // whether to call abort() or print_backtrace() after an assertion failure
-	message_limit       int = 200 // the maximum amount of warnings/errors/notices that will be accumulated
-	nofloat             bool // for low level code, like kernels: replaces f32 with u32 and f64 with u64
-	use_coroutines      bool // experimental coroutines
-	fast_math           bool // -fast-math will pass either -ffast-math or /fp:fast (for msvc) to the C backend
+	use_color              ColorOutput // whether the warnings/errors should use ANSI color escapes.
+	cleanup_files          []string    // list of temporary *.tmp.c and *.tmp.c.rsp files. Cleaned up on successful builds.
+	build_options          []string    // list of options, that should be passed down to `build-module`, if needed for -usecache
+	cache_manager          vcache.CacheManager
+	gc_mode                GarbageCollectionMode = .unknown // .no_gc, .boehm, .boehm_leak, ...
+	gc_set_by_flag         bool              // true when the compiler receives `-gc`
+	assert_failure_mode    AssertFailureMode // whether to call abort() or print_backtrace() after an assertion failure
+	message_limit          int = 200 // the maximum amount of warnings/errors/notices that will be accumulated
+	nofloat                bool   // for low level code, like kernels: replaces f32 with u32 and f64 with u64
+	target_api_emit_asm    string // experimental target_os debug output path for generated FASM
+	target_api_no_assemble bool   // experimental target_os debug mode: emit ASM but do not invoke FASM
+	target_api_fasm        string // experimental target_os FASM executable override
+	target_api_runtime     string // experimental target_os runtime include override
+	use_coroutines         bool   // experimental coroutines
+	fast_math              bool   // -fast-math will pass either -ffast-math or /fp:fast (for msvc) to the C backend
 	// checker settings:
 	checker_match_exhaustive_cutoff_limit int = 12
 	thread_stack_size                     int = 8388608 // Change with `-thread-stack-size 4194304`. The final default is adjusted in fill_with_defaults() based on the target architecture.
@@ -694,6 +698,25 @@ pub fn parse_args_and_show_errors(known_external_commands []string, args []strin
 				res.nofloat = true
 				res.compile_defines_all << 'nofloat' // so that `$if nofloat? {` works
 				res.compile_defines << 'nofloat'
+			}
+			'-target_api-emit-asm' {
+				res.target_api_emit_asm = cmdline.option(args[i..], arg, '')
+				res.build_options << '${arg} "${res.target_api_emit_asm}"'
+				i++
+			}
+			'-target_api-no-assemble' {
+				res.target_api_no_assemble = true
+				res.build_options << arg
+			}
+			'-target_api-fasm' {
+				res.target_api_fasm = cmdline.option(args[i..], arg, '')
+				res.build_options << '${arg} "${res.target_api_fasm}"'
+				i++
+			}
+			'-target_api-runtime' {
+				res.target_api_runtime = cmdline.option(args[i..], arg, '')
+				res.build_options << '${arg} "${res.target_api_runtime}"'
+				i++
 			}
 			'-fast-math' {
 				res.fast_math = true
