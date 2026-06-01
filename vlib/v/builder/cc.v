@@ -619,7 +619,7 @@ fn resolve_ccompiler_type(ccompiler string, fallback pref.CompilerType) pref.Com
 	}
 	quoted_ccompiler := os.quoted_path(ccompiler)
 	for version_flag in ['--version', '-v'] {
-		res := os.execute('${quoted_ccompiler} ${version_flag} 2>&1')
+		res := run_c_command('${quoted_ccompiler} ${version_flag}')
 		resolved_by_version, version_ok := ccompiler_type_from_version_output_with_ok(res.output)
 		if version_ok {
 			return resolved_by_version
@@ -1562,7 +1562,7 @@ pub fn (mut v Builder) cc() {
 						}
 						cppgenv := '${@VEXEROOT}/thirdparty/stdatomic/nix/cpp/gen.v'
 						cppgen_cmd := '${os.quoted_path(vexe)} run ${os.quoted_path(cppgenv)} ${os.quoted_path(ccompiler)}'
-						cppgen_res := os.execute(cppgen_cmd)
+						cppgen_res := run_c_command(cppgen_cmd)
 						if cppgen_res.exit_code != 0 {
 							eprintln(cppgen_res.command_failure_report('v.builder.cc.command',
 								stage:   'stdatomic_cpp_header_generation'

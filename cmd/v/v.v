@@ -9,6 +9,7 @@ import term
 import v.help
 import v.pref
 import v.util
+import v.util.vflags as util_vflags
 import v.util.version
 import v.builder
 import v.builder.cbuilder
@@ -66,6 +67,14 @@ const external_tools = [
 	'where',
 ]
 const delegated_v2_exe_env = 'V_V2_EXE'
+
+fn run_delegate_compilation_command(command string) os.Result {
+	$if windows {
+		return os.exec(util_vflags.tokenize_to_args(command))
+	} $else {
+		return os.execute(command)
+	}
+}
 
 @[unsafe]
 fn timers_pointer(p &util.Timers) &util.Timers {
@@ -254,7 +263,7 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 			}
 			current_work_dir := os.getwd()
 			os.chdir(vroot) or {}
-			tool_compilation := os.execute(compilation_command)
+			tool_compilation := run_delegate_compilation_command(compilation_command)
 			os.chdir(current_work_dir) or {}
 			if tool_compilation.exit_code != 0 {
 				report_v2_compilation_failure(v2_main_source, compilation_command, tool_compilation)

@@ -22,11 +22,20 @@ import v2.ssa.optimize as ssa_optimize
 import v2.token
 import v2.transformer
 import v2.types
+import v.util.vflags as util_vflags
 import time
 import runtime
 
 const staged_c_file = '/tmp/v2_codegen.tmp.c'
 const staged_main_obj_file = '/tmp/v2_codegen.tmp.main.o'
+
+fn run_builder_command(cmd string) os.Result {
+	$if windows {
+		return os.exec(util_vflags.tokenize_to_args(cmd))
+	} $else {
+		return os.execute(cmd)
+	}
+}
 
 struct Builder {
 	pref &pref.Preferences
@@ -449,7 +458,7 @@ fn (mut b Builder) gen_cleanc() {
 	is_tcc := cc.contains('tcc')
 	mut is_clang := false
 	if !is_tcc {
-		version_res := os.execute('${cc} --version')
+		version_res := run_builder_command('${cc} --version')
 		if version_res.exit_code == 0 && version_res.output.contains('clang') {
 			is_clang = true
 		}
@@ -630,7 +639,7 @@ fn (mut b Builder) gen_ssa_c() {
 	cc_flags := cc_flag_parts.join(' ')
 	mut error_limit_flag := ''
 	if !cc.contains('tcc') {
-		version_res := os.execute('${cc} --version')
+		version_res := run_builder_command('${cc} --version')
 		if version_res.exit_code == 0 && version_res.output.contains('clang') {
 			error_limit_flag = ' -ferror-limit=0'
 		}
@@ -677,7 +686,7 @@ fn (mut b Builder) gen_ssa_c() {
 		if b.pref.show_cc {
 			println(compile_cmd)
 		}
-		compile_res := os.execute(compile_cmd)
+		compile_res := run_builder_command(compile_cmd)
 		if compile_res.exit_code != 0 {
 			report_builder_command_failure('ssa_c_backend_compilation', compile_cmd, compile_res,
 				20)
@@ -691,7 +700,7 @@ fn (mut b Builder) gen_ssa_c() {
 		if b.pref.show_cc {
 			println(cc_cmd)
 		}
-		cc_res := os.execute(cc_cmd)
+		cc_res := run_builder_command(cc_cmd)
 		if cc_res.exit_code != 0 {
 			report_builder_command_failure('ssa_c_backend_linking', cc_cmd, cc_res, 20)
 			exit(1)
@@ -707,7 +716,7 @@ fn (mut b Builder) gen_ssa_c() {
 		} else if os.getenv('V2VERBOSE') != '' {
 			dump(cc_cmd)
 		}
-		cc_res := os.execute(cc_cmd)
+		cc_res := run_builder_command(cc_cmd)
 		if cc_res.exit_code != 0 {
 			report_builder_command_failure('ssa_c_backend_compilation', cc_cmd, cc_res, 20)
 			exit(1)
@@ -2491,7 +2500,7 @@ fn flag_references_missing_file(flag string, include_flags []string) bool {
 						if os.exists(c_file) {
 							inc_flags := include_flags.join(' ')
 							compile_cmd := 'cc -c -w -O2 ${inc_flags} "${c_file}" -o "${clean}"'
-							res := os.execute(compile_cmd)
+							res := run_builder_command(compile_cmd)
 							if res.exit_code == 0 {
 								continue // successfully compiled, not missing
 							}
@@ -2948,7 +2957,7 @@ fn run_cc_cmd_or_exit(cmd string, stage string, show_cc bool) bool {
 	} else if os.getenv('V2VERBOSE') != '' {
 		dump(cmd)
 	}
-	result := os.execute(cmd)
+	result := run_builder_command(cmd)
 	if result.exit_code != 0 {
 		// If tcc failed, fall back to cc.
 		// Check only the compiler binary (before the first space), not the full
@@ -3010,7 +3019,7 @@ fn run_cc_cmd_or_exit(cmd string, stage string, show_cc bool) bool {
 				if show_cc {
 					println(recompile_cmd)
 				}
-				rr := os.execute(recompile_cmd)
+				rr := run_builder_command(recompile_cmd)
 				if rr.exit_code != 0 {
 					report_builder_command_failure('cc_recompile_${c_sibling}', recompile_cmd, rr,
 						50)
@@ -3438,14 +3447,14 @@ fn (mut b Builder) gen_native(backend_arch pref.Arch) {
 
 		// Link the object file into an executable
 		if is_macos_native_target(target_os) {
-			sdk_res := os.execute('xcrun -sdk macosx --show-sdk-path')
+			sdk_res := run_builder_command('xcrun -sdk macosx --show-sdk-path')
 			sdk_path := sdk_res.output.trim_space()
 			arch_flag := if arch == .arm64 { 'arm64' } else { 'x86_64' }
 			normal_link_cmd := macos_native_link_command(output_binary, obj_file, sdk_path,
 				arch_flag, false)
 			link_cmd := macos_native_link_command(output_binary, obj_file, sdk_path, arch_flag,
 				used_macos_tiny_object)
-			mut link_result := os.execute(link_cmd)
+			mut link_result := run_builder_command(link_cmd)
 			if link_result.exit_code != 0 && used_macos_tiny_object {
 				if b.pref.verbose {
 					println('[*] macOS tiny object link failed; retrying with normal Mach-O object')
@@ -3473,7 +3482,7 @@ fn (mut b Builder) gen_native(backend_arch pref.Arch) {
 				if b.pref.verbose {
 					println('[*] Wrote ${obj_file} (normal Mach-O fallback after macOS tiny link failure)')
 				}
-				link_result = os.execute(normal_link_cmd)
+				link_result = run_builder_command(normal_link_cmd)
 			}
 			if link_result.exit_code != 0 {
 				report_builder_command_failure('native_link_macos', link_cmd, link_result, 50)
@@ -3485,7 +3494,7 @@ fn (mut b Builder) gen_native(backend_arch pref.Arch) {
 		} else {
 			// Linux linking
 			link_cmd := 'cc ${obj_file} -o ${output_binary} -no-pie'
-			link_result := os.execute(link_cmd)
+			link_result := run_builder_command(link_cmd)
 			if link_result.exit_code != 0 {
 				report_builder_command_failure('native_link', link_cmd, link_result, 50)
 				exit(1)

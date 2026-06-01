@@ -33,6 +33,14 @@ fn tool_command(tool_exe string, args []string) string {
 	return parts.join(' ')
 }
 
+fn run_tool_compilation_command(command string) os.Result {
+	$if windows {
+		return os.exec(vflags.tokenize_to_args(command))
+	} $else {
+		return os.execute(command)
+	}
+}
+
 fn report_tool_compilation_failure(tool_name string, tool_source string, command string, result os.Result, action string) {
 	eprintln('v.tool.name=${tool_report_value(tool_name)}')
 	eprintln('v.tool.source=${tool_report_value(tool_source)}')
@@ -255,7 +263,7 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 				// ensure a stable and known working folder, when compiling V's tools, to avoid module lookup problems:
 				os.chdir(vroot) or {}
 				compile_sw := time.new_stopwatch()
-				tool_compilation := os.execute(compilation_command)
+				tool_compilation := run_tool_compilation_command(compilation_command)
 				os.chdir(current_work_dir) or {}
 				tlog('v.tool.compilation.failed=${tool_compilation.exit_code != 0}, v.tool.compilation.exit_code=${tool_compilation.exit_code}, v.tool.compilation.exit_code_meaning=${os.process_exit_code_meaning(tool_compilation.exit_code)}, v.tool.compilation.duration_ms=${compile_sw.elapsed().milliseconds()}')
 				if tool_compilation.exit_code == 0 {
@@ -674,7 +682,7 @@ pub fn recompile_file(vexe string, file string) {
 	$if trace_recompilation ? {
 		println('recompilation command: ${cmd}')
 	}
-	recompile_result := os.execute(cmd)
+	recompile_result := run_tool_compilation_command(cmd)
 	if recompile_result.exit_code != 0 {
 		eprintln(recompile_result.command_failure_report('v.tool.recompile',
 			reason:  'tool_recompile_failed'

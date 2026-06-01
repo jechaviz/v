@@ -7,6 +7,15 @@ import os
 import time
 import v2.pref
 import v2.builder
+import v.util.vflags as util_vflags
+
+fn run_v2_command(command string) os.Result {
+	$if windows {
+		return os.exec(util_vflags.tokenize_to_args(command))
+	} $else {
+		return os.execute(command)
+	}
+}
 
 fn main() {
 	compile_args, runtime_args := split_eval_runtime_args(os.args[1..])
@@ -91,7 +100,7 @@ fn run_ast_command(args []string) {
 		eprintln('Building vast2 tool...')
 		vast2_source := os.join_path(vroot, 'cmd', 'tools', 'vast2', 'vast2.v')
 		build_cmd := '${@VEXE} ${vast2_source}'
-		build_result := os.execute(build_cmd)
+		build_result := run_v2_command(build_cmd)
 		if build_result.exit_code != 0 {
 			eprintln(build_result.command_failure_report('v2.command',
 				reason:  'vast2_build_failed'
@@ -105,7 +114,7 @@ fn run_ast_command(args []string) {
 
 	// Run vast2 with the provided arguments
 	cmd := '${vast2_path} ${args.join(' ')}'
-	result := os.execute(cmd)
+	result := run_v2_command(cmd)
 	print(result.output)
 	if result.exit_code != 0 {
 		eprintln(result.command_failure_report('v2.command',

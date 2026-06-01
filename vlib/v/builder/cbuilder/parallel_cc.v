@@ -3,6 +3,7 @@ module cbuilder
 import os
 import time
 import v.util
+import v.util.vflags as util_vflags
 import v.builder
 import sync.pool
 import v.gen.c
@@ -11,6 +12,14 @@ const cc_compiler = os.getenv_opt('CC') or { 'cc' }
 const cc_ldflags = os.getenv_opt('LDFLAGS') or { '' }
 const cc_cflags = os.getenv_opt('CFLAGS') or { '' }
 const cc_cflags_opt = os.getenv_opt('CFLAGS_OPT') or { '' } // '-O3' }
+
+fn run_parallel_cc_command(cmd string) os.Result {
+	$if windows {
+		return os.exec(util_vflags.tokenize_to_args(cmd))
+	} $else {
+		return os.execute(cmd)
+	}
+}
 
 fn parallel_cc_compiler_path(b &builder.Builder) string {
 	if b.pref.ccompiler != '' {
@@ -177,7 +186,7 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 	link_cmd := alink.join(' ')
 
 	sw_link := time.new_stopwatch()
-	link_res := os.execute(link_cmd)
+	link_res := run_parallel_cc_command(link_cmd)
 	eprint_result_time(sw_link, 'link_cmd', link_cmd, link_res)
 	// tcc reports duplicate symbol errors via stderr and an executable still gets emitted with exit code 0,
 	// so detect that pattern and treat it as a link failure too.
@@ -200,7 +209,7 @@ fn parallel_cc(mut b builder.Builder, result c.GenOutput) ! {
 fn build_parallel_o_cb(mut p pool.PoolProcessor, idx int, _wid int) voidptr {
 	cmd := p.get_item[string](idx)
 	sw := time.new_stopwatch()
-	res := os.execute(cmd)
+	res := run_parallel_cc_command(cmd)
 	eprint_result_time(sw, 'cc_cmd', cmd, res)
 	return voidptr(&os.Result{
 		...res
