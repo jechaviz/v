@@ -358,18 +358,60 @@ fn run_tool_process_and_exit(tool_exe string, args []string) {
 		exit(1)
 	}
 	process.wait()
-	exit_code := if process.code < 0 { 1 } else { process.code }
+	raw_exit_code := process.code
+	exit_code := if raw_exit_code < 0 { 1 } else { raw_exit_code }
 	if exit_code != 0 {
-		eprintln(os.process_command_failure_report('v.tool.command', exit_code,
-			stage:          'run_tool_process'
-			command:        command
-			reason:         'tool_child_exit_nonzero'
-			action:         'inspect_tool_output_or_rerun_tool_directly'
-			message:        'delegated V tool exited with a non-zero status'
-			output_capture: 'inherited_stdio'
+		report_exit_code := if raw_exit_code < 0 { raw_exit_code } else { exit_code }
+		eprintln(os.process_command_failure_report('v.tool.command', report_exit_code,
+			stage:           'run_tool_process'
+			command:         command
+			reason:          'tool_child_exit_nonzero'
+			action:          tool_failure_action(tool_exe, raw_exit_code)
+			message:         tool_failure_message(raw_exit_code)
+			output_capture:  'inherited_stdio'
+			possible_causes: tool_failure_possible_causes(tool_exe, raw_exit_code)
 		))
+		eprintln('v.tool.command.child_exit_code=${raw_exit_code}')
+		eprintln('v.tool.command.child_exit_code_meaning=${os.process_exit_code_meaning(raw_exit_code)}')
+		eprintln('v.tool.command.parent_exit_code=${exit_code}')
+		eprintln('v.tool.command.tool=${tool_report_value(os.file_name(tool_exe))}')
+		if raw_exit_code < 0 {
+			eprintln('v.tool.command.note=${tool_report_value('parent exits with 1 for portable shell semantics; child_exit_code preserves the host status')}')
+		}
 	}
 	exit(exit_code)
+}
+
+fn tool_failure_action(tool_exe string, raw_exit_code int) string {
+	tool_name := os.file_name(tool_exe).to_lower_ascii()
+	if tool_name in ['vtest', 'vtest.exe'] {
+		if raw_exit_code < 0 {
+			return 'inspect_last_vtest_output_lines_and_rerun_with_VJOBS_1_VTEST_SHOW_CMD_1_private_VTMP'
+		}
+		return 'inspect_vtest_failure_summary_or_rerun_failed_command'
+	}
+	if raw_exit_code < 0 {
+		return 'inspect_inherited_tool_output_and_host_process_state'
+	}
+	return 'inspect_tool_output_or_rerun_tool_directly'
+}
+
+fn tool_failure_message(raw_exit_code int) string {
+	if raw_exit_code < 0 {
+		return 'delegated V tool ended with a negative host process status'
+	}
+	return 'delegated V tool exited with a non-zero status'
+}
+
+fn tool_failure_possible_causes(tool_exe string, raw_exit_code int) string {
+	tool_name := os.file_name(tool_exe).to_lower_ascii()
+	if tool_name in ['vtest', 'vtest.exe'] && raw_exit_code < 0 {
+		return 'vtest_process_terminated;external_runner_killed_child;windows_wait_or_pipe_failure;resource_exhaustion;parallel_runner_lock'
+	}
+	if raw_exit_code < 0 {
+		return 'delegated_tool_terminated;windows_wait_or_process_failure;resource_exhaustion'
+	}
+	return ''
 }
 
 @[if trace_launch_tool ?]
