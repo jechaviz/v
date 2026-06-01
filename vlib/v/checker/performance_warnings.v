@@ -3,8 +3,30 @@ module checker
 import v.ast
 import v.token
 
+fn (mut c Checker) active_noalloc_attr() ?ast.Attr {
+	if c.table.cur_fn == unsafe { nil } {
+		return none
+	}
+	for attr in c.table.cur_fn.attrs {
+		if attr.name in ['noalloc', 'no_alloc'] {
+			return attr
+		}
+	}
+	return none
+}
+
+fn (mut c Checker) should_check_allocs() bool {
+	if c.pref.warn_about_allocs {
+		return true
+	}
+	if _ := c.active_noalloc_attr() {
+		return true
+	}
+	return false
+}
+
 fn (mut c Checker) warn_clone_alloc_if_needed(method_name string, left_type ast.Type, left_sym ast.TypeSymbol, final_left_sym ast.TypeSymbol, pos token.Pos) {
-	if !c.pref.warn_about_allocs || method_name != 'clone' {
+	if !c.should_check_allocs() || method_name != 'clone' {
 		return
 	}
 	if left_sym.kind == .alias && left_sym.has_method(method_name) {

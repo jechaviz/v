@@ -1287,8 +1287,7 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 			}
 		}
 	}
-	if node.op == .plus && c.pref.warn_about_allocs
-		&& c.is_string_concat_pair(left_type, right_type) {
+	if node.op == .plus && c.should_check_allocs() && c.is_string_concat_pair(left_type, right_type) {
 		c.warn_alloc('string concatenation', node.pos)
 	}
 	/*

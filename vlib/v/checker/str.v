@@ -179,7 +179,7 @@ fn (mut c Checker) string_inter_lit(mut node ast.StringInterLiteral) ast.Type {
 		}
 	}
 	c.inside_interface_deref = inside_interface_deref_save
-	if c.pref.warn_about_allocs {
+	if c.should_check_allocs() {
 		c.warn_alloc('string interpolation', node.pos)
 	}
 	return ast.string_type

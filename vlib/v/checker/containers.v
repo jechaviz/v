@@ -243,7 +243,7 @@ fn (mut c Checker) array_init(mut node ast.ArrayInit) ast.Type {
 	if node.typ.has_flag(.generic) {
 		c.table.used_features.comptime_syms[c.unwrap_generic(node.typ)] = true
 	}
-	if c.pref.warn_about_allocs {
+	if c.should_check_allocs() {
 		c.warn_alloc('array initialization', node.pos)
 	}
 	// `x := []string{}` (the type was set in the parser)

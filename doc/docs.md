@@ -7725,6 +7725,7 @@ performance, memory usage, or size.
 | `@[inline]`              | Performance                     | Increased executable size                         |
 | `@[hot]`                 | Performance, code locality      | Only a compiler hint; profile first               |
 | `@[cold]`                | Performance, code locality      | Only a compiler hint; profile first               |
+| `@[noalloc]`             | Performance, memory budgets     | Rejects detected allocations in the function      |
 | `@[direct_array_access]` | Performance                     | Safety risks                                      |
 | `@[packed]`              | Memory usage                    | Potential performance loss                        |
 | `@[minify]`              | Performance, Memory usage       | May break binary serialization/reflection         |
@@ -7766,6 +7767,25 @@ compiler does not support the hint.
 
 - Before measuring. Wrong hot/cold hints can hurt code locality.
 - As a replacement for data-oriented design, preallocation, or simpler algorithms.
+
+#### `@[noalloc]`
+
+You can tag a function with `@[noalloc]` to make detected allocations in that function checker
+errors. This is useful for hot kernels, embedded loops, realtime-ish paths, and functions that must
+stay inside a memory budget. It uses the same allocation diagnostics as `-warn-about-allocs`, but
+promotes them to errors only inside the tagged function.
+
+**When to Use**
+
+- Small hot-path functions after you have moved allocation work to setup code or caller-owned
+buffers.
+- Functions where accidental `.clone()`, array initialization, string interpolation, string
+concatenation, or interface boxing would violate a performance contract.
+
+**When to Avoid**
+
+- APIs that intentionally create owned values for callers.
+- As a substitute for profiling; the attribute checks compiler-detected allocation sites.
 
 #### `@[direct_array_access]`
 

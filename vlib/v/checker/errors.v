@@ -45,7 +45,15 @@ fn (mut c Checker) warn_alloc(s string, pos token.Pos) {
 	}
 
 	if !c.is_builtin_mod && c.mod !in ['strings', 'math', 'math.bits', 'builtin', 'strconv'] {
-		c.warn('allocation (${s})', pos)
+		if attr := c.active_noalloc_attr() {
+			fn_name := c.table.cur_fn.name
+			c.error('allocation (${s}) is not allowed inside `@[${attr.name}]` function `${fn_name}`',
+				pos)
+			return
+		}
+		if c.pref.warn_about_allocs {
+			c.warn('allocation (${s})', pos)
+		}
 	}
 }
 

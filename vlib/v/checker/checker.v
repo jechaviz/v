@@ -5991,7 +5991,7 @@ fn (mut c Checker) cast_expr(mut node ast.CastExpr) ast.Type {
 		}
 	}
 
-	if c.pref.warn_about_allocs && to_sym.info is ast.Interface {
+	if c.should_check_allocs() && to_sym.info is ast.Interface {
 		c.warn_alloc('cast to interface', node.pos)
 	}
 	node.typname = c.table.sym(node.typ).name

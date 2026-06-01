@@ -1,0 +1,17 @@
+module main
+
+@[noalloc]
+fn make_values() []int {
+	return [1, 2, 3]
+}
+
+@[noalloc]
+fn clone_values(values []int) []int {
+	return values.clone()
+}
+
+fn main() {
+	values := [4, 5, 6]
+	println(make_values().len)
+	println(clone_values(values).len)
+}
