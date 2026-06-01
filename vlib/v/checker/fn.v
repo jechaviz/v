@@ -3105,6 +3105,7 @@ fn (mut c Checker) method_call(mut node ast.CallExpr, mut continue_check &bool) 
 	}
 
 	method_name := node.name
+	c.warn_clone_alloc_if_needed(method_name, left_type, left_sym, final_left_sym, node.pos)
 	if left_type.has_flag(.option) {
 		c.error('Option type `${left_sym.name}` cannot be called directly, you should unwrap it first',
 			node.left.pos())
