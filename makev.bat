@@ -202,7 +202,7 @@ if !ERRORLEVEL! NEQ 0 (
 )
 
 echo  ^> Compiling "%V_EXE%" with "%V_BOOTSTRAP%"
-"%V_BOOTSTRAP%" %V_BOOTSTRAP_VFLAGS% -keepc -g -showcc -cc clang -cflags "--target=!clang_target!" -o "%V_UPDATED%" cmd/v
+"%V_BOOTSTRAP%" %V_BOOTSTRAP_VFLAGS% -keepc -g -showcc -cc clang -cflags "--target=!clang_target!" -cflags -Wno-incompatible-pointer-types -o "%V_UPDATED%" cmd/v
 if !ERRORLEVEL! NEQ 0 goto :compile_error
 call :move_updated_to_v
 goto :success
@@ -251,7 +251,7 @@ echo  ^> Bootstrapping "%V_BOOTSTRAP%" before compiling "%V_EXE%" with MSVC
 set stage_vflags=
 call :build_bootstrap_with_clang
 if !ERRORLEVEL! EQU 0 (
-	set stage_vflags=-cc clang -cflags "--target=!clang_target!"
+	set stage_vflags=-cc clang -cflags "--target=!clang_target!" -cflags -Wno-incompatible-pointer-types
 ) else (
 	call :build_bootstrap_with_gcc
 	if !ERRORLEVEL! EQU 0 (

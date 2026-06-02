@@ -5,6 +5,10 @@ import strings
 #include <sys/stat.h> // #include <signal.h>
 #include <errno.h>
 
+$if windows {
+	#insert "@VEXEROOT/vlib/os/final_path_windows.h"
+}
+
 $if macos {
 	#include <mach-o/dyld.h>
 	// needed for os.executable():
