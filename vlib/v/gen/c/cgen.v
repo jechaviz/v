@@ -5722,7 +5722,7 @@ fn (mut g Gen) map_fn_ptrs(key_sym ast.TypeSymbol) (string, string, string, stri
 			alias_key_type := (key_sym.info as ast.Alias).parent_type
 			return g.map_fn_ptrs(g.table.sym(alias_key_type))
 		}
-		.u8, .i8, .char {
+		.bool, .u8, .i8, .char {
 			hash_fn = '&builtin__map_hash_int_1'
 			key_eq_fn = '&builtin__map_eq_int_1'
 			clone_fn = '&builtin__map_clone_int_1'
