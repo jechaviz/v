@@ -129,9 +129,23 @@ fn temporary_tool_executable_path(vroot string, tool_name string) string {
 	return path_of_executable(os.join_path(os.vtmp_dir(), 'tools', sanitized_vroot, tool_name))
 }
 
+fn concurrent_tool_executable_path(vroot string, tool_name string) string {
+	sanitized_vroot := vroot.replace_each(['\\', '_', '/', '_', ':', '_'])
+	process_tool_name := '${tool_name}_${os.getpid()}'
+	return path_of_executable(os.join_path(os.vtmp_dir(), 'tools', sanitized_vroot, 'concurrent',
+		process_tool_name))
+}
+
+fn should_use_concurrent_tool_executable(tool_name string) bool {
+	return tool_name == 'vtest'
+}
+
 fn fallback_tool_executable_path(vexe string, vroot string, tool_name string, tool_source string, tool_exe string, is_recompilation_disabled bool) string {
 	if !os.is_file(tool_source) {
 		return tool_exe
+	}
+	if should_use_concurrent_tool_executable(tool_name) {
+		return concurrent_tool_executable_path(vroot, tool_name)
 	}
 	temporary_tool_exe := temporary_tool_executable_path(vroot, tool_name)
 	if is_recompilation_disabled && !os.exists(tool_exe) {

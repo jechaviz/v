@@ -84,6 +84,25 @@ fn test_fallback_tool_executable_path_uses_vtmp_for_missing_single_file_tool() {
 	assert fallback.ends_with(path_of_executable('vdoctor'))
 }
 
+fn test_fallback_tool_executable_path_uses_process_temp_for_vtest() {
+	tmp_dir := os.join_path(os.vtmp_dir(), 'util_test_fallback_tool_executable_path_vtest')
+	os.mkdir_all(tmp_dir) or { panic(err) }
+	defer {
+		os.rmdir_all(tmp_dir) or {}
+	}
+	tool_source := os.join_path(tmp_dir, 'vtest.v')
+	os.write_file(tool_source, 'fn main() {}') or { panic(err) }
+	tool_exe := path_of_executable(os.join_path(tmp_dir, 'vtest'))
+
+	fallback := fallback_tool_executable_path(@VEXE, '/opt/vlang', 'vtest', tool_source, tool_exe,
+		false)
+
+	assert fallback != tool_exe
+	assert fallback.starts_with(os.join_path(os.vtmp_dir(), 'tools'))
+	assert fallback.contains(os.join_path('concurrent', 'vtest_${os.getpid()}'))
+	assert fallback.ends_with(path_of_executable('vtest_${os.getpid()}'))
+}
+
 fn test_fallback_tool_executable_path_keeps_directory_tools_in_place() {
 	tmp_dir := os.join_path(os.vtmp_dir(), 'util_test_fallback_tool_directory')
 	os.mkdir_all(tmp_dir) or { panic(err) }
