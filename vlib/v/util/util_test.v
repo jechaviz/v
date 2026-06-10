@@ -22,6 +22,50 @@ fn test_tool_recompilation_args_do_not_change_other_tools_or_platforms() {
 	assert tool_recompilation_args('vpm', 'windows').len == 0
 }
 
+fn test_vtest_negative_host_status_is_retried_and_reported() {
+	tool_run := DelegatedToolRun{
+		exit_code:         -1
+		stderr:            'wait failed'
+		stderr_len:        11
+		output_redirected: true
+	}
+
+	assert should_retry_vtest_run('vtest.exe', tool_run)
+	assert vtest_retry_reason(tool_run) == 'negative_vtest_host_status'
+	assert should_report_delegated_tool_output(tool_run, false)
+	assert tool_failure_action('vtest.exe', -1, false) == 'inspect_last_vtest_output_lines_and_rerun_with_VJOBS_1_VTEST_SHOW_CMD_1_private_VTMP'
+	assert tool_failure_possible_causes('vtest.exe', -1, false).contains('windows_wait_or_pipe_failure')
+}
+
+fn test_vtest_exit_one_with_sparse_output_is_retried_and_diagnosed() {
+	tool_run := DelegatedToolRun{
+		exit_code:         1
+		output_redirected: true
+	}
+
+	assert is_sparse_vtest_failure_output('vtest.exe', tool_run)
+	assert should_retry_vtest_run('vtest.exe', tool_run)
+	assert vtest_retry_reason(tool_run) == 'sparse_vtest_failure_output'
+	assert should_report_delegated_tool_output(tool_run, true)
+	assert tool_failure_action('vtest.exe', 1, true) == 'rerun_suite_serially_or_with_VJOBS_1_VTEST_SHOW_CMD_1_private_VTMP'
+	assert tool_failure_possible_causes('vtest.exe', 1, true).contains('vtest_runner_exited_without_summary')
+}
+
+fn test_vtest_exit_one_with_failure_summary_is_not_sparse() {
+	tool_run := DelegatedToolRun{
+		exit_code:         1
+		stdout:            'Summary: 12 total, 1 failed'
+		stdout_len:        27
+		output_redirected: true
+	}
+
+	assert !is_sparse_vtest_failure_output('vtest.exe', tool_run)
+	assert !should_retry_vtest_run('vtest.exe', tool_run)
+	assert !should_report_delegated_tool_output(tool_run, false)
+	assert tool_failure_action('vtest.exe', 1, false) == 'inspect_vtest_failure_summary_or_rerun_failed_command'
+	assert tool_failure_possible_causes('vtest.exe', 1, false) == ''
+}
+
 fn test_fallback_tool_executable_path_uses_vtmp_for_missing_single_file_tool() {
 	tmp_dir := os.join_path(os.vtmp_dir(), 'util_test_fallback_tool_executable_path')
 	os.mkdir_all(tmp_dir) or { panic(err) }

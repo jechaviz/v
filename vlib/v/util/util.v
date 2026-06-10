@@ -343,38 +343,71 @@ pub fn launch_tool(is_verbose bool, tool_name string, args []string) {
 @[noreturn]
 fn run_tool_process_and_exit(tool_exe string, args []string) {
 	command := tool_command(tool_exe, args)
-	mut process := os.new_process(tool_exe)
-	process.set_args(args)
-	process.run()
-	if process.err != '' {
+	mut tool_run := run_delegated_tool_once(tool_exe, args)
+	if tool_run.start_error != '' {
 		eprintln(os.process_command_failure_report('v.tool.command', 1,
 			stage:   'run_tool_process'
 			command: command
 			reason:  'tool_process_start_failed'
 			action:  'inspect_tool_executable_and_arguments'
 			message: 'could not start delegated V tool process'
-			stderr:  process.err
+			stderr:  tool_run.start_error
 		))
 		exit(1)
 	}
-	process.wait()
-	raw_exit_code := process.code
+	if should_retry_vtest_run(tool_exe, tool_run) {
+		retry_reason := vtest_retry_reason(tool_run)
+		eprintln('v.tool.command.retry=true')
+		eprintln('v.tool.command.retry_reason=${retry_reason}')
+		eprintln('v.tool.command.retry_action=rerun_delegated_vtest_once')
+		time.sleep((200 + rand.intn(200) or { 0 }) * time.millisecond)
+		tool_run = run_delegated_tool_once(tool_exe, args)
+		if tool_run.start_error != '' {
+			eprintln(os.process_command_failure_report('v.tool.command', 1,
+				stage:   'run_tool_process_retry'
+				command: command
+				reason:  'tool_process_start_failed'
+				action:  'inspect_tool_executable_and_arguments'
+				message: 'could not start delegated V tool process on retry'
+				stderr:  tool_run.start_error
+			))
+			exit(1)
+		}
+	}
+	raw_exit_code := tool_run.exit_code
 	exit_code := if raw_exit_code < 0 { 1 } else { raw_exit_code }
 	if exit_code != 0 {
 		report_exit_code := if raw_exit_code < 0 { raw_exit_code } else { exit_code }
+		is_sparse_vtest_output := is_sparse_vtest_failure_output(tool_exe, tool_run)
+		report_captured_output := should_report_delegated_tool_output(tool_run,
+			is_sparse_vtest_output)
+		report_stdout := if report_captured_output { tool_run.stdout } else { '' }
+		report_stderr := if report_captured_output { tool_run.stderr } else { '' }
 		eprintln(os.process_command_failure_report('v.tool.command', report_exit_code,
 			stage:           'run_tool_process'
 			command:         command
 			reason:          'tool_child_exit_nonzero'
-			action:          tool_failure_action(tool_exe, raw_exit_code)
+			action:          tool_failure_action(tool_exe, raw_exit_code, is_sparse_vtest_output)
 			message:         tool_failure_message(raw_exit_code)
-			output_capture:  'inherited_stdio'
-			possible_causes: tool_failure_possible_causes(tool_exe, raw_exit_code)
+			stdout:          report_stdout
+			stderr:          report_stderr
+			output_capture:  tool_output_capture_mode(tool_run)
+			output_empty:    tool_run.output_redirected && tool_run.stdout_len == 0
+				&& tool_run.stderr_len == 0
+			possible_causes: tool_failure_possible_causes(tool_exe, raw_exit_code,
+				is_sparse_vtest_output)
 		))
 		eprintln('v.tool.command.child_exit_code=${raw_exit_code}')
 		eprintln('v.tool.command.child_exit_code_meaning=${os.process_exit_code_meaning(raw_exit_code)}')
 		eprintln('v.tool.command.parent_exit_code=${exit_code}')
 		eprintln('v.tool.command.tool=${tool_report_value(os.file_name(tool_exe))}')
+		if tool_run.output_redirected {
+			eprintln('v.tool.command.stdout_bytes=${tool_run.stdout_len}')
+			eprintln('v.tool.command.stderr_bytes=${tool_run.stderr_len}')
+			eprintln('v.tool.command.stdout_truncated=${tool_run.stdout_truncated}')
+			eprintln('v.tool.command.stderr_truncated=${tool_run.stderr_truncated}')
+			eprintln('v.tool.command.output_sparse=${is_sparse_vtest_output}')
+		}
 		if raw_exit_code < 0 {
 			eprintln('v.tool.command.note=${tool_report_value('parent exits with 1 for portable shell semantics; child_exit_code preserves the host status')}')
 		}
@@ -382,11 +415,173 @@ fn run_tool_process_and_exit(tool_exe string, args []string) {
 	exit(exit_code)
 }
 
-fn tool_failure_action(tool_exe string, raw_exit_code int) string {
+struct DelegatedToolRun {
+	exit_code         int
+	start_error       string
+	stdout            string
+	stderr            string
+	stdout_len        int
+	stderr_len        int
+	stdout_truncated  bool
+	stderr_truncated  bool
+	output_redirected bool
+}
+
+fn run_delegated_tool_once(tool_exe string, args []string) DelegatedToolRun {
+	if should_capture_delegated_tool_output(tool_exe) {
+		return run_delegated_tool_with_captured_stdio(tool_exe, args)
+	}
+	mut process := os.new_process(tool_exe)
+	process.set_args(args)
+	process.run()
+	if process.err != '' {
+		return DelegatedToolRun{
+			exit_code:   1
+			start_error: process.err
+		}
+	}
+	process.wait()
+	return DelegatedToolRun{
+		exit_code: process.code
+	}
+}
+
+fn run_delegated_tool_with_captured_stdio(tool_exe string, args []string) DelegatedToolRun {
+	mut process := os.new_process(tool_exe)
+	process.set_args(args)
+	process.set_redirect_stdio()
+	process.run()
+	if process.err != '' {
+		return DelegatedToolRun{
+			exit_code:         1
+			start_error:       process.err
+			output_redirected: true
+		}
+	}
+	mut stdout_capture := DelegatedToolOutputCapture{}
+	mut stderr_capture := DelegatedToolOutputCapture{}
+	for process.is_alive() {
+		read_emit_and_capture_delegated_tool_pipe(mut process, .stdout, mut stdout_capture)
+		read_emit_and_capture_delegated_tool_pipe(mut process, .stderr, mut stderr_capture)
+		time.sleep(10 * time.millisecond)
+	}
+	process.wait()
+	stdout_tail := process.stdout_slurp()
+	stderr_tail := process.stderr_slurp()
+	emit_and_capture_delegated_tool_output(.stdout, stdout_tail, mut stdout_capture)
+	emit_and_capture_delegated_tool_output(.stderr, stderr_tail, mut stderr_capture)
+	exit_code := process.code
+	process.close()
+	return DelegatedToolRun{
+		exit_code:         exit_code
+		stdout:            stdout_capture.output
+		stderr:            stderr_capture.output
+		stdout_len:        stdout_capture.output_len
+		stderr_len:        stderr_capture.output_len
+		stdout_truncated:  stdout_capture.truncated
+		stderr_truncated:  stderr_capture.truncated
+		output_redirected: true
+	}
+}
+
+struct DelegatedToolOutputCapture {
+mut:
+	output     string
+	output_len int
+	truncated  bool
+}
+
+fn read_emit_and_capture_delegated_tool_pipe(mut process os.Process, pipe_kind os.ChildProcessPipeKind, mut capture DelegatedToolOutputCapture) {
+	if chunk := process.pipe_read(pipe_kind) {
+		emit_and_capture_delegated_tool_output(pipe_kind, chunk, mut capture)
+	}
+}
+
+fn emit_and_capture_delegated_tool_output(pipe_kind os.ChildProcessPipeKind, chunk string, mut capture DelegatedToolOutputCapture) {
+	if chunk.len == 0 {
+		return
+	}
+	if pipe_kind == .stdout {
+		print(chunk)
+		flush_stdout()
+	} else {
+		eprint(chunk)
+		flush_stderr()
+	}
+	capture.output_len += chunk.len
+	if capture.truncated {
+		return
+	}
+	capture_limit := 16 * 1024
+	if capture.output.len + chunk.len <= capture_limit {
+		capture.output += chunk
+		return
+	}
+	capture.truncated = true
+}
+
+fn should_capture_delegated_tool_output(tool_exe string) bool {
+	return is_delegated_vtest_tool(tool_exe)
+}
+
+fn is_delegated_vtest_tool(tool_exe string) bool {
+	return os.file_name(tool_exe).to_lower_ascii() in ['vtest', 'vtest.exe']
+}
+
+fn should_retry_vtest_run(tool_exe string, tool_run DelegatedToolRun) bool {
+	if !is_delegated_vtest_tool(tool_exe) {
+		return false
+	}
+	if tool_run.exit_code < 0 {
+		return true
+	}
+	return is_sparse_vtest_failure_output(tool_exe, tool_run)
+}
+
+fn vtest_retry_reason(tool_run DelegatedToolRun) string {
+	if tool_run.exit_code < 0 {
+		return 'negative_vtest_host_status'
+	}
+	return 'sparse_vtest_failure_output'
+}
+
+fn is_sparse_vtest_failure_output(tool_exe string, tool_run DelegatedToolRun) bool {
+	if !is_delegated_vtest_tool(tool_exe) || tool_run.exit_code != 1 || !tool_run.output_redirected {
+		return false
+	}
+	total_output_len := tool_run.stdout_len + tool_run.stderr_len
+	if total_output_len == 0 {
+		return true
+	}
+	if total_output_len > 512 {
+		return false
+	}
+	output := '${tool_run.stdout}\n${tool_run.stderr}'.to_lower_ascii()
+	return !output.contains('summary') && !output.contains('failed') && !output.contains('assert')
+}
+
+fn should_report_delegated_tool_output(tool_run DelegatedToolRun, is_sparse_vtest_output bool) bool {
+	if !tool_run.output_redirected {
+		return false
+	}
+	return tool_run.exit_code < 0 || is_sparse_vtest_output
+}
+
+fn tool_output_capture_mode(tool_run DelegatedToolRun) string {
+	if tool_run.output_redirected {
+		return 'redirected_stdio_echoed'
+	}
+	return 'inherited_stdio'
+}
+
+fn tool_failure_action(tool_exe string, raw_exit_code int, is_sparse_vtest_output bool) string {
 	tool_name := os.file_name(tool_exe).to_lower_ascii()
 	if tool_name in ['vtest', 'vtest.exe'] {
 		if raw_exit_code < 0 {
 			return 'inspect_last_vtest_output_lines_and_rerun_with_VJOBS_1_VTEST_SHOW_CMD_1_private_VTMP'
+		}
+		if is_sparse_vtest_output {
+			return 'rerun_suite_serially_or_with_VJOBS_1_VTEST_SHOW_CMD_1_private_VTMP'
 		}
 		return 'inspect_vtest_failure_summary_or_rerun_failed_command'
 	}
@@ -403,10 +598,13 @@ fn tool_failure_message(raw_exit_code int) string {
 	return 'delegated V tool exited with a non-zero status'
 }
 
-fn tool_failure_possible_causes(tool_exe string, raw_exit_code int) string {
+fn tool_failure_possible_causes(tool_exe string, raw_exit_code int, is_sparse_vtest_output bool) string {
 	tool_name := os.file_name(tool_exe).to_lower_ascii()
 	if tool_name in ['vtest', 'vtest.exe'] && raw_exit_code < 0 {
 		return 'vtest_process_terminated;external_runner_killed_child;windows_wait_or_pipe_failure;resource_exhaustion;parallel_runner_lock'
+	}
+	if tool_name in ['vtest', 'vtest.exe'] && is_sparse_vtest_output {
+		return 'vtest_runner_exited_without_summary;parallel_suite_resource_contention;temporary_output_or_lock_conflict;test_child_process_failed_before_report'
 	}
 	if raw_exit_code < 0 {
 		return 'delegated_tool_terminated;windows_wait_or_process_failure;resource_exhaustion'
