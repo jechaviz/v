@@ -114,9 +114,9 @@ pub:
 }
 
 pub fn collect_host_telemetry(path string) HostTelemetry {
-	total_memory, total_ok := read_total_memory()
-	free_memory, free_ok := read_free_memory()
-	used_memory, used_ok := read_used_memory()
+	total_memory_value, total_ok := read_total_memory()
+	free_memory_value, free_ok := read_free_memory()
+	used_memory_value, used_ok := read_used_memory()
 	total_virtual, total_virtual_ok := read_total_virtual_memory()
 	free_virtual, free_virtual_ok := read_free_virtual_memory()
 	disk_path := telemetry_disk_path(path)
@@ -125,14 +125,14 @@ pub fn collect_host_telemetry(path string) HostTelemetry {
 		os_name:                    os.user_os()
 		arch:                       host_arch()
 		logical_cpus:               nr_cpus()
-		total_memory_bytes:         total_memory
-		free_memory_bytes:          free_memory
-		used_memory_bytes:          used_memory
+		total_memory_bytes:         total_memory_value
+		free_memory_bytes:          free_memory_value
+		used_memory_bytes:          used_memory_value
 		memory_complete:            total_ok && free_ok && used_ok
 		total_virtual_memory_bytes: total_virtual
 		free_virtual_memory_bytes:  free_virtual
 		used_virtual_memory_bytes:  used_virtual_memory(total_virtual, free_virtual)
-		available_memory_bytes:     available_memory(free_memory, free_virtual)
+		available_memory_bytes:     available_memory(free_memory_value, free_virtual)
 		virtual_memory_complete:    total_virtual_ok && free_virtual_ok
 		disk_path:                  disk_path
 		disk_total_bytes:           disk.total
