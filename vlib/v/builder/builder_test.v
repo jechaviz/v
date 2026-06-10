@@ -439,8 +439,13 @@ fn test_vlib_import_does_not_match_user_project_dir() {
 		'import v.ast\n\nfn test_vast_table_loads() {\n\t_ := ast.new_table()\n}\n')!
 	os.chdir(project_dir)!
 
-	res := os.execute('${os.quoted_path(vexe)} -check src/app/app_test.v')
-	assert res.exit_code == 0, res.output
+	cmd := '${os.quoted_path(vexe)} -check src/app/app_test.v'
+	res := os.execute(cmd)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
 	assert !res.output.contains('bad module definition'), res.output
 }
 
@@ -472,8 +477,13 @@ fn test_vendored_sibling_modules_with_own_vmod_resolve_each_other() {
 		'module main\n\nimport foo\n\nfn main() {\n\tprintln(foo.hello())\n}\n')!
 	os.chdir(project_dir)!
 
-	res := os.execute('${os.quoted_path(vexe)} -check .')
-	assert res.exit_code == 0, res.output
+	cmd := '${os.quoted_path(vexe)} -check .'
+	res := os.execute(cmd)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
 	assert !res.output.contains('not found'), res.output
 }
 
@@ -500,8 +510,13 @@ fn test_vendored_modules_dir_with_own_vmod_still_resolves() {
 		'module main\n\nimport vendored\n\nfn main() {\n\tprintln(vendored.hello())\n}\n')!
 	os.chdir(project_dir)!
 
-	res := os.execute('${os.quoted_path(vexe)} -check .')
-	assert res.exit_code == 0, res.output
+	cmd := '${os.quoted_path(vexe)} -check .'
+	res := os.execute(cmd)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
 	assert !res.output.contains('not found'), res.output
 }
 

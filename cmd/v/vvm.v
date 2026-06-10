@@ -43,22 +43,17 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 	if prefs.is_verbose {
 		eprintln('v: `.vvmrc` selected V `${requested_version}` from `${vvmrc_path}` => ${vversion_exe}')
 	}
-	mut process := os.new_process(vversion_exe)
-	process.set_args(os.args[1..])
 	mut envs := os.environ()
 	envs[vvmrc_skip_env] = '1'
 	envs['VEXE'] = vversion_exe
-	process.set_environment(envs)
-	process.wait()
-	delegate_exit_code := process.code
-	exit_code := if delegate_exit_code < 0 { 1 } else { delegate_exit_code }
-	process_error := process.err
-	process.close()
+	delegate_result :=
+		run_delegated_process_echoed_with_environment(vversion_exe, os.args[1..], envs)
+	delegate_exit_code := delegate_result.raw_exit_code
+	exit_code := delegate_result.exit_code
 	if exit_code != 0 {
-		delegated_command := '${os.quoted_path(vversion_exe)} ${os.args[1..].map(os.quoted_path(it)).join(' ')}'
 		reason := if delegate_exit_code < 0 {
 			'vvmrc_delegate_start_or_wait_failed'
-		} else if process_error != '' {
+		} else if delegate_result.error != '' {
 			'vvmrc_delegate_start_failed'
 		} else {
 			'vvmrc_delegate_exit_nonzero'
@@ -70,12 +65,13 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 		}
 		eprintln(os.process_command_failure_report('v.vvmrc.delegate', delegate_exit_code,
 			stage:          'vvmrc_delegate'
-			command:        delegated_command
+			command:        delegate_result.command
 			reason:         reason
 			action:         'inspect_delegated_compiler_output_or_vvmrc_version'
 			message:        message
-			stderr:         process_error
-			output_capture: 'inherited_stdio'
+			output:         delegate_result.output
+			stderr:         delegate_result.error
+			output_capture: 'redirected_stdio_echoed'
 		))
 		eprintln('v.vvmrc.delegate.file=${vvmrc_report_value(vvmrc_path)}')
 		eprintln('v.vvmrc.delegate.requested_version=${vvmrc_report_value(requested_version)}')

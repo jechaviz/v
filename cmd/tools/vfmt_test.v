@@ -45,13 +45,22 @@ fn test_fmt_preferences_respect_vflags() {
 	}
 
 	os.unsetenv('VFLAGS')
-	warmup_res := os.execute('${os.quoted_path(vexe)} fmt -help')
-	assert warmup_res.exit_code == 0, warmup_res.output
+	warmup_cmd := '${os.quoted_path(vexe)} fmt -help'
+	warmup_res := os.execute(warmup_cmd)
+	assert warmup_res.exit_code == 0, warmup_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: warmup_cmd
+	)
 
 	os.setenv('VFLAGS', '-b js', true)
-	res := os.execute('${os.quoted_path(vexe)} fmt ${os.quoted_path(source_path)}')
+	cmd := '${os.quoted_path(vexe)} fmt ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
 
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
 	assert res.output.contains("x := 'abc'.str"), res.output
 	assert !res.output.contains("x := c'abc'"), res.output
 }

@@ -9,7 +9,13 @@ fn test_noalloc_attr_rejects_detected_allocations() {
 	cmd := '${vexe} -check ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
 
-	assert res.exit_code != 0, res.output
+	assert res.exit_code != 0, res.exit_code_diagnostics('non-zero',
+		label:   @FN
+		command: cmd
+		reason:  'noalloc function with detected allocations should fail'
+		action:  'inspect noalloc attr diagnostics'
+	)
+
 	assert res.output.contains('allocation (array initialization) is not allowed inside `@[noalloc]` function `make_values`'), res.output
 
 	assert res.output.contains('allocation (array clone of `[]int`) is not allowed inside `@[noalloc]` function `clone_values`'), res.output

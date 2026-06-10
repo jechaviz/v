@@ -447,7 +447,9 @@ fn coff_test_section_ranges(sections []CoffTestSection) []TestByteRange {
 }
 
 fn assert_command_ok(res os.Result, label string) {
-	assert res.exit_code == 0, '${label} failed: ${res.output}'
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label: label
+	)
 }
 
 fn output_has_line_with_all(output string, words []string) bool {

@@ -59,9 +59,13 @@ fn test_macos_tiny_opt_out_rejection_has_cli_error_prefix() {
 		panic(err)
 	}
 	vlib_path := os.join_path(os.dir(@VEXE), 'vlib')
-	res :=
-		os.execute('${os.quoted_path(@VEXE)} -path "${vlib_path}|@vlib|@vmodules" run ${os.quoted_path(source_path)}')
-	assert res.exit_code == 1, res.output
+	cmd := '${os.quoted_path(@VEXE)} -path "${vlib_path}|@vlib|@vmodules" run ${os.quoted_path(source_path)}'
+	res := os.execute(cmd)
+	assert res.exit_code == 1, res.exit_code_diagnostics('1',
+		label:   @FN
+		command: cmd
+	)
+
 	assert res.output.contains('error: -no-mos-tiny requires a macOS target'), res.output
 }
 

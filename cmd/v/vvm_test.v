@@ -14,6 +14,7 @@ const requested_vvm_test_version = '99.99.99'
 struct CmdResult {
 	exit_code int
 	output    string
+	command   string
 }
 
 fn vvm_test_repo_root() string {
@@ -35,10 +36,32 @@ fn build_current_v_wrapper(tmp_root string) string {
 	} else {
 		'v_public_wrapper'
 	})
-	compile_res := os.execute('${os.quoted_path(current_vexe)} -path "${os.join_path(vroot, 'vlib')}|@vlib|@vmodules" -o ${os.quoted_path(wrapper_exe)} ${os.quoted_path(os.join_path(vroot,
-		'cmd', 'v'))}')
-	assert compile_res.exit_code == 0, compile_res.output
+	compile_cmd := '${os.quoted_path(current_vexe)} -path "${os.join_path(vroot, 'vlib')}|@vlib|@vmodules" -o ${os.quoted_path(wrapper_exe)} ${os.quoted_path(os.join_path(vroot,
+		'cmd', 'v'))}'
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	return wrapper_exe
+}
+
+fn cmd_result_exit_code_diagnostics(res CmdResult, expected string, label string) string {
+	return os.process_exit_code_diagnostics(res.exit_code, expected,
+		label:          label
+		command:        res.command
+		output:         res.output
+		output_capture: 'pipe'
+	)
+}
+
+fn quoted_command(vexe string, args []string) string {
+	mut parts := [os.quoted_path(vexe)]
+	for arg in args {
+		parts << os.quoted_path(arg)
+	}
+	return parts.join(' ')
 }
 
 fn test_parse_vvmrc_version() {
@@ -86,9 +109,13 @@ fn test_vvmrc_delegates_to_matching_compiler_executable() {
 	} else {
 		'v${requested_vvm_test_version}'
 	})
-	compile_res :=
-		os.execute('${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}')
-	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0', label: @FN)
+	compile_cmd := '${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}'
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	project_dir := os.join_path(tmp_root, 'project')
 	os.mkdir_all(project_dir) or { panic(err) }
 	os.write_file(os.join_path(project_dir, '.vvmrc'), requested_vvm_test_version) or { panic(err) }
@@ -99,10 +126,7 @@ fn test_vvmrc_delegates_to_matching_compiler_executable() {
 	envs[path_key] = '${bin_dir}${os.path_delimiter}${envs[path_key]}'
 	envs['V_SKIP_VVMRC'] = ''
 	res := run_v_command(project_dir, ['run', 'main.v'], envs)
-	assert res.exit_code == 0, os.process_exit_code_diagnostics(res.exit_code, '0',
-		label:  @FN
-		output: res.output
-	)
+	assert res.exit_code == 0, cmd_result_exit_code_diagnostics(res, '0', @FN)
 
 	assert res.output.contains('${delegated_marker} run main.v'), res.output
 }
@@ -124,9 +148,13 @@ fn test_v2_delegation_waits_for_compiler_process_and_propagates_exit_code() {
 	} else {
 		'fake_v2_compiler'
 	})
-	compile_res :=
-		os.execute('${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}')
-	assert compile_res.exit_code == 0, compile_res.output
+	compile_cmd := '${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}'
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	project_dir := os.join_path(tmp_root, 'project')
 	os.mkdir_all(project_dir) or { panic(err) }
 	os.write_file(os.join_path(project_dir, 'main.v'), "fn main() {\n\tprintln('unused')\n}\n") or {
@@ -139,7 +167,7 @@ fn test_v2_delegation_waits_for_compiler_process_and_propagates_exit_code() {
 	envs['VFLAGS'] = ''
 
 	res := run_v_command(project_dir, ['-v2', 'main.v'], envs)
-	assert res.exit_code == 7, res.output
+	assert res.exit_code == 7, cmd_result_exit_code_diagnostics(res, '7', @FN)
 	assert res.output.contains(delegated_v2_marker), res.output
 	assert os.is_file(marker_file)
 	marker := os.read_file(marker_file) or { panic(err) }
@@ -164,9 +192,13 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 	} else {
 		'fake_v2_compiler'
 	})
-	compile_res :=
-		os.execute('${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}')
-	assert compile_res.exit_code == 0, compile_res.output
+	compile_cmd := '${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}'
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	project_dir := os.join_path(tmp_root, 'project')
 	os.mkdir_all(project_dir) or { panic(err) }
 	os.write_file(os.join_path(project_dir, 'main.v'), 'fn main() {}\n') or { panic(err) }
@@ -191,7 +223,7 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 		'out.c',
 		'main.v',
 	], envs)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, cmd_result_exit_code_diagnostics(res, '0', @FN)
 	assert os.is_file(marker_file)
 	marker := os.read_file(marker_file) or { panic(err) }
 	assert marker.contains('-freestanding'), marker
@@ -214,7 +246,7 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 		'out',
 		'main.v',
 	], envs)
-	assert res_macos.exit_code == 0, res_macos.output
+	assert res_macos.exit_code == 0, cmd_result_exit_code_diagnostics(res_macos, '0', @FN)
 	macos_marker := os.read_file(marker_file) or { panic(err) }
 	assert macos_marker.contains('-b x64'), macos_marker
 	assert macos_marker.contains('-os macos'), macos_marker
@@ -229,7 +261,9 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 		'-mos-tiny',
 		'main.v',
 	], envs)
-	assert legacy_macos_tiny_res.exit_code == 1, legacy_macos_tiny_res.output
+	assert legacy_macos_tiny_res.exit_code == 1, cmd_result_exit_code_diagnostics(legacy_macos_tiny_res,
+		'1', @FN)
+
 	assert legacy_macos_tiny_res.output.contains('Unknown argument `-mos-tiny`'), legacy_macos_tiny_res.output
 	assert !os.exists(marker_file), 'legacy -mos-tiny was forwarded to V2'
 
@@ -239,7 +273,8 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 		['main.v', '--skip-builtin', '-v2'],
 	] {
 		blocked_res := run_v_command_with_exe(wrapper_exe, project_dir, blocked_args, envs)
-		assert blocked_res.exit_code == 1, blocked_res.output
+		assert blocked_res.exit_code == 1, cmd_result_exit_code_diagnostics(blocked_res, '1', @FN)
+
 		assert blocked_res.output.contains('Unknown argument `--skip-builtin`'), blocked_res.output
 	}
 
@@ -250,7 +285,8 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 		'main.v',
 		'-v2',
 	], envs)
-	assert late_hooks_res.exit_code == 1, late_hooks_res.output
+	assert late_hooks_res.exit_code == 1, cmd_result_exit_code_diagnostics(late_hooks_res, '1', @FN)
+
 	assert late_hooks_res.output.contains('Unknown argument `-fhooks`'), late_hooks_res.output
 
 	os_none_after_run_res := run_v_command_with_exe(wrapper_exe, project_dir, [
@@ -260,7 +296,9 @@ fn test_v2_delegation_forwards_target_specific_flags() {
 		'main.v',
 		'-v2',
 	], envs)
-	assert os_none_after_run_res.exit_code == 1, os_none_after_run_res.output
+	assert os_none_after_run_res.exit_code == 1, cmd_result_exit_code_diagnostics(os_none_after_run_res,
+		'1', @FN)
+
 	assert os_none_after_run_res.output.contains('unknown operating system target `none`'), os_none_after_run_res.output
 }
 
@@ -279,9 +317,13 @@ fn test_vvmrc_reports_silent_delegated_compiler_failure() {
 	} else {
 		'v${requested_vvm_test_version}'
 	})
-	compile_res :=
-		os.execute('${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}')
-	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0', label: @FN)
+	compile_cmd := '${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}'
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
 	project_dir := os.join_path(tmp_root, 'project')
 	os.mkdir_all(project_dir) or { panic(err) }
 	os.write_file(os.join_path(project_dir, '.vvmrc'), requested_vvm_test_version) or { panic(err) }
@@ -292,14 +334,11 @@ fn test_vvmrc_reports_silent_delegated_compiler_failure() {
 	envs['V_SKIP_VVMRC'] = ''
 	res := run_v_command(project_dir, ['run', 'main.v'], envs)
 
-	assert res.exit_code == 17, os.process_exit_code_diagnostics(res.exit_code, '17',
-		label:  @FN
-		output: res.output
-	)
+	assert res.exit_code == 17, cmd_result_exit_code_diagnostics(res, '17', @FN)
 
 	assert res.output.contains('v.vvmrc.delegate.failed=true'), res.output
 	assert res.output.contains('v.vvmrc.delegate.reason=vvmrc_delegate_exit_nonzero'), res.output
-	assert res.output.contains('v.vvmrc.delegate.output_capture=inherited_stdio'), res.output
+	assert res.output.contains('v.vvmrc.delegate.output_capture=redirected_stdio_echoed'), res.output
 	assert res.output.contains('v.vvmrc.delegate.file='), res.output
 	assert res.output.contains('v.vvmrc.delegate.requested_version=${requested_vvm_test_version}'), res.output
 }
@@ -321,6 +360,7 @@ fn run_v_command_with_exe(vexe string, work_dir string, args []string, envs map[
 	return CmdResult{
 		exit_code: exit_code
 		output:    output
+		command:   quoted_command(vexe, args)
 	}
 }
 

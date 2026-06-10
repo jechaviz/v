@@ -7,6 +7,14 @@ module types
 
 import os
 
+fn lifetime_exit_code_diagnostics(exit_code int, output string, expected string, label string) string {
+	return os.process_exit_code_diagnostics(exit_code, expected,
+		label:          label
+		output:         output
+		output_capture: 'pipe'
+	)
+}
+
 fn v2_ownership_lifetimes_exe() string {
 	vroot := @VMODROOT
 	// Use a test-file-unique binary name so parallel `v test` runs of
@@ -16,10 +24,15 @@ fn v2_ownership_lifetimes_exe() string {
 		return v2_ownership
 	}
 	vexe := os.join_path(vroot, 'v')
-	res := os.execute('${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
-		'cmd', 'v2', 'v2.v'))}')
+	cmd := '${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
+		'cmd', 'v2', 'v2.v'))}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('failed to build v2_ownership: ${res.output}')
+		panic(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'v2_ownership_build_failed'
+		))
 	}
 	return v2_ownership
 }
@@ -33,8 +46,8 @@ fn run_lifetime_check(code string) (int, string) {
 	tmp_file := os.join_path(tmp_dir, 'test.v')
 	os.write_file(tmp_file, code) or { panic('failed to write temp file') }
 	v2 := v2_ownership_lifetimes_exe()
-	res :=
-		os.execute('${os.quoted_path(v2)} -ownership -o ${os.join_path(tmp_dir, 'out')} ${os.quoted_path(tmp_file)} 2>&1')
+	cmd := '${os.quoted_path(v2)} -ownership -o ${os.join_path(tmp_dir, 'out')} ${os.quoted_path(tmp_file)} 2>&1'
+	res := os.execute(cmd)
 	return res.exit_code, res.output
 }
 
@@ -57,7 +70,7 @@ fn main() {
 }
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'valid lifetime signature should compile: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_undeclared_in_param_errors() {
@@ -159,7 +172,7 @@ fn main() {
 }
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'lifetime-param value constructor should compile: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_method_receiver_counts_as_input() {
@@ -177,7 +190,7 @@ fn (h &^a Holder[^a]) borrow[^a]() &^a Holder[^a] {
 fn main() {}
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'receiver should count as an input lifetime: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_struct_field_undeclared_errors() {
@@ -213,7 +226,7 @@ struct GoodHolder[^a] {
 fn main() {}
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'struct with properly declared lifetime should compile: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_nested_in_generic_args_validated() {
@@ -253,7 +266,7 @@ fn main() {
 }
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'plain code must not be affected: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 // ----- Phase 2: elision / anonymous lifetimes / variance -----
@@ -278,7 +291,7 @@ fn main() {
 }
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'single-input elision should compile: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_anonymous_lifetime_ok() {
@@ -301,7 +314,7 @@ fn main() {
 }
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'anonymous lifetime should compile: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_elision_method_receiver_ok() {
@@ -323,7 +336,7 @@ fn main() {
 }
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'method-receiver elision should compile: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_lifetime_elision_no_input_errors() {
@@ -401,5 +414,5 @@ fn no_params_returns_ref() &Thing {
 fn main() {}
 '
 	exit_code, output := run_lifetime_check(code)
-	assert exit_code == 0, 'un-opted-in legacy code must not be affected: ${output}'
+	assert exit_code == 0, lifetime_exit_code_diagnostics(exit_code, output, '0', @FN)
 }

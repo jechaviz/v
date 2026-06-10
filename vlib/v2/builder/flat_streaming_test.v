@@ -128,9 +128,18 @@ fn main() {
 	}
 	cmd := '${os.quoted_path(@VEXE)} -v2 -nocache -o ${os.quoted_path(out_path)} ${os.quoted_path(path)} 2>&1'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.output
-	run_res := os.execute(os.quoted_path(out_path))
-	assert run_res.exit_code == 0, run_res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
+	run_cmd := os.quoted_path(out_path)
+	run_res := os.execute(run_cmd)
+	assert run_res.exit_code == 0, run_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: run_cmd
+	)
+
 	assert run_res.output.trim_space() == 'flat parallel ok', run_res.output
 }
 
@@ -153,5 +162,8 @@ fn main() {
 	cmd := '${os.quoted_path(@VEXE)} -v2 -nocache -backend arm64 -gc none -o ${os.quoted_path(out_path)} ${os.quoted_path(path)} 2>&1'
 	res := os.execute(cmd)
 	assert !res.output.contains('_id_T_int'), res.output
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
 }

@@ -19,6 +19,7 @@ const e2e_freestanding_missing_panic_hook_message = 'v2: freestanding target req
 struct CleancCliResult {
 	exit_code int
 	output    string
+	command   string
 	c_source  string
 	out_path  string
 	c_path    string
@@ -55,10 +56,16 @@ fn build_v2_for_target_e2e(tmp_dir string) string {
 	vroot := e2e_repo_root()
 	v2_source := os.join_path(vroot, 'cmd', 'v2', 'v2.v')
 	v2_binary := os.join_path(tmp_dir, e2e_v2_binary_name())
-	res :=
-		os.execute('"${@VEXE}" -path "${os.join_path(vroot, 'vlib')}|@vlib|@vmodules" -gc none -nocache "${v2_source}" -o "${v2_binary}"')
+	cmd := '"${@VEXE}" -path "${os.join_path(vroot, 'vlib')}|@vlib|@vmodules" -gc none -nocache "${v2_source}" -o "${v2_binary}"'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('failed to build cmd/v2 for cleanc target e2e:\n${res.output}')
+		panic(res.command_failure_report('v2.cleanc.e2e.build',
+			stage:   'build_cmd_v2'
+			reason:  'build_v2_binary_failed'
+			action:  'rerun_reported_command'
+			message: 'failed to build cmd/v2 for cleanc target e2e'
+			command: cmd
+		))
 	}
 	return v2_binary
 }
@@ -67,10 +74,16 @@ fn build_v1_for_target_e2e(tmp_dir string) string {
 	vroot := e2e_repo_root()
 	v1_source := os.join_path(vroot, 'cmd', 'v')
 	v1_binary := os.join_path(tmp_dir, 'v1_public_wrapper')
-	res :=
-		os.execute('"${@VEXE}" -path "${os.join_path(vroot, 'vlib')}|@vlib|@vmodules" -gc none -nocache "${v1_source}" -o "${v1_binary}"')
+	cmd := '"${@VEXE}" -path "${os.join_path(vroot, 'vlib')}|@vlib|@vmodules" -gc none -nocache "${v1_source}" -o "${v1_binary}"'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('failed to build cmd/v for cleanc target e2e:\n${res.output}')
+		panic(res.command_failure_report('v2.cleanc.e2e.build',
+			stage:   'build_cmd_v1'
+			reason:  'build_v1_wrapper_failed'
+			action:  'rerun_reported_command'
+			message: 'failed to build cmd/v for cleanc target e2e'
+			command: cmd
+		))
 	}
 	return v1_binary
 }
@@ -89,6 +102,7 @@ fn run_v2_to_c_with_env(v2_binary string, tmp_dir string, name string, args []st
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  out_path
 		c_path:    out_path
@@ -114,6 +128,7 @@ fn run_v2_to_c_files(v2_binary string, tmp_dir string, name string, args []strin
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  out_path
 		c_path:    out_path
@@ -136,6 +151,7 @@ fn run_v2_to_c_project_files(v2_binary string, tmp_dir string, name string, args
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  out_path
 		c_path:    out_path
@@ -167,6 +183,7 @@ fn run_v2_to_binary(v2_binary string, tmp_dir string, name string, args []string
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		out_path:  out_path
 		c_path:    generated_c_output_path(out_path)
 	}
@@ -182,6 +199,7 @@ fn run_v2_to_output(v2_binary string, tmp_dir string, name string, args []string
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  output_path
 		c_path:    c_path
@@ -200,6 +218,7 @@ fn run_v2_without_output_in_dir(v2_binary string, tmp_dir string, name string, a
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  e2e_binary_output_path(work_dir, name)
 		c_path:    c_path
@@ -223,6 +242,7 @@ fn run_v1_v2_without_output_in_dir(v1_binary string, v2_binary string, tmp_dir s
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  e2e_binary_output_path(work_dir, name)
 		c_path:    c_path
@@ -239,6 +259,7 @@ fn run_v1_v2_to_output(v1_binary string, v2_binary string, tmp_dir string, name 
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  output_path
 		c_path:    output_path
@@ -255,14 +276,45 @@ fn run_v2_to_output_with_cache(v2_binary string, tmp_dir string, name string, ar
 	return CleancCliResult{
 		exit_code: res.exit_code
 		output:    res.output
+		command:   cmd
 		c_source:  c_source
 		out_path:  output_path
 		c_path:    c_path
 	}
 }
 
+fn cleanc_result_exit_code_diagnostics(res CleancCliResult, expected string, label string) string {
+	return os.process_exit_code_diagnostics(res.exit_code, expected,
+		label:          label
+		command:        res.command
+		output:         res.output
+		output_capture: 'pipe'
+	)
+}
+
+fn assert_e2e_command_success(res os.Result, command string, label string) {
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   label
+		command: command
+	)
+}
+
+fn assert_e2e_command_failure(res os.Result, command string, label string) {
+	assert res.exit_code != 0, res.exit_code_diagnostics('non-zero',
+		label:   label
+		command: command
+	)
+}
+
+fn run_e2e_binary(path string, label string) os.Result {
+	cmd := '"${path}"'
+	res := os.execute(cmd)
+	assert_e2e_command_success(res, cmd, label)
+	return res
+}
+
 fn assert_cli_success(res CleancCliResult) {
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, cleanc_result_exit_code_diagnostics(res, '0', @FN)
 	assert os.exists(res.out_path), res.output
 	assert res.c_source.len > 0, res.output
 }
@@ -278,12 +330,12 @@ fn assert_generated_c_heap_runtime_static_assert_contains(res CleancCliResult, h
 }
 
 fn assert_binary_success(res CleancCliResult) {
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, cleanc_result_exit_code_diagnostics(res, '0', @FN)
 	assert os.exists(res.out_path), res.output
 }
 
 fn assert_generated_c_only(res CleancCliResult) {
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, cleanc_result_exit_code_diagnostics(res, '0', @FN)
 	assert os.exists(res.c_path), res.output
 	assert res.c_source.len > 0, res.output
 	assert !os.exists(res.out_path), 'unexpected local executable ${res.out_path}\n${res.output}'
@@ -291,7 +343,7 @@ fn assert_generated_c_only(res CleancCliResult) {
 }
 
 fn assert_cli_failure_contains(res CleancCliResult, expected string) {
-	assert res.exit_code != 0, res.output
+	assert res.exit_code != 0, cleanc_result_exit_code_diagnostics(res, 'non-zero', @FN)
 	assert res.output.contains(expected), res.output
 	assert !os.exists(res.out_path), 'failed command wrote unexpected output ${res.out_path}\n${res.output}'
 	if res.c_path != res.out_path {
@@ -477,8 +529,9 @@ fn test_cleanc_cli_freestanding_diagnostics_and_user_directives() {
 	}
 	v2_binary := build_v2_for_target_e2e(tmp_dir)
 
-	help_res := os.execute('"${v2_binary}" --definitely-unknown-freestanding-flag')
-	assert help_res.exit_code != 0, help_res.output
+	help_cmd := '"${v2_binary}" --definitely-unknown-freestanding-flag'
+	help_res := os.execute(help_cmd)
+	assert_e2e_command_failure(help_res, help_cmd, @FN)
 	assert help_res.output.contains('-fhooks <values>'), help_res.output
 	assert help_res.output.contains('Advanced freestanding hooks for --skip-builtin --skip-type-check stubs'), help_res.output
 	assert help_res.output.contains('-b <name>'), help_res.output
@@ -1857,8 +1910,7 @@ fn main() {}
 		'cc',
 	], minimal_source)
 	assert_binary_success(minimal_res)
-	minimal_run := os.execute('"${minimal_res.out_path}"')
-	assert minimal_run.exit_code == 0, minimal_run.output
+	run_e2e_binary(minimal_res.out_path, @FN)
 	assert !os.exists(minimal_res.c_path), minimal_res.output
 
 	default_no_output_res := run_v2_without_output(v2_binary, tmp_dir, 'host_default_no_output', [
@@ -1866,8 +1918,7 @@ fn main() {}
 		'cc',
 	], minimal_source)
 	assert_binary_success(default_no_output_res)
-	default_no_output_run := os.execute('"${default_no_output_res.out_path}"')
-	assert default_no_output_run.exit_code == 0, default_no_output_run.output
+	run_e2e_binary(default_no_output_res.out_path, @FN)
 	assert !os.exists(default_no_output_res.c_path), default_no_output_res.output
 
 	public_default_cwd := os.join_path(tmp_dir, 'public_default_cwd')
@@ -1877,8 +1928,7 @@ fn main() {}
 		'cc',
 	], minimal_source, public_default_cwd)
 	assert_binary_success(public_default_no_output_res)
-	public_default_no_output_run := os.execute('"${public_default_no_output_res.out_path}"')
-	assert public_default_no_output_run.exit_code == 0, public_default_no_output_run.output
+	run_e2e_binary(public_default_no_output_res.out_path, @FN)
 	assert !os.exists(public_default_no_output_res.c_path), public_default_no_output_res.output
 
 	host_os := normalize_e2e_os_name(os.user_os())
@@ -1891,8 +1941,7 @@ fn main() {}
 			host_os,
 		], minimal_source)
 		assert_binary_success(explicit_host_default_res)
-		explicit_host_default_run := os.execute('"${explicit_host_default_res.out_path}"')
-		assert explicit_host_default_run.exit_code == 0, explicit_host_default_run.output
+		run_e2e_binary(explicit_host_default_res.out_path, @FN)
 		assert !os.exists(explicit_host_default_res.c_path), explicit_host_default_res.output
 
 		explicit_host_res := run_v2_to_binary(v2_binary, tmp_dir, 'host_explicit_${host_os}', [
@@ -1902,8 +1951,7 @@ fn main() {}
 			host_os,
 		], minimal_source)
 		assert_binary_success(explicit_host_res)
-		explicit_host_run := os.execute('"${explicit_host_res.out_path}"')
-		assert explicit_host_run.exit_code == 0, explicit_host_run.output
+		run_e2e_binary(explicit_host_res.out_path, @FN)
 		assert !os.exists(explicit_host_res.c_path), explicit_host_res.output
 
 		public_explicit_host_res := run_v1_v2_without_output_in_dir(v1_binary, v2_binary, tmp_dir,
@@ -1914,8 +1962,7 @@ fn main() {}
 			host_os,
 		], minimal_source, public_default_cwd)
 		assert_binary_success(public_explicit_host_res)
-		public_explicit_host_run := os.execute('"${public_explicit_host_res.out_path}"')
-		assert public_explicit_host_run.exit_code == 0, public_explicit_host_run.output
+		run_e2e_binary(public_explicit_host_res.out_path, @FN)
 		assert !os.exists(public_explicit_host_res.c_path), public_explicit_host_res.output
 	}
 
@@ -1926,8 +1973,7 @@ fn main() {}
 		'cross',
 	], minimal_source)
 	assert_binary_success(cross_res)
-	cross_run := os.execute('"${cross_res.out_path}"')
-	assert cross_run.exit_code == 0, cross_run.output
+	run_e2e_binary(cross_res.out_path, @FN)
 	assert !os.exists(cross_res.c_path), cross_res.output
 
 	cross_default_res := run_v2_without_output(v2_binary, tmp_dir, 'host_cross_default_no_output', [
@@ -1937,8 +1983,7 @@ fn main() {}
 		'cross',
 	], minimal_source)
 	assert_binary_success(cross_default_res)
-	cross_default_run := os.execute('"${cross_default_res.out_path}"')
-	assert cross_default_run.exit_code == 0, cross_default_run.output
+	run_e2e_binary(cross_default_res.out_path, @FN)
 	assert !os.exists(cross_default_res.c_path), cross_default_res.output
 
 	public_cross_default_res := run_v1_v2_without_output_in_dir(v1_binary, v2_binary, tmp_dir,
@@ -1949,8 +1994,7 @@ fn main() {}
 		'cross',
 	], minimal_source, public_default_cwd)
 	assert_binary_success(public_cross_default_res)
-	public_cross_default_run := os.execute('"${public_cross_default_res.out_path}"')
-	assert public_cross_default_run.exit_code == 0, public_cross_default_run.output
+	run_e2e_binary(public_cross_default_res.out_path, @FN)
 	assert !os.exists(public_cross_default_res.c_path), public_cross_default_res.output
 
 	cross_impl_path := os.join_path(tmp_dir, 'cross_flag_impl.c')
@@ -1984,8 +2028,7 @@ fn main() {
 }
 ')
 	assert_binary_success(cross_flag_res)
-	cross_flag_run := os.execute('"${cross_flag_res.out_path}"')
-	assert cross_flag_run.exit_code == 0, cross_flag_run.output
+	run_e2e_binary(cross_flag_res.out_path, @FN)
 	assert !os.exists(cross_flag_res.c_path), cross_flag_res.output
 
 	c_impl_path := os.join_path(tmp_dir, 'platform_flag_impl.c')
@@ -2017,8 +2060,7 @@ fn main() {
 }
 ')
 	assert_binary_success(flag_res)
-	flag_run := os.execute('"${flag_res.out_path}"')
-	assert flag_run.exit_code == 0, flag_run.output
+	run_e2e_binary(flag_res.out_path, @FN)
 	assert !os.exists(flag_res.c_path), flag_res.output
 }
 
@@ -2302,9 +2344,9 @@ exit 73
 ') or { panic(err) }
 	os.chmod(stale_path, 0o755) or { panic(err) }
 
-	res :=
-		os.execute('cd "${tmp_dir}" && "${v2_binary}" -gc none -nocache --no-parallel -freestanding -os none --skip-builtin "${source_path}"')
-	assert res.exit_code == 0, res.output
+	cmd := 'cd "${tmp_dir}" && "${v2_binary}" -gc none -nocache --no-parallel -freestanding -os none --skip-builtin "${source_path}"'
+	res := os.execute(cmd)
+	assert_e2e_command_success(res, cmd, @FN)
 	assert !res.output.contains('STALE_AUTORUN_EXECUTED'), res.output
 	assert os.exists(os.join_path(tmp_dir, 'stale_autorun_test.c')), res.output
 	assert os.exists(stale_path), res.output
@@ -2323,9 +2365,9 @@ exit 75
 		panic(err)
 	}
 	os.chmod(cleanc_stale_path, 0o755) or { panic(err) }
-	cleanc_res :=
-		os.execute('cd "${tmp_dir}" && "${v2_binary}" -gc none -nocache --no-parallel -os ${non_host_target} "${cleanc_source_path}"')
-	assert cleanc_res.exit_code == 0, cleanc_res.output
+	cleanc_cmd := 'cd "${tmp_dir}" && "${v2_binary}" -gc none -nocache --no-parallel -os ${non_host_target} "${cleanc_source_path}"'
+	cleanc_res := os.execute(cleanc_cmd)
+	assert_e2e_command_success(cleanc_res, cleanc_cmd, @FN)
 	assert !cleanc_res.output.contains('CLEANC_NON_HOST_STALE_EXECUTED'), cleanc_res.output
 	assert os.exists(os.join_path(tmp_dir, 'cleanc_non_host_stale.c')), cleanc_res.output
 	assert os.exists(cleanc_stale_path), cleanc_res.output
@@ -2343,9 +2385,9 @@ exit 74
 		panic(err)
 	}
 	os.chmod(native_stale_path, 0o755) or { panic(err) }
-	native_res :=
-		os.execute('cd "${tmp_dir}" && "${v2_binary}" -gc none -nocache --no-parallel -b x64 -os ${non_host_target} --skip-builtin "${native_source_path}"')
-	assert native_res.exit_code == 0, native_res.output
+	native_cmd := 'cd "${tmp_dir}" && "${v2_binary}" -gc none -nocache --no-parallel -b x64 -os ${non_host_target} --skip-builtin "${native_source_path}"'
+	native_res := os.execute(native_cmd)
+	assert_e2e_command_success(native_res, native_cmd, @FN)
 	assert !native_res.output.contains('NATIVE_STALE_AUTORUN_EXECUTED'), native_res.output
 	assert os.exists(native_stale_path), native_res.output
 }
@@ -2372,9 +2414,9 @@ fn main() {
 		panic(err)
 	}
 	env_prefix := if host_c_e2e_flags().len > 0 { 'V2CFLAGS="${host_c_e2e_flags()}" ' } else { '' }
-	res :=
-		os.execute('cd "${tmp_dir}" && ${env_prefix}"${v2_binary}" -gc none -nocache --no-parallel -cc cc -os cross "${source_path}"')
-	assert res.exit_code == 0, res.output
+	cmd := 'cd "${tmp_dir}" && ${env_prefix}"${v2_binary}" -gc none -nocache --no-parallel -cc cc -os cross "${source_path}"'
+	res := os.execute(cmd)
+	assert_e2e_command_success(res, cmd, @FN)
 	assert res.output.contains('CROSS_AUTORUN_OK'), res.output
 	assert !os.exists(os.join_path(tmp_dir, 'cross_autorun_test')), res.output
 }

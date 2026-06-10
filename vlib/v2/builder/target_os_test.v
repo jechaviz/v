@@ -534,8 +534,13 @@ fn test_linux_x64_builder_default_o0_forces_ssa_optimize() {
 	mut b := new_builder(&prefs)
 	b.build([main_path])
 
-	run := os.execute(os.quoted_path(out_path))
-	assert run.exit_code == 0, run.output
+	run_cmd := os.quoted_path(out_path)
+	run := os.execute(run_cmd)
+	assert run.exit_code == 0, run.exit_code_diagnostics('0',
+		label:   @FN
+		command: run_cmd
+	)
+
 	assert run.output.trim_space() == 'ok'
 }
 

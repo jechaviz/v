@@ -13,8 +13,28 @@ fn test_exit_code_diagnostics_reports_empty_output() {
 	assert message.contains('vtest.assert.expected_exit_code=0')
 	assert message.contains('vtest.assert.actual_exit_code=2')
 	assert message.contains('vtest.assert.actual_exit_code_meaning=child_exited_nonzero')
+	assert message.contains('vtest.assert.output_state=empty')
+	assert message.contains('vtest.assert.output_bytes=0')
 	assert message.contains('vtest.assert.output_empty=true')
 	assert message.contains('vtest.assert.command=silent-tool --flag')
+}
+
+fn test_exit_code_diagnostics_reports_sparse_exit_one() {
+	message := os.process_exit_code_diagnostics(1, '0',
+		label:          @FN
+		command:        'silent-tool --flag'
+		output:         '   '
+		output_capture: 'pipe'
+	)
+
+	assert message.contains('vtest.assert.actual_exit_code=1')
+	assert message.contains('vtest.assert.possible_causes=')
+	assert message.contains('generic_child_failure_without_diagnostics')
+	assert message.contains('tool_failed_before_diagnostic_flush')
+	assert message.contains('vtest.assert.output_state=empty')
+	assert message.contains('vtest.assert.output_bytes=3')
+	assert message.contains('vtest.assert.output_empty=true')
+	assert !message.contains('vtest.assert.output=   ')
 }
 
 fn test_command_failure_report_reports_empty_output() {
@@ -30,6 +50,8 @@ fn test_command_failure_report_reports_empty_output() {
 	assert message.contains('v.test.command.reason=silent_child_failed')
 	assert message.contains('v.test.command.exit_code=17')
 	assert message.contains('v.test.command.exit_code_meaning=child_exited_nonzero')
+	assert message.contains('v.test.command.output_state=empty')
+	assert message.contains('v.test.command.output_bytes=0')
 	assert message.contains('v.test.command.output_empty=true')
 	assert message.contains('v.test.command.command=silent-cc main.c')
 }
@@ -59,5 +81,7 @@ fn test_command_failure_report_distinguishes_inherited_stdio() {
 	)
 
 	assert message.contains('v.test.command.output_capture=inherited_stdio')
+	assert message.contains('v.test.command.output_state=not_captured_by_parent')
+	assert !message.contains('v.test.command.output_bytes=')
 	assert !message.contains('v.test.command.output_empty=true')
 }

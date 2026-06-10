@@ -7,6 +7,14 @@ module types
 
 import os
 
+fn drop_exit_code_diagnostics(exit_code int, output string, expected string, label string) string {
+	return os.process_exit_code_diagnostics(exit_code, expected,
+		label:          label
+		output:         output
+		output_capture: 'pipe'
+	)
+}
+
 // drop_v2_ownership_exe returns the path to the v2_ownership binary,
 // building it on demand. Inlined here so this test file stays
 // self-contained — V's `v test` compiles each _test.v file in isolation,
@@ -18,10 +26,15 @@ fn drop_v2_ownership_exe() string {
 		return v2_ownership
 	}
 	vexe := os.join_path(vroot, 'v')
-	res := os.execute('${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
-		'cmd', 'v2', 'v2.v'))}')
+	cmd := '${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
+		'cmd', 'v2', 'v2.v'))}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('failed to build v2_ownership: ${res.output}')
+		panic(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'v2_ownership_build_failed'
+		))
 	}
 	return v2_ownership
 }
@@ -36,10 +49,14 @@ fn run_drop_program(code string) (int, string) {
 	os.write_file(tmp_file, code) or { panic('failed to write temp file') }
 	out_bin := os.join_path(tmp_dir, 'out')
 	v2 := drop_v2_ownership_exe()
-	compile :=
-		os.execute('${os.quoted_path(v2)} -ownership -o ${os.quoted_path(out_bin)} ${os.quoted_path(tmp_file)} 2>&1')
+	compile_cmd := '${os.quoted_path(v2)} -ownership -o ${os.quoted_path(out_bin)} ${os.quoted_path(tmp_file)} 2>&1'
+	compile := os.execute(compile_cmd)
 	if compile.exit_code != 0 {
-		return compile.exit_code, 'compile failed: ${compile.output}'
+		return compile.exit_code, compile.exit_code_diagnostics('0',
+			label:   @FN
+			command: compile_cmd
+			reason:  'drop_codegen_compile_failed'
+		)
 	}
 	run := os.execute(os.quoted_path(out_bin))
 	return run.exit_code, run.output
@@ -62,7 +79,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0, got ${exit_code}: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	assert output.contains('before exit'), 'expected user print, got: ${output}'
 	assert output.contains('dropping 7'), 'expected drop call, got: ${output}'
 	// Drop must come AFTER the user print (natural fn exit, not before body).
@@ -91,7 +108,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	// Bindings declared in order a, b, c — drops fire in reverse: c, b, a.
 	c_idx := output.index('dropping 3') or { -1 }
 	b_idx := output.index('dropping 2') or { -1 }
@@ -122,7 +139,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	assert output.contains('took 1'), 'expected take call, got: ${output}'
 	assert output.contains('dropping 2'), 'y must be dropped at main exit, got: ${output}'
 	// `x` was moved into take() — main must NOT emit a second drop for id=1.
@@ -144,7 +161,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	assert output.contains('got 42'), 'expected user print, got: ${output}'
 	assert !output.contains('dropping'), 'no drop should fire for non-Drop type, got: ${output}'
 }
@@ -177,7 +194,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	// Drops must fire BEFORE the caller observes the return — i.e. before
 	// 'after run' is printed — and in LIFO order (b first, then a).
 	before_idx := output.index('before return') or { -1 }
@@ -217,7 +234,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	assert output.contains('took 1'), 'expected take call, got: ${output}'
 	assert output.contains('dropping 2'), 'b must drop at early return, got: ${output}'
 	// a was moved into take — must not produce a second drop for id=1.
@@ -258,7 +275,7 @@ fn main() {
 }
 "
 	exit_code, output := run_drop_program(code)
-	assert exit_code == 0, 'program should exit 0: ${output}'
+	assert exit_code == 0, drop_exit_code_diagnostics(exit_code, output, '0', @FN)
 	// Path A (flag=true): drops b then a at the early return.
 	// Path B (flag=false): drops c then a at natural exit.
 	sep_idx := output.index('---') or { -1 }

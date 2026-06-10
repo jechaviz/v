@@ -58,12 +58,20 @@ fn run_x64_linux_program_redirected(name string, source string) X64LinuxRunResul
 	stderr_path := os.join_path(tmp_dir, '${name}.err')
 	os.write_file(source_path, source) or { panic(err) }
 	vexe := os.getenv_opt('VEXE') or { @VEXE }
-	build :=
-		os.execute('${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}')
-	assert build.exit_code == 0, '${name} build failed:\n${build.output}'
-	run :=
-		os.execute('${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}')
-	assert run.exit_code == 0, '${name} run failed:\n${run.output}'
+	build_cmd := '${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}'
+	build := os.execute(build_cmd)
+	assert build.exit_code == 0, build.exit_code_diagnostics('0',
+		label:   '${name} build'
+		command: build_cmd
+	)
+
+	run_cmd := '${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}'
+	run := os.execute(run_cmd)
+	assert run.exit_code == 0, run.exit_code_diagnostics('0',
+		label:   '${name} run'
+		command: run_cmd
+	)
+
 	stdout := os.read_bytes(stdout_path) or { panic(err) }
 	stderr := os.read_bytes(stderr_path) or { panic(err) }
 	return X64LinuxRunResult{
@@ -84,11 +92,15 @@ fn run_x64_linux_program_redirected_with_exit(name string, source string) X64Lin
 	stderr_path := os.join_path(tmp_dir, '${name}.err')
 	os.write_file(source_path, source) or { panic(err) }
 	vexe := os.getenv_opt('VEXE') or { @VEXE }
-	build :=
-		os.execute('${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}')
-	assert build.exit_code == 0, '${name} build failed:\n${build.output}'
-	run :=
-		os.execute('${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}')
+	build_cmd := '${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}'
+	build := os.execute(build_cmd)
+	assert build.exit_code == 0, build.exit_code_diagnostics('0',
+		label:   '${name} build'
+		command: build_cmd
+	)
+
+	run_cmd := '${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}'
+	run := os.execute(run_cmd)
 	stdout := os.read_bytes(stdout_path) or { panic(err) }
 	stderr := os.read_bytes(stderr_path) or { panic(err) }
 	return X64LinuxRunExitResult{
@@ -113,12 +125,20 @@ fn run_x64_linux_project_redirected(name string, sources map[string]string) X64L
 		os.write_file(source_path, source) or { panic(err) }
 	}
 	vexe := os.getenv_opt('VEXE') or { @VEXE }
-	build :=
-		os.execute('${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(tmp_dir)} -o ${os.quoted_path(bin_path)}')
-	assert build.exit_code == 0, '${name} build failed:\n${build.output}'
-	run :=
-		os.execute('${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}')
-	assert run.exit_code == 0, '${name} run failed:\n${run.output}'
+	build_cmd := '${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(tmp_dir)} -o ${os.quoted_path(bin_path)}'
+	build := os.execute(build_cmd)
+	assert build.exit_code == 0, build.exit_code_diagnostics('0',
+		label:   '${name} build'
+		command: build_cmd
+	)
+
+	run_cmd := '${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}'
+	run := os.execute(run_cmd)
+	assert run.exit_code == 0, run.exit_code_diagnostics('0',
+		label:   '${name} run'
+		command: run_cmd
+	)
+
 	stdout := os.read_bytes(stdout_path) or { panic(err) }
 	stderr := os.read_bytes(stderr_path) or { panic(err) }
 	return X64LinuxRunResult{
@@ -166,10 +186,19 @@ fn run_x64_linux_file_redirected(name string, source_dir string, source_file str
 	stderr_path := os.join_path(tmp_dir, '${name}.err')
 	vexe := x64_vexe_command_path()
 	build := x64_build_file_from_dir(vexe, source_dir, source_file, bin_path)
-	assert build.exit_code == 0, '${name} build failed for ${source_path}:\n${build.output}'
-	run :=
-		os.execute('${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}')
-	assert run.exit_code == 0, '${name} run failed:\n${run.output}'
+	build_cmd := '${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_file)} -o ${os.quoted_path(bin_path)}'
+	assert build.exit_code == 0, build.exit_code_diagnostics('0',
+		label:   '${name} build for ${source_path}'
+		command: build_cmd
+	)
+
+	run_cmd := '${os.quoted_path(bin_path)} > ${os.quoted_path(stdout_path)} 2> ${os.quoted_path(stderr_path)}'
+	run := os.execute(run_cmd)
+	assert run.exit_code == 0, run.exit_code_diagnostics('0',
+		label:   '${name} run'
+		command: run_cmd
+	)
+
 	stdout := os.read_bytes(stdout_path) or { panic(err) }
 	stderr := os.read_bytes(stderr_path) or { panic(err) }
 	return X64LinuxRunResult{
@@ -846,7 +875,12 @@ fn assert_x64_linux_tiny_file_build_rejected(name string, source_dir string, sou
 		build.run()
 		build.wait()
 		build_output := 'stdout:\n${build.stdout_slurp()}\nstderr:\n${build.stderr_slurp()}'
-		assert build.code != 0, '${name} unexpectedly built with Linux tiny:\n${build_output}'
+		assert build.code != 0, os.process_exit_code_diagnostics(build.code, 'non-zero',
+			label:          '${name} Linux tiny rejection'
+			output:         build_output
+			output_capture: 'pipe'
+		)
+
 		assert build_output.contains(linux_tiny_not_eligible_prefix), '${x64_host_build_failure_message(name,
 			tmp_dir, source_path, source_text, bin_path, build.code, build_output)}\nexpected Linux tiny rejection prefix `${linux_tiny_not_eligible_prefix}`'
 
@@ -1288,7 +1322,12 @@ fn assert_x64_linux_tiny_build_rejected(name string, source string, expected_mes
 		build.run()
 		build.wait()
 		build_output := 'stdout:\n${build.stdout_slurp()}\nstderr:\n${build.stderr_slurp()}'
-		assert build.code != 0, '${name} unexpectedly built with Linux tiny:\n${build_output}'
+		assert build.code != 0, os.process_exit_code_diagnostics(build.code, 'non-zero',
+			label:          '${name} Linux tiny rejection'
+			output:         build_output
+			output_capture: 'pipe'
+		)
+
 		assert build_output.contains(expected_message), '${name} rejection did not contain `${expected_message}`:\n${build_output}'
 		assert !os.exists(bin_path), '${name} produced a binary despite Linux tiny rejection: ${bin_path}'
 	}
@@ -1314,7 +1353,12 @@ fn assert_x64_linux_tiny_project_build_rejected(name string, sources map[string]
 		build.run()
 		build.wait()
 		build_output := 'stdout:\n${build.stdout_slurp()}\nstderr:\n${build.stderr_slurp()}'
-		assert build.code != 0, '${name} unexpectedly built with Linux tiny:\n${build_output}'
+		assert build.code != 0, os.process_exit_code_diagnostics(build.code, 'non-zero',
+			label:          '${name} Linux tiny rejection'
+			output:         build_output
+			output_capture: 'pipe'
+		)
+
 		assert build_output.contains(expected_message), '${name} rejection did not contain `${expected_message}`:\n${build_output}'
 		assert !os.exists(bin_path), '${name} produced a binary despite Linux tiny rejection: ${bin_path}'
 	}
@@ -3639,11 +3683,20 @@ fn main() {
 			panic(err)
 		}
 		vexe := os.getenv_opt('VEXE') or { @VEXE }
-		build :=
-			os.execute('${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}')
-		assert build.exit_code == 0, build.output
-		run := os.execute(os.quoted_path(bin_path))
-		assert run.exit_code == 0, run.output
+		build_cmd := '${os.quoted_path(vexe)} -v2 -no-parallel -b x64 ${os.quoted_path(source_path)} -o ${os.quoted_path(bin_path)}'
+		build := os.execute(build_cmd)
+		assert build.exit_code == 0, build.exit_code_diagnostics('0',
+			label:   @FN
+			command: build_cmd
+		)
+
+		run_cmd := os.quoted_path(bin_path)
+		run := os.execute(run_cmd)
+		assert run.exit_code == 0, run.exit_code_diagnostics('0',
+			label:   @FN
+			command: run_cmd
+		)
+
 		assert run.output.trim_space() == 'ok'
 	}
 }
@@ -4760,8 +4813,13 @@ fn main() {
 			stale_source_path, stale_source, bin_path, stale_build.code, stale_build_output)
 
 		assert os.exists(bin_path), '${name} did not create the initial output binary'
-		stale_run := os.execute(os.quoted_path(bin_path))
-		assert stale_run.exit_code == 0, '${name} initial stale binary failed:\n${stale_run.output}'
+		stale_run_cmd := os.quoted_path(bin_path)
+		stale_run := os.execute(stale_run_cmd)
+		assert stale_run.exit_code == 0, stale_run.exit_code_diagnostics('0',
+			label:   '${name} initial stale binary'
+			command: stale_run_cmd
+		)
+
 		assert stale_run.output == 'stale\n', '${name} initial stale binary output mismatch:\n${stale_run.output}'
 
 		hosted_source := "module main

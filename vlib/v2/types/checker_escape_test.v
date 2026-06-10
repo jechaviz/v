@@ -7,6 +7,14 @@ module types
 
 import os
 
+fn escape_exit_code_diagnostics(exit_code int, output string, expected string, label string) string {
+	return os.process_exit_code_diagnostics(exit_code, expected,
+		label:          label
+		output:         output
+		output_capture: 'pipe'
+	)
+}
+
 fn v2_ownership_escape_exe() string {
 	vroot := @VMODROOT
 	v2_ownership := os.join_path(vroot, 'cmd', 'v2', 'v2_ownership_escape')
@@ -14,10 +22,15 @@ fn v2_ownership_escape_exe() string {
 		return v2_ownership
 	}
 	vexe := os.join_path(vroot, 'v')
-	res := os.execute('${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
-		'cmd', 'v2', 'v2.v'))}')
+	cmd := '${os.quoted_path(vexe)} -d ownership -o ${os.quoted_path(v2_ownership)} ${os.quoted_path(os.join_path(vroot,
+		'cmd', 'v2', 'v2.v'))}'
+	res := os.execute(cmd)
 	if res.exit_code != 0 {
-		panic('failed to build v2_ownership: ${res.output}')
+		panic(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: cmd
+			reason:  'v2_ownership_build_failed'
+		))
 	}
 	return v2_ownership
 }
@@ -31,8 +44,8 @@ fn run_escape_check(code string) (int, string) {
 	tmp_file := os.join_path(tmp_dir, 'test.v')
 	os.write_file(tmp_file, code) or { panic('failed to write temp file') }
 	v2 := v2_ownership_escape_exe()
-	res :=
-		os.execute('${os.quoted_path(v2)} -ownership -o ${os.join_path(tmp_dir, 'out')} ${os.quoted_path(tmp_file)} 2>&1')
+	cmd := '${os.quoted_path(v2)} -ownership -o ${os.join_path(tmp_dir, 'out')} ${os.quoted_path(tmp_file)} 2>&1'
+	res := os.execute(cmd)
 	return res.exit_code, res.output
 }
 
@@ -137,7 +150,7 @@ fn pass_through[^a](p &^a Bar) &^a Bar {
 fn main() {}
 '
 	exit_code, output := run_escape_check(code)
-	assert exit_code == 0, 'returning &param should compile: ${output}'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_legacy_unchanged() {
@@ -162,7 +175,7 @@ fn legacy_local() &Bar {
 fn main() {}
 '
 	exit_code, output := run_escape_check(code)
-	assert exit_code == 0, 'legacy un-opted-in code must not be affected: ${output}'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_caught_inside_nested_block() {
@@ -265,7 +278,7 @@ fn safe[^a](p &^a int) {
 fn main() {}
 '
 	exit_code, output := run_escape_check(code)
-	assert exit_code == 0, 'storing &local into local.field is safe, got: ${output}'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_field_store_no_optin_ok() {
@@ -285,7 +298,7 @@ fn stash(mut b Bag) {
 fn main() {}
 '
 	exit_code, output := run_escape_check(code)
-	assert exit_code == 0, 'legacy fn must not be affected: ${output}'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 // === Array-push escape: `outer_arr << &local` ===
@@ -340,7 +353,7 @@ fn safe[^a](p &^a int) {
 fn main() {}
 '
 	exit_code, output := run_escape_check(code)
-	assert exit_code == 0, 'pushing &local into local array is safe, got: ${output}'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 // === Closure-capture escape: `fn [&local] () {}` ===
@@ -382,7 +395,7 @@ fn safe[^a]() fn () int {
 fn main() {}
 '
 	exit_code, output := run_escape_check(code)
-	assert exit_code == 0, 'returning closure with by-value capture is safe, got: ${output}'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_return_inline_closure_borrow_errors() {
@@ -565,7 +578,7 @@ fn safe_chain[^a](caller &^a Bar) &^a Bar {
 fn main() {}
 '
 	exit_code, _ := run_escape_check(code)
-	assert exit_code == 0, '`return passthrough(caller)` should be allowed (param outlives the call)'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_non_passthrough_call_ok() {
@@ -588,7 +601,7 @@ fn safe[^a](caller &^a Bar) Bar {
 fn main() {}
 '
 	exit_code, _ := run_escape_check(code)
-	assert exit_code == 0, '`return make_copy(&local)` should be allowed (non-pass-through callee)'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_passthrough_alias_local_errors() {
@@ -693,7 +706,7 @@ fn safe[^a](caller &^a Bar) Bar {
 fn main() {}
 '
 	exit_code, _ := run_escape_check(code)
-	assert exit_code == 0, 'fn returning a fresh local (not a param alias) should not be pass-through'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_escape_passthrough_non_optin_call_ignored() {
@@ -717,5 +730,5 @@ fn caller[^a](outer &^a Bar) &Bar {
 fn main() {}
 '
 	exit_code, _ := run_escape_check(code)
-	assert exit_code == 0, 'non-opt-in callees are not tracked, so the call site is not flagged'
+	assert exit_code == 0, escape_exit_code_diagnostics(exit_code, output, '0', @FN)
 }

@@ -3,6 +3,14 @@ module types
 
 import os
 
+fn ownership_exit_code_diagnostics(exit_code int, output string, expected string, label string) string {
+	return os.process_exit_code_diagnostics(exit_code, expected,
+		label:          label
+		output:         output
+		output_capture: 'pipe'
+	)
+}
+
 // v2_ownership_exe returns the path to the v2_ownership binary, building it if needed.
 // This binary is compiled with -d ownership so that ownership checking is enabled.
 fn v2_ownership_exe() string {
@@ -773,7 +781,7 @@ fn main() {
 }
 '
 	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'unmarked struct should not be tracked'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_copy_struct_can_be_reused() {
@@ -791,7 +799,7 @@ fn main() {
 }
 '
 	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, 'Copy struct should be reusable after assign'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_owned_struct_move_into_fn() {
@@ -834,7 +842,7 @@ fn main() {
 }
 '
 	exit_code, _ := run_ownership_check(code)
-	assert exit_code == 0, '&r should borrow, not move'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_owned_struct_returned_from_fn_is_owned() {
@@ -944,7 +952,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'Drop with drop() method should compile: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_drop_struct_missing_method_errors() {
@@ -998,7 +1006,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'unmarked struct must not be affected: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_drop_with_move_still_diagnoses_use() {
@@ -1079,7 +1087,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'borrow-receiver methods must not move: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_consume_self_mut_receiver_does_not_move() {
@@ -1102,7 +1110,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'mut-receiver methods must not move: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_consume_self_use_after_consume_fails() {
@@ -1150,7 +1158,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'plain (un-marked) struct must not be affected: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_consume_self_string_methods_unaffected() {
@@ -1166,7 +1174,7 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'plain string methods must not be affected: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 // === Match-arm ownership transfer tests ===
@@ -1200,7 +1208,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'each arm should start from pre-match state: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_match_consume_then_use_after_fails() {
@@ -1263,7 +1271,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'terminating arm move must not poison post-match state: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_match_all_arms_terminate_restores_before_state() {
@@ -1304,7 +1312,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'all-arms-return match should not poison state: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_match_non_terminating_arm_propagates_move() {
@@ -1353,7 +1361,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'plain match should not be affected: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 // === Closure capture ownership tests ===
@@ -1403,7 +1411,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'capture without outer reuse should compile: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_closure_capture_plain_struct_unaffected() {
@@ -1425,7 +1433,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'non-Owned capture must not be affected: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_closure_capture_string_unaffected() {
@@ -1442,7 +1450,7 @@ fn main() {
 }
 "
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'plain string capture must not be affected: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_closure_capture_owned_then_consume_outside_fails() {
@@ -1541,7 +1549,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'borrowing a global must succeed, got: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_owned_global_consuming_method_fails() {
@@ -1585,7 +1593,7 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'borrow-receiver method on global must succeed, got: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }
 
 fn test_owned_global_closure_capture_fails() {
@@ -1655,5 +1663,5 @@ fn main() {
 }
 '
 	exit_code, output := run_ownership_check(code)
-	assert exit_code == 0, 'non-Owned global must keep current semantics, got: ${output}'
+	assert exit_code == 0, ownership_exit_code_diagnostics(exit_code, output, '0', @FN)
 }

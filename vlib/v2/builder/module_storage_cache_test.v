@@ -394,7 +394,11 @@ fn main() {
 	out_path := os.join_path(tmp_dir, 'out')
 	cmd := '${os.quoted_path(@VEXE)} -v -v2 -keepc -o ${os.quoted_path(out_path)} ${os.quoted_path(main_path)} 2>&1'
 	res := os.execute(cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
 	ext_header := os.read_file(cache_builder.core_header_path('ext')) or { panic(err) }
 	assert ext_header.contains('@[c_extern]'), ext_header
 	imports_c := os.read_file(os.join_path(cache_dir, 'imports.c')) or { panic(err) }

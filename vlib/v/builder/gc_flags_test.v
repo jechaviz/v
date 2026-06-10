@@ -42,7 +42,11 @@ fn test_linux_musl_tcc_boehm_uses_system_libgc() {
 	source_path := os.join_path(@VEXEROOT, 'examples', 'hello_world.v')
 	cmd := '${os.quoted_path(@VEXE)} -dump-c-flags - -cc tcc -musl ${os.quoted_path(source_path)}'
 	res := execute_without_vflags(cmd)
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: cmd
+	)
+
 	assert res.output.contains('-lgc')
 	assert !res.output.contains('thirdparty/tcc/lib/libgc.a')
 }

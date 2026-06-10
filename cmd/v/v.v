@@ -77,6 +77,51 @@ fn run_delegate_compilation_command(command string) os.Result {
 	}
 }
 
+struct DelegatedProcessResult {
+	exit_code     int
+	raw_exit_code int
+	output        string
+	error         string
+	command       string
+}
+
+fn run_delegated_process_echoed(executable string, args []string) DelegatedProcessResult {
+	return run_delegated_process_echoed_with_env(executable, args, map[string]string{}, false)
+}
+
+fn run_delegated_process_echoed_with_environment(executable string, args []string, envs map[string]string) DelegatedProcessResult {
+	return run_delegated_process_echoed_with_env(executable, args, envs, true)
+}
+
+fn run_delegated_process_echoed_with_env(executable string, args []string, envs map[string]string, use_custom_env bool) DelegatedProcessResult {
+	command := '${os.quoted_path(executable)} ${args.map(os.quoted_path(it)).join(' ')}'
+	mut process := os.new_process(executable)
+	process.set_args(args)
+	if use_custom_env {
+		process.set_environment(envs)
+	}
+	process.set_redirect_stdio()
+	process.wait()
+	stdout := process.stdout_slurp()
+	stderr := process.stderr_slurp()
+	if stdout != '' {
+		print(stdout)
+	}
+	if stderr != '' {
+		eprint(stderr)
+	}
+	raw_exit_code := process.code
+	process_error := process.err
+	process.close()
+	return DelegatedProcessResult{
+		exit_code:     if raw_exit_code < 0 { 1 } else { raw_exit_code }
+		raw_exit_code: raw_exit_code
+		output:        stdout + stderr
+		error:         process_error
+		command:       command
+	}
+}
+
 @[unsafe]
 fn timers_pointer(p &util.Timers) &util.Timers {
 	// TODO: the static variable here is used as a workaround for the current incompatibility of -usecache and globals in the main module:
@@ -278,12 +323,20 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 	os.setenv('VCHILD', 'true', true)
 	os.setenv('VEXE', os.real_path(v2_exe), true)
 	$if windows {
-		mut process := os.new_process(v2_exe)
-		process.set_args(args)
-		process.wait()
-		exit_code := if process.code == -1 { 1 } else { process.code }
-		process.close()
-		exit(exit_code)
+		delegate_result := run_delegated_process_echoed(v2_exe, args)
+		if delegate_result.exit_code != 0 && delegate_result.output.trim_space() == '' {
+			eprintln(os.process_command_failure_report('v.delegate.v2',
+				delegate_result.raw_exit_code,
+				stage:          'v2_delegate'
+				command:        delegate_result.command
+				reason:         'v2_delegate_exit_nonzero_without_output'
+				action:         'inspect_delegated_v2_command'
+				message:        'delegated v2 compiler exited with a non-zero status'
+				stderr:         delegate_result.error
+				output_capture: 'redirected_stdio_echoed'
+			))
+		}
+		exit(delegate_result.exit_code)
 	} $else {
 		os.execvp(v2_exe, args) or {
 			eprintln('> error while executing: ${v2_exe} ${args}')
