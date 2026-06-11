@@ -56,6 +56,30 @@ fn test_command_failure_report_reports_empty_output() {
 	assert message.contains('v.test.command.command=silent-cc main.c')
 }
 
+fn test_command_failure_report_reports_process_context_fields() {
+	message := os.process_command_failure_report('v.test.command', -1,
+		stage:            'delegate'
+		command:          'silent-tool --flag'
+		cwd:              'C:\\work\\project'
+		executable:       'C:\\tools\\silent-tool.exe'
+		reason:           'delegated_process_failed'
+		action:           'inspect_delegated_process'
+		message:          'delegated process failed before writing output'
+		output_capture:   'redirected_stdio_echoed'
+		stdout_bytes:     0
+		stderr_bytes:     0
+		parent_exit_code: 1
+		raw_exit_code:    -1
+	)
+
+	assert message.contains('v.test.command.cwd=C:\\work\\project')
+	assert message.contains('v.test.command.executable=C:\\tools\\silent-tool.exe')
+	assert message.contains('v.test.command.stdout_bytes=0')
+	assert message.contains('v.test.command.stderr_bytes=0')
+	assert message.contains('v.test.command.parent_exit_code=1')
+	assert message.contains('v.test.command.raw_exit_code=-1')
+}
+
 fn test_exit_minus_one_diagnostics_explain_process_failure() {
 	message := os.process_command_failure_report('v.test.command', -1,
 		stage:   'spawn'

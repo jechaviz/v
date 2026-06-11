@@ -18,15 +18,21 @@ pub struct CommandFailureDiagnostics {
 pub:
 	stage             string
 	command           string
+	cwd               string
+	executable        string
 	reason            string = 'child_exit_nonzero'
 	action            string = 'inspect_command_output_and_reproduce'
 	message           string = 'command exited with a non-zero status'
 	output            string
 	stdout            string
 	stderr            string
+	stdout_bytes      int = -1
+	stderr_bytes      int = -1
 	output_capture    string
 	output_empty      bool
 	exit_code_meaning string
+	parent_exit_code  int = -999999
+	raw_exit_code     int = -999999
 	possible_causes   string
 	error_code        int = -1
 	error_kind        string
@@ -100,6 +106,12 @@ pub fn process_command_failure_report(prefix string, actual int, options Command
 	if options.command != '' {
 		lines << '${prefix}.command=${os_diagnostic_value(options.command)}'
 	}
+	if options.cwd != '' {
+		lines << '${prefix}.cwd=${os_diagnostic_value(options.cwd)}'
+	}
+	if options.executable != '' {
+		lines << '${prefix}.executable=${os_diagnostic_value(options.executable)}'
+	}
 	if options.output_capture != '' {
 		lines << '${prefix}.output_capture=${os_diagnostic_value(options.output_capture)}'
 	}
@@ -112,17 +124,27 @@ pub fn process_command_failure_report(prefix string, actual int, options Command
 	} else if options.output_empty || output_is_empty {
 		lines << '${prefix}.output_empty=true'
 	}
-	if options.stdout != '' || diagnostic_text_is_present(options.stdout) {
+	if options.stdout_bytes >= 0 {
+		lines << '${prefix}.stdout_bytes=${options.stdout_bytes}'
+	} else if options.stdout != '' || diagnostic_text_is_present(options.stdout) {
 		lines << '${prefix}.stdout_bytes=${options.stdout.len}'
 	}
 	if diagnostic_text_is_present(options.stdout) {
 		lines << '${prefix}.stdout=${os_diagnostic_value(options.stdout)}'
 	}
-	if options.stderr != '' || diagnostic_text_is_present(options.stderr) {
+	if options.stderr_bytes >= 0 {
+		lines << '${prefix}.stderr_bytes=${options.stderr_bytes}'
+	} else if options.stderr != '' || diagnostic_text_is_present(options.stderr) {
 		lines << '${prefix}.stderr_bytes=${options.stderr.len}'
 	}
 	if diagnostic_text_is_present(options.stderr) {
 		lines << '${prefix}.stderr=${os_diagnostic_value(options.stderr)}'
+	}
+	if options.parent_exit_code != -999999 {
+		lines << '${prefix}.parent_exit_code=${options.parent_exit_code}'
+	}
+	if options.raw_exit_code != -999999 {
+		lines << '${prefix}.raw_exit_code=${options.raw_exit_code}'
 	}
 	if options.error_code != -1 {
 		lines << '${prefix}.error_code=${options.error_code}'

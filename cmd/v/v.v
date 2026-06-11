@@ -138,23 +138,23 @@ fn delegated_process_needs_parent_diagnostics(result DelegatedProcessResult) boo
 
 fn report_delegated_process_failure(prefix string, result DelegatedProcessResult, options os.CommandFailureDiagnostics) {
 	eprintln(os.process_command_failure_report(prefix, result.raw_exit_code,
-		stage:          options.stage
-		command:        result.command
-		reason:         options.reason
-		action:         options.action
-		message:        options.message
-		output:         result.output
-		stdout:         result.stdout
-		stderr:         result.stderr
-		output_capture: 'redirected_stdio_echoed'
-		error:          result.error
+		stage:            options.stage
+		command:          result.command
+		reason:           options.reason
+		action:           options.action
+		message:          options.message
+		output:           result.output
+		stdout:           result.stdout
+		stderr:           result.stderr
+		stdout_bytes:     result.stdout.len
+		stderr_bytes:     result.stderr.len
+		output_capture:   'redirected_stdio_echoed'
+		parent_exit_code: result.exit_code
+		raw_exit_code:    result.raw_exit_code
+		cwd:              result.cwd
+		executable:       result.executable
+		error:            result.error
 	))
-	eprintln('${prefix}.parent_exit_code=${result.exit_code}')
-	eprintln('${prefix}.raw_exit_code=${result.raw_exit_code}')
-	eprintln('${prefix}.stdout_bytes=${result.stdout.len}')
-	eprintln('${prefix}.stderr_bytes=${result.stderr.len}')
-	eprintln('${prefix}.cwd=${delegate_report_value(result.cwd)}')
-	eprintln('${prefix}.executable=${delegate_report_value(result.executable)}')
 }
 
 @[unsafe]
