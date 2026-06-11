@@ -222,7 +222,8 @@ pub fn truncate(path string, len u64) ! {
 // Note that use of this on symbolic links on Windows returns always 0.
 pub fn file_size(path string) u64 {
 	attr := stat(path) or {
-		eprintln('os.file_size() Cannot determine file-size: ' + posix_get_error_msg(C.errno))
+		eprintln('os.file_size() Cannot determine file-size for `' + path + '`: ' +
+			posix_get_error_msg(C.errno))
 		return 0
 	}
 	return attr.size

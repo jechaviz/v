@@ -63,19 +63,15 @@ fn maybe_delegate_to_vvmrc(command string, prefs &pref.Preferences) {
 		} else {
 			'delegated compiler selected by .vvmrc exited with a non-zero status'
 		}
-		eprintln(os.process_command_failure_report('v.vvmrc.delegate', delegate_exit_code,
-			stage:          'vvmrc_delegate'
-			command:        delegate_result.command
-			reason:         reason
-			action:         'inspect_delegated_compiler_output_or_vvmrc_version'
-			message:        message
-			output:         delegate_result.output
-			stderr:         delegate_result.error
-			output_capture: 'redirected_stdio_echoed'
-		))
+		report_delegated_process_failure('v.vvmrc.delegate', delegate_result,
+			stage:   'vvmrc_delegate'
+			reason:  reason
+			action:  'inspect_delegated_compiler_output_or_vvmrc_version'
+			message: message
+		)
 		eprintln('v.vvmrc.delegate.file=${vvmrc_report_value(vvmrc_path)}')
 		eprintln('v.vvmrc.delegate.requested_version=${vvmrc_report_value(requested_version)}')
-		eprintln('v.vvmrc.delegate.executable=${vvmrc_report_value(vversion_exe)}')
+		eprintln('v.vvmrc.delegate.selected_executable=${vvmrc_report_value(vversion_exe)}')
 	}
 	exit(exit_code)
 }

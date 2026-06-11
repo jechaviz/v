@@ -175,6 +175,49 @@ fn test_v2_delegation_waits_for_compiler_process_and_propagates_exit_code() {
 	assert !marker.contains('-v2'), marker
 }
 
+fn test_v2_reports_silent_delegated_compiler_failure() {
+	tmp_root := os.join_path(os.vtmp_dir(), 'v2_silent_delegate_test_${rand.ulid()}')
+	os.mkdir_all(tmp_root) or { panic(err) }
+	defer {
+		os.rmdir_all(tmp_root) or {}
+	}
+	fake_compiler_source := os.join_path(tmp_root, 'fake_silent_v2_compiler.v')
+	os.write_file(fake_compiler_source, 'fn main() {\n\texit(17)\n}\n') or { panic(err) }
+	fake_compiler_exe := os.join_path(tmp_root, if os.user_os() == 'windows' {
+		'fake_silent_v2_compiler.exe'
+	} else {
+		'fake_silent_v2_compiler'
+	})
+	compile_cmd := '${os.quoted_path(current_vexe)} -o ${os.quoted_path(fake_compiler_exe)} ${os.quoted_path(fake_compiler_source)}'
+	compile_res := os.execute(compile_cmd)
+	assert compile_res.exit_code == 0, compile_res.exit_code_diagnostics('0',
+		label:   @FN
+		command: compile_cmd
+	)
+
+	project_dir := os.join_path(tmp_root, 'project')
+	os.mkdir_all(project_dir) or { panic(err) }
+	os.write_file(os.join_path(project_dir, 'main.v'), 'fn main() {}\n') or { panic(err) }
+	mut envs := os.environ()
+	envs[delegated_v2_exe_env] = fake_compiler_exe
+	envs[vvmrc_skip_env] = '1'
+	envs['VFLAGS'] = ''
+
+	res := run_v_command(project_dir, ['-v2', 'main.v'], envs)
+	assert res.exit_code == 17, cmd_result_exit_code_diagnostics(res, '17', @FN)
+
+	assert res.output.contains('v.delegate.v2.failed=true'), res.output
+	assert res.output.contains('v.delegate.v2.stage=v2_delegate'), res.output
+	assert res.output.contains('v.delegate.v2.reason=v2_delegate_exit_nonzero_without_output'), res.output
+	assert res.output.contains('v.delegate.v2.output_capture=redirected_stdio_echoed'), res.output
+	assert res.output.contains('v.delegate.v2.output_empty=true'), res.output
+	assert res.output.contains('v.delegate.v2.parent_exit_code=17'), res.output
+	assert res.output.contains('v.delegate.v2.stdout_bytes=0'), res.output
+	assert res.output.contains('v.delegate.v2.stderr_bytes=0'), res.output
+	assert res.output.contains('v.delegate.v2.cwd='), res.output
+	assert res.output.contains('v.delegate.v2.executable='), res.output
+}
+
 fn test_v2_delegation_forwards_target_specific_flags() {
 	tmp_root := os.join_path(os.vtmp_dir(), 'v2_delegate_flags_test_${rand.ulid()}')
 	os.mkdir_all(tmp_root) or { panic(err) }
@@ -341,6 +384,11 @@ fn test_vvmrc_reports_silent_delegated_compiler_failure() {
 	assert res.output.contains('v.vvmrc.delegate.output_capture=redirected_stdio_echoed'), res.output
 	assert res.output.contains('v.vvmrc.delegate.file='), res.output
 	assert res.output.contains('v.vvmrc.delegate.requested_version=${requested_vvm_test_version}'), res.output
+	assert res.output.contains('v.vvmrc.delegate.parent_exit_code=17'), res.output
+	assert res.output.contains('v.vvmrc.delegate.stdout_bytes=0'), res.output
+	assert res.output.contains('v.vvmrc.delegate.stderr_bytes=0'), res.output
+	assert res.output.contains('v.vvmrc.delegate.cwd='), res.output
+	assert res.output.contains('v.vvmrc.delegate.executable='), res.output
 }
 
 fn run_v_command(work_dir string, args []string, envs map[string]string) CmdResult {

@@ -80,9 +80,13 @@ fn run_delegate_compilation_command(command string) os.Result {
 struct DelegatedProcessResult {
 	exit_code     int
 	raw_exit_code int
+	stdout        string
+	stderr        string
 	output        string
 	error         string
 	command       string
+	executable    string
+	cwd           string
 }
 
 fn run_delegated_process_echoed(executable string, args []string) DelegatedProcessResult {
@@ -95,6 +99,7 @@ fn run_delegated_process_echoed_with_environment(executable string, args []strin
 
 fn run_delegated_process_echoed_with_env(executable string, args []string, envs map[string]string, use_custom_env bool) DelegatedProcessResult {
 	command := '${os.quoted_path(executable)} ${args.map(os.quoted_path(it)).join(' ')}'
+	cwd := os.getwd()
 	mut process := os.new_process(executable)
 	process.set_args(args)
 	if use_custom_env {
@@ -116,10 +121,40 @@ fn run_delegated_process_echoed_with_env(executable string, args []string, envs 
 	return DelegatedProcessResult{
 		exit_code:     if raw_exit_code < 0 { 1 } else { raw_exit_code }
 		raw_exit_code: raw_exit_code
+		stdout:        stdout
+		stderr:        stderr
 		output:        stdout + stderr
 		error:         process_error
 		command:       command
+		executable:    executable
+		cwd:           cwd
 	}
+}
+
+fn delegated_process_needs_parent_diagnostics(result DelegatedProcessResult) bool {
+	return result.exit_code != 0
+		&& (result.raw_exit_code < 0 || result.error != '' || result.output.trim_space() == '')
+}
+
+fn report_delegated_process_failure(prefix string, result DelegatedProcessResult, options os.CommandFailureDiagnostics) {
+	eprintln(os.process_command_failure_report(prefix, result.raw_exit_code,
+		stage:          options.stage
+		command:        result.command
+		reason:         options.reason
+		action:         options.action
+		message:        options.message
+		output:         result.output
+		stdout:         result.stdout
+		stderr:         result.stderr
+		output_capture: 'redirected_stdio_echoed'
+		error:          result.error
+	))
+	eprintln('${prefix}.parent_exit_code=${result.exit_code}')
+	eprintln('${prefix}.raw_exit_code=${result.raw_exit_code}')
+	eprintln('${prefix}.stdout_bytes=${result.stdout.len}')
+	eprintln('${prefix}.stderr_bytes=${result.stderr.len}')
+	eprintln('${prefix}.cwd=${delegate_report_value(result.cwd)}')
+	eprintln('${prefix}.executable=${delegate_report_value(result.executable)}')
 }
 
 @[unsafe]
@@ -324,17 +359,13 @@ fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
 	os.setenv('VEXE', os.real_path(v2_exe), true)
 	$if windows {
 		delegate_result := run_delegated_process_echoed(v2_exe, args)
-		if delegate_result.exit_code != 0 && delegate_result.output.trim_space() == '' {
-			eprintln(os.process_command_failure_report('v.delegate.v2',
-				delegate_result.raw_exit_code,
-				stage:          'v2_delegate'
-				command:        delegate_result.command
-				reason:         'v2_delegate_exit_nonzero_without_output'
-				action:         'inspect_delegated_v2_command'
-				message:        'delegated v2 compiler exited with a non-zero status'
-				stderr:         delegate_result.error
-				output_capture: 'redirected_stdio_echoed'
-			))
+		if delegated_process_needs_parent_diagnostics(delegate_result) {
+			report_delegated_process_failure('v.delegate.v2', delegate_result,
+				stage:   'v2_delegate'
+				reason:  'v2_delegate_exit_nonzero_without_output'
+				action:  'inspect_delegated_v2_command'
+				message: 'delegated v2 compiler exited with a non-zero status without stdout/stderr'
+			)
 		}
 		exit(delegate_result.exit_code)
 	} $else {
