@@ -26,6 +26,22 @@ fn test_process_guard_env_overrides_default_policy() {
 	})
 }
 
+fn test_process_guard_compile_guard_is_explicit_opt_in() {
+	with_process_guard_env({}, fn () {
+		assert !process_guard_compile_enabled()
+	})
+	with_process_guard_env({
+		process_guard_compile_env: '1'
+	}, fn () {
+		assert process_guard_compile_enabled()
+	})
+	with_process_guard_env({
+		process_guard_compile_env: '0'
+	}, fn () {
+		assert !process_guard_compile_enabled()
+	})
+}
+
 fn test_process_guard_limit_parses_units() {
 	with_process_guard_env({
 		process_guard_limit_env: '64m'
@@ -165,6 +181,7 @@ fn test_process_guard_spawn_wait_ms_env() {
 fn with_process_guard_env(values map[string]string, body fn ()) {
 	names := [
 		process_guard_env,
+		process_guard_compile_env,
 		process_guard_limit_env,
 		process_guard_limit_mb_env,
 		process_guard_output_limit_env,

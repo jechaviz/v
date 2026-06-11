@@ -37,6 +37,30 @@ fn test_vtest_negative_host_status_is_retried_and_reported() {
 	assert tool_failure_possible_causes('vtest.exe', -1, false).contains('windows_wait_or_pipe_failure')
 }
 
+fn test_vtest_negative_host_status_with_success_summary_is_accepted() {
+	tool_run := DelegatedToolRun{
+		exit_code:         -1
+		stdout:            'Summary for all V _test.v files: 2 passed, 2 total.'
+		stdout_len:        56
+		output_redirected: true
+	}
+
+	assert should_accept_vtest_success_output('vtest.exe', tool_run)
+	assert !should_retry_vtest_run('vtest.exe', tool_run)
+}
+
+fn test_vtest_negative_host_status_with_failure_summary_is_not_accepted() {
+	tool_run := DelegatedToolRun{
+		exit_code:         -1
+		stdout:            'FAIL hot_test.v\nSummary for all V _test.v files: 1 failed, 1 total.'
+		stdout_len:        70
+		output_redirected: true
+	}
+
+	assert !should_accept_vtest_success_output('vtest.exe', tool_run)
+	assert should_retry_vtest_run('vtest.exe', tool_run)
+}
+
 fn test_vtest_exit_one_with_sparse_output_is_retried_and_diagnosed() {
 	tool_run := DelegatedToolRun{
 		exit_code:         1
@@ -84,7 +108,7 @@ fn test_fallback_tool_executable_path_uses_vtmp_for_missing_single_file_tool() {
 	assert fallback.ends_with(path_of_executable('vdoctor'))
 }
 
-fn test_fallback_tool_executable_path_uses_process_temp_for_vtest() {
+fn test_fallback_tool_executable_path_uses_stable_temp_for_vtest() {
 	tmp_dir := os.join_path(os.vtmp_dir(), 'util_test_fallback_tool_executable_path_vtest')
 	os.mkdir_all(tmp_dir) or { panic(err) }
 	defer {
@@ -96,11 +120,14 @@ fn test_fallback_tool_executable_path_uses_process_temp_for_vtest() {
 
 	fallback := fallback_tool_executable_path(@VEXE, '/opt/vlang', 'vtest', tool_source, tool_exe,
 		false)
+	fallback_again := fallback_tool_executable_path(@VEXE, '/opt/vlang', 'vtest', tool_source,
+		tool_exe, false)
 
 	assert fallback != tool_exe
+	assert fallback == fallback_again
 	assert fallback.starts_with(os.join_path(os.vtmp_dir(), 'tools'))
-	assert fallback.contains(os.join_path('concurrent', 'vtest_${os.getpid()}'))
-	assert fallback.ends_with(path_of_executable('vtest_${os.getpid()}'))
+	assert fallback.contains(os.join_path('concurrent', 'vtest'))
+	assert fallback.ends_with(path_of_executable('vtest'))
 }
 
 fn test_fallback_tool_executable_path_keeps_directory_tools_in_place() {

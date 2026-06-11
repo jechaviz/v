@@ -8,6 +8,7 @@ import v.util
 import v.util.vflags
 
 const process_guard_env = 'VTEST_CHILD_MEMORY_GUARD'
+const process_guard_compile_env = 'VTEST_COMPILE_MEMORY_GUARD'
 const process_guard_limit_env = 'VTEST_CHILD_MAX_MEMORY'
 const process_guard_limit_mb_env = 'VTEST_CHILD_MAX_MEMORY_MB'
 const process_guard_output_limit_env = 'VTEST_CHILD_OUTPUT_LIMIT'
@@ -46,13 +47,21 @@ fn execute_test_binary(generated_binary_fpath string, run_js bool, run_cmd strin
 
 fn process_guard_enabled() bool {
 	mode := os.getenv(process_guard_env).trim_space().to_lower()
-	if mode in ['0', 'false', 'off', 'no', 'disabled'] {
+	if process_guard_env_value_off(mode) {
 		return false
 	}
-	if mode in ['1', 'true', 'on', 'yes', 'always', 'enabled'] {
+	if process_guard_env_value_on(mode) {
 		return true
 	}
 	return os.user_os() == 'windows'
+}
+
+fn process_guard_compile_enabled() bool {
+	mode := os.getenv(process_guard_compile_env).trim_space().to_lower()
+	if process_guard_env_value_on(mode) {
+		return true
+	}
+	return false
 }
 
 fn process_guard_executable(generated_binary_fpath string, run_js bool) !string {
@@ -84,6 +93,11 @@ fn process_guard_limit_bytes_to_mb(limit_bytes u64) u64 {
 fn process_guard_env_value_off(value string) bool {
 	mode := value.trim_space().to_lower()
 	return mode in ['0', 'false', 'off', 'no', 'disabled']
+}
+
+fn process_guard_env_value_on(value string) bool {
+	mode := value.trim_space().to_lower()
+	return mode in ['1', 'true', 'on', 'yes', 'always', 'enabled']
 }
 
 fn process_guard_execute(executable string, args []string, display_cmd string) os.Result {

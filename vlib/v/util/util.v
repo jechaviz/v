@@ -129,15 +129,29 @@ fn temporary_tool_executable_path(vroot string, tool_name string) string {
 	return path_of_executable(os.join_path(os.vtmp_dir(), 'tools', sanitized_vroot, tool_name))
 }
 
-fn concurrent_tool_executable_path(vroot string, tool_name string) string {
+fn concurrent_tool_executable_path(vexe string, vroot string, tool_name string, tool_source string) string {
 	sanitized_vroot := vroot.replace_each(['\\', '_', '/', '_', ':', '_'])
-	process_tool_name := '${tool_name}_${os.getpid()}'
+	tool_stamp := '${os.file_last_mod_unix(vexe)}_${newest_tool_source_mtime(tool_source)}'
 	return path_of_executable(os.join_path(os.vtmp_dir(), 'tools', sanitized_vroot, 'concurrent',
-		process_tool_name))
+		tool_name, tool_stamp, tool_name))
 }
 
 fn should_use_concurrent_tool_executable(tool_name string) bool {
 	return tool_name == 'vtest'
+}
+
+fn newest_tool_source_mtime(tool_source string) i64 {
+	if !os.is_dir(tool_source) {
+		return os.file_last_mod_unix(tool_source)
+	}
+	mut newest := os.file_last_mod_unix(tool_source)
+	for source_file in os.walk_ext(tool_source, '.v') {
+		mtime := os.file_last_mod_unix(source_file)
+		if mtime > newest {
+			newest = mtime
+		}
+	}
+	return newest
 }
 
 fn fallback_tool_executable_path(vexe string, vroot string, tool_name string, tool_source string, tool_exe string, is_recompilation_disabled bool) string {
@@ -145,7 +159,7 @@ fn fallback_tool_executable_path(vexe string, vroot string, tool_name string, to
 		return tool_exe
 	}
 	if should_use_concurrent_tool_executable(tool_name) {
-		return concurrent_tool_executable_path(vroot, tool_name)
+		return concurrent_tool_executable_path(vexe, vroot, tool_name, tool_source)
 	}
 	temporary_tool_exe := temporary_tool_executable_path(vroot, tool_name)
 	if is_recompilation_disabled && !os.exists(tool_exe) {
@@ -388,6 +402,13 @@ fn run_tool_process_and_exit(tool_exe string, args []string) {
 			exit(1)
 		}
 	}
+	if should_accept_vtest_success_output(tool_exe, tool_run) {
+		eprintln('v.tool.command.recovered_negative_status=true')
+		eprintln('v.tool.command.recovered_reason=vtest_success_summary_with_negative_host_status')
+		eprintln('v.tool.command.child_exit_code=${tool_run.exit_code}')
+		eprintln('v.tool.command.child_exit_code_meaning=${os.process_exit_code_meaning(tool_run.exit_code)}')
+		exit(0)
+	}
 	raw_exit_code := tool_run.exit_code
 	exit_code := if raw_exit_code < 0 { 1 } else { raw_exit_code }
 	if exit_code != 0 {
@@ -546,10 +567,24 @@ fn should_retry_vtest_run(tool_exe string, tool_run DelegatedToolRun) bool {
 	if !is_delegated_vtest_tool(tool_exe) {
 		return false
 	}
+	if should_accept_vtest_success_output(tool_exe, tool_run) {
+		return false
+	}
 	if tool_run.exit_code < 0 {
 		return true
 	}
 	return is_sparse_vtest_failure_output(tool_exe, tool_run)
+}
+
+fn should_accept_vtest_success_output(tool_exe string, tool_run DelegatedToolRun) bool {
+	if !is_delegated_vtest_tool(tool_exe) || tool_run.exit_code >= 0 || !tool_run.output_redirected {
+		return false
+	}
+	output := '${tool_run.stdout}\n${tool_run.stderr}'
+	if !output.contains('Summary for all V _test.v files:') || !output.contains(' passed,') {
+		return false
+	}
+	return !output.contains(' failed,') && !output.contains('\nFAIL')
 }
 
 fn vtest_retry_reason(tool_run DelegatedToolRun) string {

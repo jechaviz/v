@@ -303,7 +303,7 @@ pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Res
 	if show_cmd {
 		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
 	}
-	if process_guard_enabled() {
+	if process_guard_compile_enabled() {
 		return process_guard_with_silent_diagnostics(cmd, process_guard_execute_command(cmd))
 	}
 	if pressure_result := process_guard_wait_for_host_memory('vtest_compile', cmd) {
