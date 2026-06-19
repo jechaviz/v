@@ -6,6 +6,13 @@ module builtin
 // inside the panic functions.
 @[noreturn]
 fn panic_debug(line_no int, file string, mod string, fn_name string, s string) {
+	$if !freestanding {
+		// recoverable-panic hook (see panic()): unwind to an active recover_call() guard.
+		if C.v_recover_is_active() != 0 {
+			g_recover_msg = s
+			C.v_recover_longjmp()
+		}
+	}
 	// Note: the order here is important for a stabler test output
 	// module is less likely to change than function, etc...
 	// During edits, the line number will change most frequently,
@@ -88,6 +95,14 @@ pub fn panic_result_not_set(s string) {
 // It also shows a backtrace on most platforms.
 @[noreturn]
 pub fn panic(s string) {
+	$if !freestanding {
+		// recoverable-panic hook: if inside a recover_call() guard, unwind to it with the
+		// message instead of aborting the whole process.
+		if C.v_recover_is_active() != 0 {
+			g_recover_msg = s
+			C.v_recover_longjmp()
+		}
+	}
 	// Note: be careful to not use string interpolation here:
 	$if freestanding {
 		bare_panic(s)
