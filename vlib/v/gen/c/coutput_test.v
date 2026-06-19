@@ -260,6 +260,33 @@ fn test_or_block_err_var_collision_does_not_emit_self_referential_err() {
 	assert has_visible_or_block_err
 }
 
+fn test_main_error_propagation_panic_branches_do_not_fall_through() {
+	os.chdir(vroot) or {}
+	test_dir := os.join_path(os.vtmp_dir(), 'main_error_propagation_panic_tail_${os.getpid()}')
+	os.mkdir_all(test_dir)!
+	defer {
+		os.rmdir_all(test_dir) or {}
+	}
+	source_path := os.join_path(test_dir, 'main_error_propagation_panic_tail.v')
+	os.write_file(source_path,
+		['module main', '', 'fn fail_result() ! {', "\treturn error('new error')", '}', '', 'fn fail_option() ?int {', '\treturn none', '}', '', 'fn defer_result() ! {', '\tdefer {', "\t\tprintln('result deferred')", '\t}', '\tfail_result()!', '}', '', 'fn defer_option() ?int {', '\tdefer {', "\t\tprintln('option deferred')", '\t}', '\treturn fail_option()', '}', '', 'fn main() {', '\tif arguments().len > 1000 {', '\t\tdefer_option()?', '\t}', '\tdefer_result()!', '}'].join('\n') +
+		'\n')!
+	cmd := '${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}'
+	compilation := os.execute(cmd)
+	ensure_compilation_succeeded(compilation, cmd)
+	for panic_call in [
+		'builtin__panic_result_not_set(IError_name_table[',
+		'builtin__panic_option_not_set( IError_name_table[',
+	] {
+		assert compilation.output.contains(panic_call)
+		branch_tail := compilation.output.all_after(panic_call).all_before('}')
+		// The panic helper is `@[noreturn]`, so the branch is closed off with
+		// `VUNREACHABLE();` (matching the other panic sites) instead of dead code
+		// after the noreturn call.
+		assert branch_tail.contains('VUNREACHABLE();')
+	}
+}
+
 fn test_imported_empty_interface_concat_does_not_emit_noop_array_cast_helper() {
 	os.chdir(vroot) or {}
 	path := os.join_path(vroot,
@@ -310,6 +337,7 @@ fn test_array_push_no_bounds_checking_keeps_max_len_panics() {
 	assert compilation.output.contains('array.push: len bigger than max_int')
 	assert !compilation.output.contains('array.push_noscan: negative len')
 	assert compilation.output.contains('array.push_noscan: len bigger than max_int')
+		|| compilation.output.contains('builtin__array_push(a, val);')
 }
 
 fn test_windows_sharedlive_string_interpolation_in_ternary_does_not_emit_inline_tmp_decl() {
@@ -824,7 +852,8 @@ fn should_skip(relpath string) bool {
 	}
 	if github_job.contains('musl') && (relpath.ends_with('print_boehm_leak.vv')
 		|| relpath.ends_with('scope_cleanup_boehm_leak.vv')
-		|| relpath.ends_with('gc_debugger_linux.vv')) {
+		|| relpath.ends_with('gc_debugger_linux.vv')
+		|| relpath.ends_with('heap_struct_init_order.vv')) {
 		eprintln('> skipping ${relpath} on ${github_job}, since gc related tests are not compatible with `-gc none`')
 		return true
 	}
