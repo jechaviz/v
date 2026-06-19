@@ -32,6 +32,9 @@ __global v_auto_process_memory_guard_configured = false
 __global v_auto_process_memory_guard_enabled = false
 __global v_auto_process_memory_guard_limit_bytes = u64(0)
 __global v_auto_process_memory_guard_sample_bytes = u64(0)
+// cumulative bytes of sub-sample allocations since the last used-bytes sample; lets many small
+// allocations trigger a check before they can silently exhaust memory (see before_alloc).
+__global v_auto_process_memory_guard_since_check = u64(0)
 
 @[markused]
 fn auto_process_memory_guard_init() {
@@ -90,7 +93,14 @@ fn auto_process_memory_guard_before_alloc(size isize) {
 		auto_process_memory_guard_fail(0, limit, request_bytes)
 	}
 	if request_bytes < v_auto_process_memory_guard_sample_bytes {
-		return
+		// Accumulate small allocations and only pay for the (costly) used-bytes sample once the
+		// cumulative small-alloc volume crosses the sample threshold. Without this, a workload
+		// made of many sub-sample allocations could exhaust memory unchecked.
+		v_auto_process_memory_guard_since_check += request_bytes
+		if v_auto_process_memory_guard_since_check < v_auto_process_memory_guard_sample_bytes {
+			return
+		}
+		v_auto_process_memory_guard_since_check = 0
 	}
 	used := auto_process_memory_guard_used_bytes()
 	if used == 0 || limit == 0 {
@@ -209,6 +219,18 @@ fn auto_process_memory_guard_used_bytes() u64 {
 @[noreturn]
 fn auto_process_memory_guard_fail(used u64, limit u64, request u64) {
 	v_memory_panic = true
+	$if !freestanding {
+		// If we are inside a recover_call() guard, the refused allocation is treated as a
+		// recoverable fault: unwind to the guard (skipping the current unit of work) instead
+		// of aborting the whole process. This hook runs BEFORE the real malloc, so no
+		// allocator lock is held and no partial allocation exists — longjmp is safe here. The
+		// message is a string literal (no heap allocation) so it is safe under memory pressure,
+		// and we stay quiet (no stderr report) since the fault is being handled.
+		if C.v_recover_is_active() != 0 {
+			g_recover_msg = 'process memory guard: allocation refused before OOM (limit exceeded)'
+			C.v_recover_longjmp()
+		}
+	}
 	C.fprintf(C.stderr, c'v.memory_guard.failed=true\n')
 	C.fprintf(C.stderr, c'v.memory_guard.reason=process_memory_limit\n')
 	C.fprintf(C.stderr, c'v.memory_guard.action=abort_before_oom\n')
