@@ -33,6 +33,21 @@ pub fn recover_call(cb fn ()) bool {
 	return false
 }
 
+// recover_value runs `cb` and returns its result, or none if `cb` panicked (same recoverable
+// faults as recover_call). The result is returned by value — NOT via a captured mut variable —
+// because V closures capture by value, so appending to / assigning a captured variable inside
+// `cb` would not be visible to the caller. Prefer this over recover_call when you need a value
+// out of the guarded code.
+pub fn recover_value[T](cb fn () T) ?T {
+	if C.v_recover_setjmp() == 0 {
+		res := cb()
+		C.v_recover_clear()
+		return res
+	}
+	C.v_recover_clear()
+	return none
+}
+
 // recover_message returns the text of the most recently recovered panic ('' if none yet).
 pub fn recover_message() string {
 	return g_recover_msg
