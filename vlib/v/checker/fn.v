@@ -4980,17 +4980,14 @@ fn (mut c Checker) array_builtin_method_call(mut node ast.CallExpr, left_type as
 				if arg0.expr.op !in [.gt, .lt] {
 					c.error('`.${method_name}()` can only use `<` or `>` comparison', node.pos)
 				}
-				left_name := '${arg0.expr.left}'[0]
-				right_name := '${arg0.expr.right}'[0]
-				if left_name !in [`a`, `b`] || right_name !in [`a`, `b`] {
-					c.error('`.${method_name}()` can only use `a` or `b` as argument, e.g. `arr.${method_name}(a < b)`',
-						node.pos)
-				} else if left_name == right_name {
-					c.error('`.${method_name}()` cannot use same argument', node.pos)
-				}
-				if arg0.expr.left !in [ast.CallExpr, ast.Ident, ast.SelectorExpr, ast.IndexExpr]
-					|| arg0.expr.right !in [ast.CallExpr, ast.Ident, ast.SelectorExpr, ast.IndexExpr] {
-					c.error('`.${method_name}()` can only use ident, index, selector or call as argument, \ne.g. `arr.${method_name}(a < b)`, `arr.${method_name}(a.id < b.id)`, `arr.${method_name}(a[0] < b[0])`',
+				left_a := sort_arg_references(arg0.expr.left, 'a')
+				left_b := sort_arg_references(arg0.expr.left, 'b')
+				right_a := sort_arg_references(arg0.expr.right, 'a')
+				right_b := sort_arg_references(arg0.expr.right, 'b')
+				ascending := left_a && !left_b && right_b && !right_a
+				descending := left_b && !left_a && right_a && !right_b
+				if !(ascending || descending) {
+					c.error('`.${method_name}()` comparison must reference `a` on one side and `b` on the other, \ne.g. `arr.${method_name}(a < b)`, `arr.${method_name}(a.id < b.id)`, `arr.${method_name}(f(a) < f(b))`, `arr.${method_name}(a.x + a.y < b.x + b.y)`',
 						node.pos)
 				}
 			} else {
@@ -5400,17 +5397,14 @@ fn (mut c Checker) fixed_array_builtin_method_call(mut node ast.CallExpr, left_t
 				if arg0.expr.op !in [.gt, .lt] {
 					c.error('`.${method_name}()` can only use `<` or `>` comparison', node.pos)
 				}
-				left_name := '${arg0.expr.left}'[0]
-				right_name := '${arg0.expr.right}'[0]
-				if left_name !in [`a`, `b`] || right_name !in [`a`, `b`] {
-					c.error('`.${method_name}()` can only use `a` or `b` as argument, e.g. `arr.${method_name}(a < b)`',
-						node.pos)
-				} else if left_name == right_name {
-					c.error('`.${method_name}()` cannot use same argument', node.pos)
-				}
-				if arg0.expr.left !in [ast.Ident, ast.SelectorExpr, ast.IndexExpr]
-					|| arg0.expr.right !in [ast.Ident, ast.SelectorExpr, ast.IndexExpr] {
-					c.error('`.${method_name}()` can only use ident, index or selector as argument, \ne.g. `arr.${method_name}(a < b)`, `arr.${method_name}(a.id < b.id)`, `arr.${method_name}(a[0] < b[0])`',
+				left_a := sort_arg_references(arg0.expr.left, 'a')
+				left_b := sort_arg_references(arg0.expr.left, 'b')
+				right_a := sort_arg_references(arg0.expr.right, 'a')
+				right_b := sort_arg_references(arg0.expr.right, 'b')
+				ascending := left_a && !left_b && right_b && !right_a
+				descending := left_b && !left_a && right_a && !right_b
+				if !(ascending || descending) {
+					c.error('`.${method_name}()` comparison must reference `a` on one side and `b` on the other, \ne.g. `arr.${method_name}(a < b)`, `arr.${method_name}(a.id < b.id)`, `arr.${method_name}(f(a) < f(b))`, `arr.${method_name}(a.x + a.y < b.x + b.y)`',
 						node.pos)
 				}
 			} else {
@@ -5501,6 +5495,38 @@ fn (mut c Checker) check_for_mut_receiver(mut expr ast.Expr) (string, token.Pos)
 
 fn scope_register_it(mut s ast.Scope, pos token.Pos, typ ast.Type) {
 	scope_register_special_var_name(mut s, pos, typ, 'it')
+}
+
+// sort_arg_references reports whether a `.sort()` / `.sorted()` comparator operand references the
+// magic element variable `name` ('a' or 'b'), searching recursively inside calls, arithmetic,
+// parentheses, casts, indexing and selectors. This lets the comparator be ANY expression over `a`
+// and `b` (e.g. `f(a) < f(b)`, `a.x + a.y < b.x + b.y`), not just a bare ident/selector/index/call.
+fn sort_arg_references(node ast.Expr, name string) bool {
+	return match node {
+		ast.Ident { node.name == name }
+		ast.InfixExpr { sort_arg_references(node.left, name) || sort_arg_references(node.right, name) }
+		ast.ParExpr { sort_arg_references(node.expr, name) }
+		ast.PrefixExpr { sort_arg_references(node.right, name) }
+		ast.PostfixExpr { sort_arg_references(node.expr, name) }
+		ast.SelectorExpr { sort_arg_references(node.expr, name) }
+		ast.CastExpr { sort_arg_references(node.expr, name) }
+		ast.IndexExpr { sort_arg_references(node.left, name) || sort_arg_references(node.index, name) }
+		ast.CallExpr {
+			if sort_arg_references(node.left, name) {
+				true
+			} else {
+				mut found := false
+				for arg in node.args {
+					if sort_arg_references(arg.expr, name) {
+						found = true
+						break
+					}
+				}
+				found
+			}
+		}
+		else { false }
+	}
 }
 
 fn scope_register_a_b(mut s ast.Scope, pos token.Pos, typ ast.Type) {

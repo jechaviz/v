@@ -1540,7 +1540,26 @@ fn (mut c Checker) check_sort_external_variable_access(node ast.Expr) bool {
 			}
 		}
 		ast.CallExpr {
-			return c.check_sort_external_variable_access(node.left)
+			if !c.check_sort_external_variable_access(node.left) {
+				return false
+			}
+			for arg in node.args {
+				if !c.check_sort_external_variable_access(arg.expr) {
+					return false
+				}
+			}
+		}
+		ast.ParExpr {
+			return c.check_sort_external_variable_access(node.expr)
+		}
+		ast.PrefixExpr {
+			return c.check_sort_external_variable_access(node.right)
+		}
+		ast.PostfixExpr {
+			return c.check_sort_external_variable_access(node.expr)
+		}
+		ast.CastExpr {
+			return c.check_sort_external_variable_access(node.expr)
 		}
 		ast.SelectorExpr {
 			return c.check_sort_external_variable_access(node.expr)

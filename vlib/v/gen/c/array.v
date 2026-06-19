@@ -1226,6 +1226,62 @@ fn (mut g Gen) gen_array_sorted(node ast.CallExpr) {
 	g.writeln(';')
 }
 
+// sort_expr_references_ident reports whether a sort comparator operand references the magic element
+// variable `name` ('a' or 'b'), searching recursively so the operand may be any expression (calls,
+// arithmetic, casts, indexing, selectors). Mirrors the checker's acceptance rule so codegen agrees
+// on which side is `a` and which is `b`.
+fn sort_expr_references_ident(node ast.Expr, name string) bool {
+	return match node {
+		ast.Ident { node.name == name }
+		ast.InfixExpr { sort_expr_references_ident(node.left, name) || sort_expr_references_ident(node.right, name) }
+		ast.ParExpr { sort_expr_references_ident(node.expr, name) }
+		ast.PrefixExpr { sort_expr_references_ident(node.right, name) }
+		ast.PostfixExpr { sort_expr_references_ident(node.expr, name) }
+		ast.SelectorExpr { sort_expr_references_ident(node.expr, name) }
+		ast.CastExpr { sort_expr_references_ident(node.expr, name) }
+		ast.IndexExpr { sort_expr_references_ident(node.left, name) || sort_expr_references_ident(node.index, name) }
+		ast.CallExpr {
+			if sort_expr_references_ident(node.left, name) {
+				true
+			} else {
+				mut found := false
+				for arg in node.args {
+					if sort_expr_references_ident(arg.expr, name) {
+						found = true
+						break
+					}
+				}
+				found
+			}
+		}
+		else { false }
+	}
+}
+
+// sort_mangle_ident turns a comparator expression string into a valid C identifier fragment.
+fn sort_mangle_ident(s string) string {
+	mut out := []u8{cap: s.len}
+	for ch in s {
+		if (ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`) || (ch >= `0` && ch <= `9`)
+			|| ch == `_` {
+			out << ch
+		} else {
+			out << `_`
+		}
+	}
+	return out.bytestr()
+}
+
+// sort_sig_hash is a small FNV-1a hash (hex) of a comparison signature, appended to the comparator
+// fn name so distinct comparator expressions never collide while identical ones still dedup.
+fn sort_sig_hash(s string) string {
+	mut h := u32(2166136261)
+	for ch in s {
+		h = (h ^ u32(ch)) * u32(16777619)
+	}
+	return h.hex()
+}
+
 // `users.sort(a.age < b.age)`
 fn (mut g Gen) gen_array_sort(node ast.CallExpr) {
 	// println('filter s="${s}"')
@@ -1285,13 +1341,21 @@ fn (mut g Gen) gen_array_sort(node ast.CallExpr) {
 		}
 		comparison_type = g.unwrap(comparison_left_type.set_nr_muls(0))
 		left_name := infix_expr.left.str()
+		// Which magic element variable each side of the comparison references. Detected recursively
+		// (not by leading character) so the operands may be arbitrary expressions like `f(a) < f(b)`
+		// or `a.x + a.y < b.x + b.y`.
+		left_uses_a := sort_expr_references_ident(infix_expr.left, 'a')
+		left_uses_b := sort_expr_references_ident(infix_expr.left, 'b')
 		if left_name.len > 1 {
-			compare_fn += '_by' +
-				left_name[1..].replace_each(['.', '_', '[', '_', ']', '_', "'", '_', '"', '_', '(', '', ')', '', ',', '', '/', '_'])
+			// Derive a valid, collision-free C identifier from the full comparison signature so
+			// arbitrary operand expressions each get their own comparator fn (and identical ones
+			// still dedup via g.array_sort_fn).
+			sig := infix_expr.left.str() + infix_expr.op.str() + infix_expr.right.str()
+			compare_fn += '_by_' + sort_mangle_ident(left_name) + '_' + sort_sig_hash(sig)
 		}
 		// is_reverse is `true` for `.sort(a > b)` and `.sort(b < a)`
-		is_reverse := (left_name.starts_with('a') && infix_expr.op == .gt)
-			|| (left_name.starts_with('b') && infix_expr.op == .lt)
+		is_reverse := (left_uses_a && infix_expr.op == .gt)
+			|| (left_uses_b && infix_expr.op == .lt)
 		if is_reverse {
 			compare_fn += '_reverse'
 		}
@@ -1302,7 +1366,7 @@ fn (mut g Gen) gen_array_sort(node ast.CallExpr) {
 				return
 			}
 		}
-		if left_name.starts_with('a') != is_reverse {
+		if left_uses_a != is_reverse {
 			left_expr = g.expr_string(infix_expr.left)
 			right_expr = g.expr_string(infix_expr.right)
 			if infix_expr.left is ast.Ident {

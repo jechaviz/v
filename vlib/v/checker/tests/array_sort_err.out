@@ -12,7 +12,8 @@ vlib/v/checker/tests/array_sort_err.vv:4:6: error: `.sort()` can only use `<` or
       |         ~~~~~~~~~~~~
     5 |     arr.sort(a > a)
     6 |     arr.sort(c > d)
-vlib/v/checker/tests/array_sort_err.vv:5:6: error: `.sort()` cannot use same argument
+vlib/v/checker/tests/array_sort_err.vv:5:6: error: `.sort()` comparison must reference `a` on one side and `b` on the other, 
+e.g. `arr.sort(a < b)`, `arr.sort(a.id < b.id)`, `arr.sort(f(a) < f(b))`, `arr.sort(a.x + a.y < b.x + b.y)`
     3 |     arr.sort(a < b, a)
     4 |     arr.sort(a == b)
     5 |     arr.sort(a > a)
@@ -25,7 +26,8 @@ vlib/v/checker/tests/array_sort_err.vv:6:11: error: can not access external vari
     6 |     arr.sort(c > d)
       |              ^
     7 | }
-vlib/v/checker/tests/array_sort_err.vv:6:6: error: `.sort()` can only use `a` or `b` as argument, e.g. `arr.sort(a < b)`
+vlib/v/checker/tests/array_sort_err.vv:6:6: error: `.sort()` comparison must reference `a` on one side and `b` on the other, 
+e.g. `arr.sort(a < b)`, `arr.sort(a.id < b.id)`, `arr.sort(f(a) < f(b))`, `arr.sort(a.x + a.y < b.x + b.y)`
     4 |     arr.sort(a == b)
     5 |     arr.sort(a > a)
     6 |     arr.sort(c > d)
