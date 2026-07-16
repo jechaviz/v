@@ -81,3 +81,14 @@ fn test_fmt_vmodules() {
 	input_files = os.walk_ext(vmodules_tdir, '_input.vv')
 	run_fmt(mut input_files)
 }
+
+fn test_fmt_stdin_preserves_unresolved_import_aliases() {
+	input_path := os.join_path(tdir, 'tests', 'import_unresolved_alias_in_signatures_input.vv')
+	expected_path := os.join_path(tdir, 'tests', 'import_unresolved_alias_in_signatures_expected.vv')
+	input := os.read_file(input_path)!
+	expected := os.read_file(expected_path)!
+	mut table := ast.new_table()
+	file_ast := parser.parse_text(input, '', mut table, .parse_comments, fpref)
+	result := fmt.fmt(file_ast, mut table, fpref, false, source_text: input)
+	assert result == expected
+}

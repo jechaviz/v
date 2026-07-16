@@ -21,6 +21,9 @@ fn trace_qualify(callfn string, mod string, file_path string, kind_res string, r
 // qualify_import is used by V's parser, to find the full module name of import statements.
 // Do not use it.
 pub fn qualify_import(pref_ &pref.Preferences, mod string, file_path string) string {
+	if file_path == '' {
+		return mod
+	}
 	// comments are from workdir: /v/vls
 	mut mod_paths := pref_.lookup_path.clone()
 	mod_paths << os.vmodules_paths()
@@ -64,6 +67,9 @@ pub fn qualify_import(pref_ &pref.Preferences, mod string, file_path string) str
 
 // qualify_module - used by V's parser to find the full module name. Do not use it.
 pub fn qualify_module(pref_ &pref.Preferences, mod string, file_path string) string {
+	if file_path == '' {
+		return mod
+	}
 	if mod == 'main' {
 		trace_qualify(@FN, mod, file_path, 'module_res 1', mod, 'main')
 		return mod
