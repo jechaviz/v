@@ -228,7 +228,7 @@ fn (mut b Builder) run_compiled_executable_and_exit() {
 		run_process_error = run_process.err
 		run_process.close()
 	}
-	if ret != 0 {
+	if ret != 0 && report_ret < 0 {
 		report_run_command_failure(command_to_run, report_ret, run_process_error)
 	}
 	b.cleanup_run_executable_after_exit(compiled_file)

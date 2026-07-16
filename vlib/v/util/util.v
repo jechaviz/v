@@ -411,7 +411,7 @@ fn run_tool_process_and_exit(tool_exe string, args []string) {
 	}
 	raw_exit_code := tool_run.exit_code
 	exit_code := if raw_exit_code < 0 { 1 } else { raw_exit_code }
-	if exit_code != 0 {
+	if exit_code != 0 && should_report_delegated_tool_failure(tool_exe, tool_run) {
 		report_exit_code := if raw_exit_code < 0 { raw_exit_code } else { exit_code }
 		is_sparse_vtest_output := is_sparse_vtest_failure_output(tool_exe, tool_run)
 		report_captured_output := should_report_delegated_tool_output(tool_run,
@@ -561,6 +561,24 @@ fn should_capture_delegated_tool_output(tool_exe string) bool {
 
 fn is_delegated_vtest_tool(tool_exe string) bool {
 	return os.file_name(tool_exe).to_lower_ascii() in ['vtest', 'vtest.exe']
+}
+
+fn is_delegated_builder_tool(tool_exe string) bool {
+	normalized_path := tool_exe.replace('\\', '/').to_lower_ascii()
+	return normalized_path.contains('/cmd/tools/builders/')
+}
+
+fn should_report_delegated_tool_failure(tool_exe string, tool_run DelegatedToolRun) bool {
+	if is_delegated_vtest_tool(tool_exe) || tool_run.exit_code < 0 {
+		return true
+	}
+	if is_delegated_builder_tool(tool_exe) {
+		return false
+	}
+	if !tool_run.output_redirected {
+		return true
+	}
+	return tool_run.stdout_len == 0 && tool_run.stderr_len == 0
 }
 
 fn should_retry_vtest_run(tool_exe string, tool_run DelegatedToolRun) bool {

@@ -85,3 +85,30 @@ fn test_flip_signedness() {
 	assert ast.u16_type.flip_signedness() == ast.i16_type
 	assert ast.isize_type.flip_signedness() == ast.usize_type
 }
+
+fn test_type_to_str_using_aliases_does_not_reuse_another_alias_map() {
+	mut table := ast.new_table()
+	type_idx := table.add_placeholder_type('remote.Item', 'remote__Item', .v)
+	typ := ast.new_type(type_idx)
+
+	assert table.type_to_str_using_aliases(typ, {
+		'remote': 'first'
+	}) == 'first.Item'
+	assert table.type_to_str_using_aliases(typ, {
+		'remote': 'second'
+	}) == 'second.Item'
+	assert table.type_to_str_using_aliases(typ, {
+		'remote': 'first'
+	}) == 'first.Item'
+}
+
+fn test_type_to_str_current_module_is_matched_at_name_boundary() {
+	mut table := ast.new_table()
+	table.cmod_prefix = 'broker.'
+	local_idx := table.add_placeholder_type('broker.Local', 'broker__Local', .v)
+	external_idx := table.add_placeholder_type('vtrade_broker.BrokerManifest',
+		'vtrade_broker__BrokerManifest', .v)
+
+	assert table.type_to_str(ast.new_type(local_idx)) == 'Local'
+	assert table.type_to_str(ast.new_type(external_idx)) == 'vtrade_broker.BrokerManifest'
+}

@@ -2580,8 +2580,6 @@ fn (mut c Checker) fn_call(mut node ast.CallExpr, mut continue_check &bool) ast.
 					continue
 				}
 				if param_typ_sym.info is ast.Array && arg_typ_sym.info is ast.Array {
-					param_elem_type := c.table.unaliased_type(param_typ_sym.info.elem_type)
-					arg_elem_type := c.table.unaliased_type(arg_typ_sym.info.elem_type)
 					param_nr_muls := param.typ.nr_muls()
 					arg_nr_muls := if call_arg.is_mut {
 						arg_typ.nr_muls() + 1
@@ -2591,8 +2589,7 @@ fn (mut c Checker) fn_call(mut node ast.CallExpr, mut continue_check &bool) ast.
 					if param.typ.has_flag(.option) == arg_typ.has_flag(.option)
 						&& param.typ.has_flag(.result) == arg_typ.has_flag(.result)
 						&& param_nr_muls == arg_nr_muls
-						&& param_typ_sym.info.nr_dims == arg_typ_sym.info.nr_dims
-						&& param_elem_type == arg_elem_type {
+						&& c.compatible_array_infos(arg_typ_sym.info, param_typ_sym.info) {
 						continue
 					}
 				} else if arg_typ_sym.info is ast.MultiReturn {
@@ -3303,6 +3300,7 @@ fn (mut c Checker) method_call(mut node ast.CallExpr, mut continue_check &bool) 
 			c.fail_if_unreadable(node.left, left_type, 'receiver')
 			if !c.is_builtin_mod {
 				c.table.used_features.auto_str = true
+				c.markused_auto_str_dependencies(left_type)
 			}
 			return ast.string_type
 		} else if node.kind == .free {
@@ -3899,13 +3897,10 @@ fn (mut c Checker) method_call(mut node ast.CallExpr, mut continue_check &bool) 
 				param_typ_sym := c.table.sym(exp_arg_typ)
 				arg_typ_sym := c.table.sym(got_arg_typ)
 				if param_typ_sym.info is ast.Array && arg_typ_sym.info is ast.Array {
-					param_elem_type := c.table.unaliased_type(param_typ_sym.info.elem_type)
-					arg_elem_type := c.table.unaliased_type(arg_typ_sym.info.elem_type)
 					if exp_arg_typ.has_flag(.option) == got_arg_typ.has_flag(.option)
 						&& exp_arg_typ.has_flag(.result) == got_arg_typ.has_flag(.result)
 						&& exp_arg_typ.nr_muls() == got_arg_typ.nr_muls()
-						&& param_typ_sym.info.nr_dims == arg_typ_sym.info.nr_dims
-						&& param_elem_type == arg_elem_type {
+						&& c.compatible_array_infos(arg_typ_sym.info, param_typ_sym.info) {
 						continue
 					}
 				}
@@ -5503,14 +5498,30 @@ fn scope_register_it(mut s ast.Scope, pos token.Pos, typ ast.Type) {
 // and `b` (e.g. `f(a) < f(b)`, `a.x + a.y < b.x + b.y`), not just a bare ident/selector/index/call.
 fn sort_arg_references(node ast.Expr, name string) bool {
 	return match node {
-		ast.Ident { node.name == name }
-		ast.InfixExpr { sort_arg_references(node.left, name) || sort_arg_references(node.right, name) }
-		ast.ParExpr { sort_arg_references(node.expr, name) }
-		ast.PrefixExpr { sort_arg_references(node.right, name) }
-		ast.PostfixExpr { sort_arg_references(node.expr, name) }
-		ast.SelectorExpr { sort_arg_references(node.expr, name) }
-		ast.CastExpr { sort_arg_references(node.expr, name) }
-		ast.IndexExpr { sort_arg_references(node.left, name) || sort_arg_references(node.index, name) }
+		ast.Ident {
+			node.name == name
+		}
+		ast.InfixExpr {
+			sort_arg_references(node.left, name) || sort_arg_references(node.right, name)
+		}
+		ast.ParExpr {
+			sort_arg_references(node.expr, name)
+		}
+		ast.PrefixExpr {
+			sort_arg_references(node.right, name)
+		}
+		ast.PostfixExpr {
+			sort_arg_references(node.expr, name)
+		}
+		ast.SelectorExpr {
+			sort_arg_references(node.expr, name)
+		}
+		ast.CastExpr {
+			sort_arg_references(node.expr, name)
+		}
+		ast.IndexExpr {
+			sort_arg_references(node.left, name) || sort_arg_references(node.index, name)
+		}
 		ast.CallExpr {
 			if sort_arg_references(node.left, name) {
 				true
@@ -5525,7 +5536,9 @@ fn sort_arg_references(node ast.Expr, name string) bool {
 				found
 			}
 		}
-		else { false }
+		else {
+			false
+		}
 	}
 }
 

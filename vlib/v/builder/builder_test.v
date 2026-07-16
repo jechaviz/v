@@ -247,6 +247,133 @@ fn test_local_command_dir_does_not_shadow_vlib_prelude_imports() {
 	assert res.output.contains('test_shadow_free_stats')
 }
 
+fn test_imports_with_same_resolved_path_are_parsed_once() {
+	os.chdir(test_path)!
+	workspace := os.join_path(test_path, 'run_duplicate_resolved_import_path')
+	project_dir := os.join_path(workspace, 'dupmod')
+	defer {
+		os.chdir(test_path) or {}
+		os.rmdir_all(workspace) or {}
+	}
+	os.mkdir_all(os.join_path(project_dir, 'providers'))!
+	os.write_file(os.join_path(project_dir, 'v.mod'), "Module {\n\tname: 'dupmod'\n}\n")!
+	os.write_file(os.join_path(project_dir, 'dupmod.v'), 'module dupmod
+
+import providers
+
+pub fn make_client() providers.Client {
+	return providers.Client{}
+}
+')!
+	os.write_file(os.join_path(project_dir, 'main_test.v'), 'module main
+
+import dupmod
+import dupmod.providers
+
+fn test_client() {
+	_ := dupmod.make_client()
+	_ := providers.Client{}
+}
+')!
+	os.write_file(os.join_path(project_dir, 'providers', 'client.v'), 'module providers
+
+pub struct Client {}
+')!
+	os.chdir(project_dir)!
+
+	res := os.execute('${os.quoted_path(vexe)} -check main_test.v')
+	assert res.exit_code == 0, res.output
+	assert !res.output.contains('cannot register struct')
+}
+
+fn test_duplicate_resolved_import_path_still_validates_module_name() {
+	$if windows {
+		return
+	}
+	os.chdir(test_path)!
+	workspace := os.join_path(test_path, 'run_duplicate_resolved_import_path_validation')
+	project_dir := os.join_path(workspace, 'project')
+	foo_dir := os.join_path(project_dir, 'modules', 'foo')
+	bar_dir := os.join_path(project_dir, 'modules', 'bar')
+	defer {
+		os.chdir(test_path) or {}
+		os.rmdir_all(workspace) or {}
+	}
+	os.mkdir_all(foo_dir)!
+	os.write_file(os.join_path(project_dir, 'v.mod'), "Module {\n\tname: 'project'\n}\n")!
+	os.write_file(os.join_path(foo_dir, 'foo.v'), 'module foo
+
+pub fn value() int {
+	return 1
+}
+')!
+	os.symlink(foo_dir, bar_dir) or { return }
+	os.write_file(os.join_path(project_dir, 'main.v'), 'module main
+
+import foo
+import bar
+
+fn main() {
+	println(foo.value())
+	println(bar.value())
+}
+')!
+	os.chdir(project_dir)!
+
+	res := os.execute('${os.quoted_path(vexe)} -check main.v')
+	assert res.exit_code != 0, res.output
+	assert res.output.contains('bad module definition'), res.output
+	assert res.output.contains('imports module "bar"'), res.output
+	assert res.output.contains('defined as module `foo`'), res.output
+}
+
+fn test_module_alias_imports_canonical_module_and_submodule() {
+	project_dir := os.join_path(test_path, 'module_alias_import')
+	modules_dir := os.join_path(project_dir, 'modules')
+	canonical_dir := os.join_path(modules_dir, 'canonical')
+	os.rmdir_all(project_dir) or {}
+	defer {
+		os.rmdir_all(project_dir) or {}
+	}
+	os.mkdir_all(os.join_path(canonical_dir, 'sub'))!
+	os.mkdir_all(os.join_path(modules_dir, 'legacy'))!
+	os.write_file(os.join_path(project_dir, 'v.mod'),
+		"Module {\n\tname: 'module_alias_import'\n}\n")!
+	os.write_file(os.join_path(canonical_dir, 'canonical.v'), 'module canonical
+
+pub struct Token {
+pub:
+	value int
+}
+')!
+	os.write_file(os.join_path(canonical_dir, 'sub', 'sub.v'), 'module sub
+
+pub fn value() int {
+	return 2
+}
+')!
+	os.write_file(os.join_path(modules_dir, 'legacy', 'alias.v'),
+		"@[alias: '@VMODROOT/modules/canonical'] module legacy\n")!
+	os.write_file(os.join_path(project_dir, 'main.v'), 'module main
+
+import canonical
+import legacy
+import legacy.sub
+
+fn main() {
+	a := canonical.Token{value: 1}
+	b := legacy.Token{value: 1}
+	assert a == b
+	println(a.value + sub.value())
+}
+')!
+
+	main_path := os.join_path(project_dir, 'main.v')
+	res := os.execute('${os.quoted_path(vexe)} run ${os.quoted_path(main_path)}')
+	assert res.exit_code == 0, res.output
+	assert res.output.trim_space() == '3'
+}
+
 fn test_removed_src_layout_error_mentions_vmod_subdirs() {
 	os.chdir(test_path)!
 	project_dir := os.join_path(test_path, 'run_removed_src_project')

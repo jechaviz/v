@@ -14,6 +14,8 @@ const utf16le_output_exe_filename = os.join_path(tfolder, 'utf16le_output.exe')
 const utf16le_output_source_filename = os.join_path(tfolder, 'utf16le_output.v')
 const stdin_exit_exe_filename = os.join_path(tfolder, 'stdin_exit.exe')
 const stdin_exit_source_filename = os.join_path(tfolder, 'stdin_exit.v')
+const stdin_copy_exe_filename = os.join_path(tfolder, 'stdin_copy.exe')
+const stdin_copy_source_filename = os.join_path(tfolder, 'stdin_copy.v')
 const argv_echo_exe_filename = os.join_path(tfolder, 'argv_echo.exe')
 const argv_echo_source_filename = os.join_path(tfolder, 'argv_echo.v')
 const echo_process_source_code = '
@@ -62,6 +64,22 @@ import os
 fn main() {
 	_ = os.get_raw_line()
 	exit(7)
+}
+'
+
+const stdin_copy_source_code = '
+module main
+import io
+import os
+
+fn main() {
+	payload := io.read_all(reader: os.stdin()) or { panic(err) }
+	if os.args.len > 1 {
+		os.write_file_array(os.args[1], payload) or { panic(err) }
+		return
+	}
+	mut out := os.stdout()
+	out.write(payload) or { panic(err) }
 }
 '
 
@@ -117,6 +135,10 @@ fn testsuite_begin() {
 	assert_build_command_succeeded('${os.quoted_path(vexe)} -o ${os.quoted_path(stdin_exit_exe_filename)} ${os.quoted_path(stdin_exit_source_filename)}',
 		@FN)
 	assert os.exists(stdin_exit_exe_filename)
+
+	os.write_file(stdin_copy_source_filename, stdin_copy_source_code)!
+	os.system('${os.quoted_path(vexe)} -o ${os.quoted_path(stdin_copy_exe_filename)} ${os.quoted_path(stdin_copy_source_filename)}')
+	assert os.exists(stdin_copy_exe_filename)
 
 	os.write_file(argv_echo_source_filename, argv_echo_source_code)!
 	assert_build_command_succeeded('${os.quoted_path(vexe)} -o ${os.quoted_path(argv_echo_exe_filename)} ${os.quoted_path(argv_echo_source_filename)}',
@@ -361,6 +383,39 @@ fn test_stdin_write() {
 	echo(mut p, 'world')
 	p.signal_kill()
 	p.close()
+}
+
+fn test_set_stdin_path_with_redirected_stdio() {
+	eprintln(@FN)
+	input_path := os.join_path(tfolder, 'stdin_path_redirected_input.txt')
+	payload := 'alpha\nbeta\n'
+	os.write_file(input_path, payload)!
+	mut p := os.new_process(stdin_copy_exe_filename)
+	p.set_redirect_stdio()
+	p.set_stdin_path(input_path)
+	p.wait()
+	assert p.code == 0
+	output := p.stdout_slurp()
+	errors := p.stderr_slurp()
+	p.close()
+	assert output == payload
+	assert errors == ''
+}
+
+fn test_set_stdin_path_without_redirected_stdio() {
+	eprintln(@FN)
+	input_path := os.join_path(tfolder, 'stdin_path_input.txt')
+	output_path := os.join_path(tfolder, 'stdin_path_output.txt')
+	payload := 'gamma\ndelta\n'
+	os.write_file(input_path, payload)!
+	os.rm(output_path) or {}
+	mut p := os.new_process(stdin_copy_exe_filename)
+	p.set_args([output_path])
+	p.set_stdin_path(input_path)
+	p.wait()
+	assert p.code == 0
+	p.close()
+	assert os.read_file(output_path)! == payload
 }
 
 fn test_close_before_wait_preserves_exit_code() {

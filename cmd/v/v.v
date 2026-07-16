@@ -6,6 +6,7 @@ module main
 import hash
 import os
 import term
+import time
 import v.help
 import v.pref
 import v.util
@@ -67,7 +68,6 @@ const external_tools = [
 	'watch',
 	'where',
 ]
-const delegated_v2_exe_env = 'V_V2_EXE'
 
 fn run_delegate_compilation_command(command string) os.Result {
 	$if windows {
@@ -106,14 +106,34 @@ fn run_delegated_process_echoed_with_env(executable string, args []string, envs 
 		process.set_environment(envs)
 	}
 	process.set_redirect_stdio()
-	process.wait()
-	stdout := process.stdout_slurp()
-	stderr := process.stderr_slurp()
-	if stdout != '' {
-		print(stdout)
+	process.run()
+	mut stdout := ''
+	mut stderr := ''
+	for process.is_alive() {
+		stdout_chunk := process.stdout_read()
+		stderr_chunk := process.stderr_read()
+		stdout += stdout_chunk
+		stderr += stderr_chunk
+		if stdout_chunk != '' {
+			print(stdout_chunk)
+		}
+		if stderr_chunk != '' {
+			eprint(stderr_chunk)
+		}
+		if stdout_chunk == '' && stderr_chunk == '' {
+			time.sleep(10 * time.millisecond)
+		}
 	}
-	if stderr != '' {
-		eprint(stderr)
+	process.wait()
+	stdout_tail := process.stdout_slurp()
+	stderr_tail := process.stderr_slurp()
+	stdout += stdout_tail
+	stderr += stderr_tail
+	if stdout_tail != '' {
+		print(stdout_tail)
+	}
+	if stderr_tail != '' {
+		eprint(stderr_tail)
 	}
 	raw_exit_code := process.code
 	process_error := process.err
@@ -208,7 +228,7 @@ fn main() {
 	mut args_and_flags := util.join_env_vflags_and_os_args()[1..]
 	prefs, command := pref.parse_args_and_show_errors(external_tools, args_and_flags, true)
 	maybe_delegate_to_vvmrc(command, prefs)
-	maybe_delegate_to_v2(command, prefs)
+	maybe_delegate_to_ownership(command, prefs)
 	if prefs.use_cache && os.user_os() == 'windows' {
 		eprintln('-usecache is currently disabled on windows')
 		exit(1)
@@ -249,7 +269,7 @@ fn main() {
 			util.launch_tool(prefs.is_verbose, 'vdoc', ['doc', 'vlib'])
 		}
 		'interpret' {
-			eprintln('use v -v2 -eval file.v')
+			eprintln('The eval backend has been removed.')
 			exit(1)
 		}
 		'get' {
@@ -299,19 +319,19 @@ fn invoke_help_and_exit(remaining []string) {
 	exit(1)
 }
 
-fn maybe_delegate_to_v2(command string, prefs &pref.Preferences) {
+fn maybe_delegate_to_ownership(command string, prefs &pref.Preferences) {
 	is_ownership := '-ownership' in os.args
-	if !prefs.use_v2 && !is_ownership {
+	if !is_ownership {
 		return
 	}
-	if !is_v2_relevant_command(command, prefs) {
-		eprintln('v: `-v2`/`-ownership` currently support direct compilation only. Use `v -v2 hello.v` or `v -ownership module_dir`.')
+	if !is_ownership_relevant_command(command, prefs) {
+		eprintln('v: `-ownership` currently supports direct compilation only. Use `v -ownership module_dir`.')
 		exit(1)
 	}
-	launch_v2_compiler(prefs.is_verbose, os.args[1..].filter(it != '-v2'), is_ownership)
+	launch_v3_ownership_compiler(prefs.is_verbose, os.args[1..].filter(it != '-ownership'))
 }
 
-fn is_v2_relevant_command(command string, prefs &pref.Preferences) bool {
+fn is_ownership_relevant_command(command string, prefs &pref.Preferences) bool {
 	if prefs.path == '' || prefs.is_run || prefs.is_crun {
 		return false
 	}
@@ -319,70 +339,62 @@ fn is_v2_relevant_command(command string, prefs &pref.Preferences) bool {
 }
 
 @[noreturn]
-fn launch_v2_compiler(is_verbose bool, args []string, is_ownership bool) {
+fn launch_v3_ownership_compiler(is_verbose bool, args []string) {
 	vexe := pref.vexe_path()
 	vroot := os.dir(vexe)
 	util.set_vroot_folder(vroot)
-	tool_name := if is_ownership { 'v2_ownership' } else { 'v2' }
-	mut v2_exe := os.getenv(delegated_v2_exe_env)
-	if v2_exe == '' {
-		v2_main_source := os.join_path(vroot, 'cmd', 'v2', 'v2.v')
-		v2_cmd_dir := os.join_path(vroot, 'cmd', 'v2')
-		v2_vlib_dir := os.join_path(vroot, 'vlib', 'v2')
-		v2_exe = cached_v2_executable_path(vroot, is_ownership)
-		v2_exe_dir := os.dir(v2_exe)
-		os.mkdir_all(v2_exe_dir) or {
-			eprintln('cannot create `${v2_exe_dir}`: ${err}')
-			exit(1)
-		}
-		if util.should_recompile_tool(vexe, v2_cmd_dir, tool_name, v2_exe)
-			|| util.should_recompile_tool(vexe, v2_vlib_dir, tool_name, v2_exe) {
-			d_flag := if is_ownership { '-d ownership ' } else { '' }
-			compilation_command := '${os.quoted_path(vexe)} ${d_flag}-o ${os.quoted_path(v2_exe)} ${os.quoted_path(v2_main_source)}'
-			if is_verbose {
-				println('Compiling ${tool_name} with: "${compilation_command}"')
-			}
-			current_work_dir := os.getwd()
-			os.chdir(vroot) or {}
-			tool_compilation := run_delegate_compilation_command(compilation_command)
-			os.chdir(current_work_dir) or {}
-			if tool_compilation.exit_code != 0 {
-				report_v2_compilation_failure(v2_main_source, compilation_command, tool_compilation)
-				exit(1)
-			}
-		}
-	} else if !os.is_file(v2_exe) {
-		eprintln('v: `${delegated_v2_exe_env}` points to a missing executable: `${v2_exe}`')
+	tool_name := 'v3_ownership'
+	v3_main_source := os.join_path(vroot, 'vlib', 'v3', 'v3.v')
+	v3_src_dir := os.join_path(vroot, 'vlib', 'v3')
+	v3_exe := cached_v3_ownership_executable_path(vroot)
+	v3_exe_dir := os.dir(v3_exe)
+	os.mkdir_all(v3_exe_dir) or {
+		eprintln('cannot create `${v3_exe_dir}`: ${err}')
 		exit(1)
 	}
-	os.setenv('VCHILD', 'true', true)
-	os.setenv('VEXE', os.real_path(v2_exe), true)
-	$if windows {
-		delegate_result := run_delegated_process_echoed(v2_exe, args)
-		if delegated_process_needs_parent_diagnostics(delegate_result) {
-			report_delegated_process_failure('v.delegate.v2', delegate_result,
-				stage:   'v2_delegate'
-				reason:  'v2_delegate_exit_nonzero_without_output'
-				action:  'inspect_delegated_v2_command'
-				message: 'delegated v2 compiler exited with a non-zero status without stdout/stderr'
-			)
+	if util.should_recompile_tool(vexe, v3_src_dir, tool_name, v3_exe) {
+		compilation_command := '${os.quoted_path(vexe)} -gc none -d ownership -o ${os.quoted_path(v3_exe)} ${os.quoted_path(v3_main_source)}'
+		if is_verbose {
+			println('Compiling ${tool_name} with: "${compilation_command}"')
 		}
-		exit(delegate_result.exit_code)
-	} $else {
-		os.execvp(v2_exe, args) or {
-			eprintln('> error while executing: ${v2_exe} ${args}')
-			panic(err)
+		current_work_dir := os.getwd()
+		os.chdir(vroot) or {}
+		tool_compilation := run_delegate_compilation_command(compilation_command)
+		os.chdir(current_work_dir) or {}
+		if tool_compilation.exit_code != 0 {
+			report_delegate_compilation_failure(tool_name, v3_main_source, compilation_command,
+				tool_compilation)
+			exit(1)
 		}
 	}
-	exit(2)
+	mut forwarded_args := ['-ownership']
+	for arg in args {
+		forwarded_args << arg
+	}
+	quoted_args := forwarded_args.map(os.quoted_path(it)).join(' ')
+	if is_verbose {
+		println('Launching ${tool_name}: ${os.quoted_path(v3_exe)} ${quoted_args}')
+	}
+	os.setenv('VCHILD', 'true', true)
+	os.setenv('VEXE', os.real_path(vexe), true)
+	delegate_result := run_delegated_process_echoed(v3_exe, forwarded_args)
+	if delegated_process_needs_parent_diagnostics(delegate_result) {
+		report_delegated_process_failure('v.delegate.v3_ownership', delegate_result,
+			stage:   'v3_ownership_delegate'
+			reason:  'v3_ownership_delegate_exit_nonzero_without_output'
+			action:  'inspect_delegated_v3_ownership_command'
+			message: 'delegated V3 ownership compiler exited with a non-zero status without stdout/stderr'
+		)
+	}
+	exit(delegate_result.exit_code)
 }
 
-fn report_v2_compilation_failure(source string, command string, result os.Result) {
+fn report_delegate_compilation_failure(tool_name string, source string, command string, result os.Result) {
 	eprintln(result.command_failure_report('v.delegate',
 		command: command
-		reason:  'v2_compilation_failed'
+		reason:  '${tool_name}_compilation_failed'
 		action:  'abort_delegated_compiler_launch'
-		message: 'cannot compile delegated v2 compiler source: ${delegate_report_value(source)}'
+		message: 'cannot compile delegated compiler source: ${delegate_report_value(source)}'
 	))
 	eprintln('v.delegate.source=${delegate_report_value(source)}')
 }
@@ -391,11 +403,10 @@ fn delegate_report_value(value string) string {
 	return value.replace('\r', '\\r').replace('\n', '\\n')
 }
 
-fn cached_v2_executable_path(vroot string, is_ownership bool) string {
+fn cached_v3_ownership_executable_path(vroot string) string {
 	vroot_hash := hash.sum64_string(os.real_path(vroot), 0).hex_full()
-	exe_name := if is_ownership { 'v2_ownership' } else { 'v2' }
-	return util.path_of_executable(os.join_path(os.vtmp_dir(), 'v', 'delegated_v2', vroot_hash,
-		exe_name))
+	return util.path_of_executable(os.join_path(os.vtmp_dir(), 'v', 'delegated_v3', vroot_hash,
+		'v3_ownership'))
 }
 
 fn rebuild(prefs &pref.Preferences) {
@@ -418,7 +429,7 @@ fn rebuild(prefs &pref.Preferences) {
 			util.launch_tool(prefs.is_verbose, 'builders/js_builder', os.args[1..])
 		}
 		.interpret {
-			eprintln('use v -v2 -eval file.v')
+			eprintln('The eval backend has been removed.')
 			exit(1)
 		}
 		.wasm {

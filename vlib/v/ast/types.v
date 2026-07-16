@@ -718,6 +718,16 @@ pub fn (typ Type) is_float_valptr() bool {
 	return typ.is_ptr() && typ.idx() in float_type_idxs
 }
 
+// is_scalar_ptr returns `true` if `typ` is a pointer to a scalar value
+// (an integer, float, rune, bool or string). Following Go's `%v` semantics,
+// such references are printed as their address, while pointers to compound
+// values (structs, arrays, maps) are printed as `&` + the pointed-to value.
+@[inline]
+pub fn (typ Type) is_scalar_ptr() bool {
+	return typ.is_ptr()
+		&& (typ.idx() in number_type_idxs || typ.idx() in [string_type_idx, bool_type_idx])
+}
+
 // is_pure_int return `true` if `typ` is a pure int
 @[inline]
 pub fn (typ Type) is_pure_int() bool {
@@ -1642,13 +1652,32 @@ pub fn (t &Table) delete_cached_type_to_str(typ Type, import_aliases_len int) {
 	}
 }
 
-// import_aliases is a map of imported symbol aliases 'module.Type' => 'Type'
+// invalidate_type_to_str_cache clears every cached `type_to_str` result.
+// vfmt calls this whenever it enters a new module (see Fmt.set_current_module_name),
+// because strings that were memoized before the current module was known (e.g. while
+// parsing, when `cmod_prefix` was still empty) keep stale `mod.` prefixes on types
+// that actually belong to the current module. Those stale entries are otherwise reused
+// when the signature of a `fn` typed struct field is rebuilt, producing output like
+// `fn (s main.Struct) bool` instead of `fn (s Struct) bool` (issue #27475).
+pub fn (t &Table) invalidate_type_to_str_cache() {
+	mut mt := unsafe { &Table(t) }
+	lock mt.cached_type_to_str {
+		mt.cached_type_to_str.clear()
+	}
+}
+
+// import_aliases is a map of imported symbol aliases 'module.Type' => 'Type'.
+// Alias-aware results are not cached: maps with the same length can contain different aliases,
+// while the compact cache key intentionally has room only for the type and the empty-map marker.
 pub fn (t &Table) type_to_str_using_aliases(typ Type, import_aliases map[string]string) string {
 	cache_key := (u64(import_aliases.len) << 32) | u64(typ)
 	mut mt := unsafe { &Table(t) }
-	rlock mt.cached_type_to_str {
-		if cached_res := mt.cached_type_to_str[cache_key] {
-			return cached_res
+	use_cache := import_aliases.len == 0
+	if use_cache {
+		rlock mt.cached_type_to_str {
+			if cached_res := mt.cached_type_to_str[cache_key] {
+				return cached_res
+			}
 		}
 	}
 	idx := typ.idx()
@@ -1658,9 +1687,11 @@ pub fn (t &Table) type_to_str_using_aliases(typ Type, import_aliases map[string]
 	sym := t.sym(typ)
 	mut res := sym.name
 	defer {
-		lock mt.cached_type_to_str {
-			// Note, that this relies on `res = value return res` if you want to return early!
-			mt.cached_type_to_str[cache_key] = res
+		if use_cache {
+			lock mt.cached_type_to_str {
+				// Note, that this relies on `res = value return res` if you want to return early!
+				mt.cached_type_to_str[cache_key] = res
+			}
 		}
 	}
 	// Note, that the duplication of code in some of the match branches here
@@ -1898,9 +1929,9 @@ fn (t &Table) shorten_user_defined_typenames(original_name string, import_aliase
 		} else if t.cmod_prefix != '' {
 			if alias := import_aliases[t.cmod_prefix + mod] {
 				mod = alias
-			} else {
+			} else if original_name.starts_with(t.cmod_prefix) {
 				// cur_mod.Type => Type
-				return original_name.all_after(t.cmod_prefix)
+				return original_name[t.cmod_prefix.len..]
 			}
 		}
 	}

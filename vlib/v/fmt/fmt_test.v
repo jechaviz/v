@@ -84,7 +84,8 @@ fn test_fmt_vmodules() {
 
 fn test_fmt_stdin_preserves_unresolved_import_aliases() {
 	input_path := os.join_path(tdir, 'tests', 'import_unresolved_alias_in_signatures_input.vv')
-	expected_path := os.join_path(tdir, 'tests', 'import_unresolved_alias_in_signatures_expected.vv')
+	expected_path := os.join_path(tdir, 'tests',
+		'import_unresolved_alias_in_signatures_expected.vv')
 	input := os.read_file(input_path)!
 	expected := os.read_file(expected_path)!
 	mut table := ast.new_table()

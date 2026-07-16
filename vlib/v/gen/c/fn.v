@@ -34,16 +34,21 @@ fn (g &Gen) receiver_exact_method_for_type(typ ast.Type, method_name string) ?as
 		return none
 	}
 	sym := g.table.sym(typ)
+	// A `mut` receiver is stored as a pointer (`&T`), so compare the base types
+	// (ignoring the pointer level) to match such a method against both the value
+	// and pointer forms of `typ`. See #27465.
+	typ_base := typ.set_nr_muls(0)
 	for method in sym.methods {
-		if method.name == method_name && method.receiver_type == typ {
+		if method.name == method_name && method.receiver_type.set_nr_muls(0) == typ_base {
 			return method
 		}
 	}
 	if sym.info is ast.Alias {
 		parent_type := sym.info.parent_type.derive(typ)
+		parent_base := parent_type.set_nr_muls(0)
 		parent_sym := g.table.sym(parent_type)
 		for method in parent_sym.methods {
-			if method.name == method_name && method.receiver_type == parent_type {
+			if method.name == method_name && method.receiver_type.set_nr_muls(0) == parent_base {
 				return method
 			}
 		}
@@ -405,8 +410,9 @@ fn (mut g Gen) resolve_current_fn_generic_type(typ ast.Type) ast.Type {
 	if generic_names.len == 0 || g.cur_concrete_types.len == 0 {
 		return g.unwrap_generic(typ)
 	}
+	concrete_types := g.cur_concrete_types.map(ast.mktyp(it))
 	mut muttable := unsafe { &ast.Table(g.table) }
-	if resolved := muttable.convert_generic_type(typ, generic_names, g.cur_concrete_types) {
+	if resolved := muttable.convert_generic_type(typ, generic_names, concrete_types) {
 		return g.unwrap_generic(resolved)
 	}
 	return g.unwrap_generic(g.recheck_concrete_type(typ))
@@ -1110,6 +1116,7 @@ fn (mut g Gen) post_process_generic_fns_for_files(files []&ast.File) {
 						}
 						emitted_generic_specializations[specialization_key] = true
 						g.cur_concrete_types = concrete_specialization.clone()
+						g.clear_type_resolution_caches()
 						g.fn_decl(*generic_fn)
 						emitted_this_round = true
 					}
@@ -2012,12 +2019,23 @@ fn (mut g Gen) fn_decl_params(params []ast.Param, scope &ast.Scope, is_variadic 
 		if i >= param_count {
 			break
 		}
-		mut typ := g.unwrap_generic(param.typ)
+		mut typ := if !param.typ.has_flag(.variadic) && g.cur_concrete_types.len > 0
+			&& param.orig_typ != 0 && (param.orig_typ.has_flag(.generic)
+			|| g.type_has_unresolved_generic_parts(param.orig_typ)) {
+			g.resolve_current_fn_generic_type(param.orig_typ)
+		} else {
+			g.unwrap_generic(param.typ)
+		}
 		if g.pref.translated && g.file.is_translated && param.typ.has_flag(.variadic) {
 			typ = g.table.sym(typ).array_info().elem_type.set_flag(.variadic)
 		}
+		// A `mut x T` parameter is passed by reference, so its C type must be a pointer to
+		// the concrete type. The normal solver keeps `.generic` on `param.typ` here, but the
+		// new generic solver pre-resolves `param.typ` to the concrete type (dropping the flag),
+		// so it would otherwise miss the indirection. `param.orig_typ` still carries the
+		// generic `T`, which resolves correctly via `cur_concrete_types`.
 		if param.is_mut && param.orig_typ != 0 && param.orig_typ.has_flag(.generic)
-			&& param.typ.has_flag(.generic) {
+			&& (param.typ.has_flag(.generic) || g.pref.new_generic_solver) {
 			mut surface_typ := g.unwrap_generic(param.orig_typ)
 			// Only use ref() when the pointer comes from the generic type argument
 			// (T=&int), not from the param signature (&T / ?&T).
@@ -3520,9 +3538,17 @@ fn (mut g Gen) receiver_generic_call_context(left_type ast.Type, method_name str
 	rec_sym := g.table.final_sym(left_type)
 	mut receiver_concrete_types := []ast.Type{}
 	mut parent_method := ast.Fn{}
-	if has_structured_method_for_exact {
+	// A method defined directly on an alias type (e.g. `fn (c Candidates) set()` where
+	// `type Candidates = BitSet[u32]`) takes priority over the generic parent method
+	// inherited from the aliased type. Treat it as the resolved (non-generic) method so
+	// no generic instantiation suffix (`_T_u32`) is appended to its C name. See #27465.
+	exact_method_on_alias := exact_method_exists && exact_method.receiver_type != 0
+		&& g.table.sym(left_type).info is ast.Alias
+		&& g.unwrap_generic(exact_method.receiver_type).set_nr_muls(0) == g.unwrap_generic(left_type).set_nr_muls(0)
+	if has_structured_method_for_exact || exact_method_on_alias {
 		parent_method = exact_method
 	}
+	keep_alias_method := exact_method_on_alias && exact_method.generic_names.len == 0
 	match rec_sym.info {
 		ast.Struct, ast.Interface, ast.SumType {
 			if rec_sym.info.concrete_types.len > 0 {
@@ -3534,7 +3560,7 @@ fn (mut g Gen) receiver_generic_call_context(left_type ast.Type, method_name str
 			if rec_sym.info.parent_type.has_flag(.generic) {
 				parent_sym := g.table.sym(rec_sym.info.parent_type)
 				if m := parent_sym.find_method(method_name) {
-					if !has_structured_method_for_exact {
+					if !has_structured_method_for_exact && !keep_alias_method {
 						parent_method = m
 					}
 				}
@@ -3545,7 +3571,7 @@ fn (mut g Gen) receiver_generic_call_context(left_type ast.Type, method_name str
 			if rec_sym.info.parent_idx > 0 {
 				parent_sym := g.table.sym(ast.idx_to_type(rec_sym.info.parent_idx))
 				if m := parent_sym.find_method(method_name) {
-					if !has_structured_method_for_exact {
+					if !has_structured_method_for_exact && !keep_alias_method {
 						parent_method = m
 					}
 				}
@@ -6338,9 +6364,27 @@ fn array_mut_arg_is_addressable(expr ast.Expr) bool {
 }
 
 fn (mut g Gen) call_args(node ast.CallExpr) {
+	// Call arguments are independent expressions: an option/result-typed argument
+	// wraps itself based on its own expected type, not on any enclosing if/match
+	// option context. Reset those flags so that a nested if/match expression used as
+	// a plain (non-option) argument is not wrongly option-wrapped with the enclosing
+	// function's return type (e.g. `return match { X { SV(create(if c { EnumA } else
+	// { EnumB })) } }` in an `?SV` fn would wrap the enum branch as `?SV`).
+	prev_inside_if_option := g.inside_if_option
+	prev_inside_match_option := g.inside_match_option
+	prev_inside_if_result := g.inside_if_result
+	prev_inside_match_result := g.inside_match_result
+	g.inside_if_option = false
+	g.inside_match_option = false
+	g.inside_if_result = false
+	g.inside_match_result = false
 	g.expected_fixed_arr = true
 	defer {
 		g.expected_fixed_arr = false
+		g.inside_if_option = prev_inside_if_option
+		g.inside_match_option = prev_inside_match_option
+		g.inside_if_result = prev_inside_if_result
+		g.inside_match_result = prev_inside_match_result
 	}
 	args := if g.is_js_call {
 		if node.args.len < 1 {

@@ -1380,9 +1380,12 @@ memory location when the size increases thus becoming independent from the
 parent array (*copy on grow*). In particular pushing elements to a slice
 does not alter the parent:
 
-When a slice expression like `a[2..4]` is assigned to another array outside
-`unsafe`, V inserts an implicit `.clone()` and shows a notice. The
-shared-memory examples below therefore use `unsafe {}` intentionally.
+When a slice expression like `a[2..4]` is assigned outside `unsafe` and either
+the parent array or the resulting slice is mutable, V inserts an implicit
+`.clone()` and shows a notice. This prevents changes through one array from
+affecting the other. If both arrays are immutable, the slice safely reuses the
+parent array's memory without cloning. The shared-memory examples below
+therefore use `unsafe {}` intentionally.
 
 ```v
 mut a := [0, 1, 2, 3, 4, 5]
@@ -1433,9 +1436,11 @@ println(a) // [0, 1, 2, 3, 4, 5]
 println(b) // [7, 3]
 ```
 
-Note that, by default, V makes an implicit clone of the slice and displays a notice about this.
-So without the `.clone()` call the result of the code above will be the same.
-Make the slice in an `unsafe {}` block if you want to reuse memory,
+If either the parent array or the slice is mutable, V makes an implicit clone
+of the slice and displays a notice. Therefore, without the `.clone()` call,
+the result of the code above will be the same. When both arrays are immutable,
+the slice reuses the parent array's memory because neither array can be changed.
+Make the slice in an `unsafe {}` block if you want to share mutable memory;
 otherwise use explicit cloning.
 
 ##### Slices with negative indexes
@@ -3712,6 +3717,21 @@ myapp/
 
 `main.v` can use `import myapp.common`, and `structs.v` should still
 declare `module common`.
+
+### Module aliases
+
+When a module moves, an `alias.v` file can keep its old import path working without copying its
+implementation. The alias module contains only a module declaration with an `alias` attribute:
+
+```v ignore
+@[alias: '@VMODROOT/modules/new_name']
+module old_name
+```
+
+The attribute value is the path to the canonical module. Relative paths are resolved from the
+alias directory. `@VMODROOT` is resolved from the `v.mod` that contains `alias.v`. An alias also
+applies to submodules: if `old_name` aliases `new_name`, importing `old_name.sub` resolves to
+`new_name.sub`. The old and new import paths refer to the same module and use the same types.
 
 ### Special considerations for project folders
 
