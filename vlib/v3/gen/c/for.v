@@ -107,12 +107,16 @@ fn (mut g FlatGen) gen_for(node flat.Node) {
 	}
 	g.loop_depth--
 	g.gen_defers_from(defer_start)
-	g.gen_loop_iteration_ownership_drops_for_label(label_state.label)
+	if !node.skip_ownership_drops {
+		g.gen_loop_iteration_ownership_drops_for_label(label_state.label)
+	}
 	g.trim_defers(defer_start)
 	g.indent--
 	g.writeln('}')
 	if wrap_init {
-		g.gen_scope_ownership_drops()
+		if !node.skip_ownership_drops {
+			g.gen_scope_ownership_drops()
+		}
 		g.indent--
 		g.writeln('}')
 	}
@@ -157,11 +161,23 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				return
 			}
 		} else {
-			container_type := g.usable_expr_type(g.a.child(&node, 2))
-			idx_var := if has_index {
-				g.c_loop_local_name(g.a.child_node(&node, 0).value)
+			container_id := g.a.child(&node, 2)
+			mut container_type := g.usable_expr_type(container_id)
+			if const_storage_type := g.const_storage_type_from_node(container) {
+				if fixed := array_fixed_type(types.unwrap_pointer(const_storage_type)) {
+					container_type = types.Type(fixed)
+				}
+			}
+			mut idx_var := ''
+			if has_index {
+				if idx_binding_name == '_' {
+					idx_var = '__for_idx_${g.tmp_count}'
+					g.tmp_count++
+				} else {
+					idx_var = g.c_loop_local_name(idx_binding_name)
+				}
 			} else {
-				'__iter_${var_name}'
+				idx_var = '__iter_${var_name}'
 			}
 			elem_var := if has_index {
 				g.c_loop_local_name(g.a.child_node(&node, 1).value)
@@ -184,7 +200,8 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				g.tmp_count++
 				key_var := if has_index { idx_var } else { '__mk_${g.tmp_count}' }
 				val_var_ := if has_index { elem_var } else { var_name }
-				use_snapshot := g.for_in_body_contains_delete_call(node, body_start)
+				use_snapshot := g.for_in_body_contains_delete_call(node, body_start,
+					g.a.child(&node, 2))
 				key_values := if use_snapshot {
 					map_snapshot_var = '__for_map_${g.tmp_count}'
 					g.tmp_count++
@@ -212,7 +229,8 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 					g.writeln('memmove(${key_var}, ${key_slot}, sizeof(${key_var}));')
 				} else {
 					g.writeln('${c_key} ${key_var} = *(${c_key}*)(${key_slot});')
-					if clean_container_type.key_type is types.String {
+					if has_index && idx_binding_name != '_'
+						&& clean_container_type.key_type is types.String {
 						g.writeln('${key_var} = string__clone(${key_var});')
 					}
 				}
@@ -272,7 +290,6 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				})
 			} else if container_type is types.Array {
 				c_elem := g.value_c_type(container_type.elem_type)
-				container_id := g.a.child(&node, 2)
 				container_node := g.a.nodes[int(container_id)]
 				mut container_str := if shared_payload := g.shared_array_payload_lvalue(container_id) {
 					shared_payload
@@ -362,7 +379,9 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				g.writeln(map_mut_value_copyback)
 				g.loop_control_copybacks.delete_last()
 			}
-			g.gen_loop_iteration_ownership_drops_for_label(label_state.label)
+			if !node.skip_ownership_drops {
+				g.gen_loop_iteration_ownership_drops_for_label(label_state.label)
+			}
 			g.loop_depth--
 			g.indent--
 			g.writeln('}')
@@ -382,7 +401,9 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 	for i in body_start .. node.children_count {
 		g.gen_node(g.a.child(&node, i))
 	}
-	g.gen_loop_iteration_ownership_drops_for_label(label_state.label)
+	if !node.skip_ownership_drops {
+		g.gen_loop_iteration_ownership_drops_for_label(label_state.label)
+	}
 	g.loop_depth--
 	g.indent--
 	g.writeln('}')
@@ -438,42 +459,72 @@ fn (mut g FlatGen) gen_range_for_in(node flat.Node, key_id flat.NodeId, low_id f
 	for i in body_start .. node.children_count {
 		g.gen_node(g.a.child(&node, i))
 	}
-	g.gen_loop_iteration_ownership_drops_for_label(label)
+	if !node.skip_ownership_drops {
+		g.gen_loop_iteration_ownership_drops_for_label(label)
+	}
 	g.loop_depth--
 	g.indent--
 	g.writeln('}')
 	g.pop_scope()
 }
 
-fn (g &FlatGen) for_in_body_contains_delete_call(node flat.Node, body_start int) bool {
+fn (g &FlatGen) for_in_body_contains_delete_call(node flat.Node, body_start int, container_id flat.NodeId) bool {
+	container_key := g.for_in_map_storage_key(container_id)
+	if container_key.len == 0 {
+		return false
+	}
 	for i in body_start .. node.children_count {
-		if g.node_contains_delete_call(g.a.child(&node, i)) {
+		if g.node_contains_delete_call(g.a.child(&node, i), container_key) {
 			return true
 		}
 	}
 	return false
 }
 
-fn (g &FlatGen) node_contains_delete_call(id flat.NodeId) bool {
+fn (g &FlatGen) node_contains_delete_call(id flat.NodeId, container_key string) bool {
 	if int(id) < 0 || int(id) >= g.a.nodes.len {
 		return false
 	}
 	node := g.a.nodes[int(id)]
+	if node.kind in [.fn_literal, .lambda_expr, .fn_decl] {
+		return false
+	}
 	if node.kind == .call && node.children_count > 0 {
 		fn_node := g.a.child_node(&node, 0)
-		if fn_node.kind == .selector && fn_node.value == 'delete' {
-			return true
+		if fn_node.kind == .selector && fn_node.value == 'delete' && fn_node.children_count > 0 {
+			receiver_id := g.a.child(fn_node, 0)
+			if g.for_in_map_storage_key(receiver_id) == container_key {
+				return true
+			}
 		}
-		if fn_node.kind == .ident && fn_node.value in ['map.delete', 'map__delete'] {
-			return true
+		if fn_node.kind == .ident && fn_node.value in ['map.delete', 'map__delete']
+			&& node.children_count > 1 {
+			receiver_id := g.a.child(&node, 1)
+			if g.for_in_map_storage_key(receiver_id) == container_key {
+				return true
+			}
 		}
 	}
 	for i in 0 .. node.children_count {
-		if g.node_contains_delete_call(g.a.child(&node, i)) {
+		if g.node_contains_delete_call(g.a.child(&node, i), container_key) {
 			return true
 		}
 	}
 	return false
+}
+
+fn (g &FlatGen) for_in_map_storage_key(id flat.NodeId) string {
+	if int(id) < 0 || int(id) >= g.a.nodes.len {
+		return ''
+	}
+	node := g.a.nodes[int(id)]
+	if node.kind in [.paren, .expr_stmt, .cast_expr, .as_expr] && node.children_count > 0 {
+		return g.for_in_map_storage_key(g.a.child(&node, 0))
+	}
+	if node.kind == .prefix && node.op in [.amp, .mul] && node.children_count > 0 {
+		return g.for_in_map_storage_key(g.a.child(&node, 0))
+	}
+	return g.expr_key(id)
 }
 
 fn (g &FlatGen) c_loop_local_name(name string) string {
