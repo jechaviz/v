@@ -1,6 +1,8 @@
+@[has_globals]
 module json2
 
 import strconv
+import sync.stdatomic
 import time
 
 const null_in_string = 'null'
@@ -45,6 +47,61 @@ struct StructFieldInfo {
 	is_skip       bool
 	is_required   bool
 	is_raw        bool
+}
+
+const struct_field_info_cache_bucket_count = 256
+
+struct StructFieldInfoCacheEntry {
+	type_idx    int
+	field_infos []StructFieldInfo
+mut:
+	next &StructFieldInfoCacheEntry = unsafe { nil }
+}
+
+// V's collectors conservatively scan globals, including pointer bits stored in usize slots.
+// Using usize avoids the fixed-reference-array initialization warning for this atomic table.
+__global struct_field_info_cache_heads = [struct_field_info_cache_bucket_count]usize{}
+
+@[manualfree]
+fn fill_struct_field_infos[T](mut field_infos []StructFieldInfo) {
+	$for field in T.fields {
+		mut json_name_str := field.name.str
+		mut json_name_len := field.name.len
+		mut is_json_skip := false
+		for attr in field.attrs {
+			if start, end := json_attr_value_range(attr) {
+				if end <= start {
+					continue
+				}
+				if end == start + 1 && attr[start] == `-` {
+					is_json_skip = true
+					break
+				}
+				json_name_str = unsafe { attr.str + start }
+				json_name_len = end - start
+				break
+			}
+		}
+		field_infos << StructFieldInfo{
+			json_name_ptr: voidptr(json_name_str)
+			json_name_len: json_name_len
+			is_omitempty:  field.attrs.contains('omitempty')
+			is_skip:       field.attrs.contains('skip') || is_json_skip
+			is_required:   field.attrs.contains('required')
+			is_raw:        field.attrs.contains('raw')
+		}
+	}
+}
+
+fn find_struct_field_info_cache_entry(head voidptr, type_idx int) &StructFieldInfoCacheEntry {
+	mut entry := unsafe { &StructFieldInfoCacheEntry(head) }
+	for entry != unsafe { nil } {
+		if entry.type_idx == type_idx {
+			return entry
+		}
+		entry = entry.next
+	}
+	return unsafe { nil }
 }
 
 struct StructKeyDecodeResult[T] {
@@ -366,38 +423,38 @@ fn decoder_field_infos[T]() []DecoderFieldInfo {
 
 @[manualfree; unsafe]
 fn (mut decoder Decoder) cached_struct_field_infos[T]() []StructFieldInfo {
-	static field_infos := &[]StructFieldInfo(nil)
-	if field_infos == nil {
-		field_infos = &[]StructFieldInfo{}
-		$for field in T.fields {
-			mut json_name_str := field.name.str
-			mut json_name_len := field.name.len
-			mut is_json_skip := false
-			for attr in field.attrs {
-				if start, end := json_attr_value_range(attr) {
-					if end <= start {
-						continue
-					}
-					if end == start + 1 && attr[start] == `-` {
-						is_json_skip = true
-						break
-					}
-					json_name_str = unsafe { attr.str + start }
-					json_name_len = end - start
-					break
-				}
+	type_idx := T.idx
+	bucket_idx := type_idx % struct_field_info_cache_bucket_count
+	mut head := C.atomic_load_ptr(&struct_field_info_cache_heads[bucket_idx])
+	entry := find_struct_field_info_cache_entry(head, type_idx)
+	if entry != unsafe { nil } {
+		return entry.field_infos
+	}
+	mut candidate_infos := []StructFieldInfo{}
+	fill_struct_field_infos[T](mut candidate_infos)
+	mut candidate := &StructFieldInfoCacheEntry{
+		type_idx:    type_idx
+		field_infos: candidate_infos
+	}
+	for {
+		head = C.atomic_load_ptr(&struct_field_info_cache_heads[bucket_idx])
+		existing := find_struct_field_info_cache_entry(head, type_idx)
+		if existing != unsafe { nil } {
+			unsafe {
+				candidate.field_infos.free()
+				free(candidate)
 			}
-			field_infos << StructFieldInfo{
-				json_name_ptr: voidptr(json_name_str)
-				json_name_len: json_name_len
-				is_omitempty:  field.attrs.contains('omitempty')
-				is_skip:       field.attrs.contains('skip') || is_json_skip
-				is_required:   field.attrs.contains('required')
-				is_raw:        field.attrs.contains('raw')
-			}
+			return existing.field_infos
+		}
+		candidate.next = unsafe { &StructFieldInfoCacheEntry(head) }
+		mut expected := head
+		if C.atomic_compare_exchange_strong_ptr(&struct_field_info_cache_heads[bucket_idx],
+			&expected, isize(candidate))
+		{
+			break
 		}
 	}
-	return *field_infos
+	return candidate.field_infos
 }
 
 @[inline; markused]

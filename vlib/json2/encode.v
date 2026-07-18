@@ -1,6 +1,8 @@
+@[has_globals]
 module json2
 
 import time
+import sync.stdatomic
 
 // EncoderOptions provides a list of options for encoding
 @[params]
@@ -575,6 +577,75 @@ struct EncoderFieldInfo {
 	is_json_null bool
 }
 
+const encoder_field_info_cache_bucket_count = 256
+
+struct EncoderFieldInfoCacheEntry {
+	type_idx    int
+	field_infos []EncoderFieldInfo
+mut:
+	next &EncoderFieldInfoCacheEntry = unsafe { nil }
+}
+
+// V's collectors conservatively scan globals, including pointer bits stored in usize slots.
+// Using usize avoids the fixed-reference-array initialization warning for this atomic table.
+__global encoder_field_info_cache_heads = [encoder_field_info_cache_bucket_count]usize{}
+
+@[manualfree]
+fn fill_encoder_field_infos[T](mut field_infos []EncoderFieldInfo) {
+	$for field in T.fields {
+		mut is_skip := false
+		mut key_name := ''
+		mut is_omitempty := false
+		mut is_required := false
+		mut is_json_null := false
+		for attr in field.attrs {
+			match attr {
+				'skip' {
+					is_skip = true
+					break
+				}
+				'omitempty' {
+					is_omitempty = true
+				}
+				'required' {
+					is_required = true
+				}
+				'json_null' {
+					is_json_null = true
+				}
+				else {}
+			}
+
+			if attr.starts_with('json:') {
+				json_attr := json_attr_value(attr) or { continue }
+				if json_attr == '-' {
+					is_skip = true
+					break
+				}
+				key_name = json_attr
+			}
+		}
+		field_infos << EncoderFieldInfo{
+			key_name:     if key_name == '' { field.name } else { key_name }
+			is_skip:      is_skip
+			is_omitempty: is_omitempty
+			is_required:  is_required
+			is_json_null: is_json_null
+		}
+	}
+}
+
+fn find_encoder_field_info_cache_entry(head voidptr, type_idx int) &EncoderFieldInfoCacheEntry {
+	mut entry := unsafe { &EncoderFieldInfoCacheEntry(head) }
+	for entry != unsafe { nil } {
+		if entry.type_idx == type_idx {
+			return entry
+		}
+		entry = entry.next
+	}
+	return unsafe { nil }
+}
+
 fn get_value_from_optional[T](val ?T) T {
 	return val or { T{} }
 }
@@ -625,52 +696,41 @@ fn check_not_empty[T](val T) ?bool {
 // TODO: fix compilation with -autofree, and remove the tag @[manualfree] here:
 @[manualfree; unsafe]
 fn (mut encoder Encoder) cached_field_infos[T]() []EncoderFieldInfo {
-	static field_infos := &[]EncoderFieldInfo(nil)
-	if field_infos == nil {
-		field_infos = &[]EncoderFieldInfo{}
-		$for field in T.fields {
-			mut is_skip := false
-			mut key_name := ''
-			mut is_omitempty := false
-			mut is_required := false
-			mut is_json_null := false
-			for attr in field.attrs {
-				match attr {
-					'skip' {
-						is_skip = true
-						break
-					}
-					'omitempty' {
-						is_omitempty = true
-					}
-					'required' {
-						is_required = true
-					}
-					'json_null' {
-						is_json_null = true
-					}
-					else {}
-				}
-
-				if attr.starts_with('json:') {
-					json_attr := json_attr_value(attr) or { continue }
-					if json_attr == '-' {
-						is_skip = true
-						break
-					}
-					key_name = json_attr
-				}
+	type_idx := T.idx
+	bucket_idx := type_idx % encoder_field_info_cache_bucket_count
+	mut head := C.atomic_load_ptr(&encoder_field_info_cache_heads[bucket_idx])
+	entry := find_encoder_field_info_cache_entry(head, type_idx)
+	if entry != unsafe { nil } {
+		return entry.field_infos
+	}
+	mut candidate_infos := []EncoderFieldInfo{}
+	fill_encoder_field_infos[T](mut candidate_infos)
+	mut candidate := &EncoderFieldInfoCacheEntry{
+		type_idx:    type_idx
+		field_infos: candidate_infos
+	}
+	for {
+		head = C.atomic_load_ptr(&encoder_field_info_cache_heads[bucket_idx])
+		existing := find_encoder_field_info_cache_entry(head, type_idx)
+		if existing != unsafe { nil } {
+			for mut field_info in candidate.field_infos {
+				unsafe { field_info.key_name.free() }
 			}
-			field_infos << EncoderFieldInfo{
-				key_name:     if key_name == '' { field.name } else { key_name }
-				is_skip:      is_skip
-				is_omitempty: is_omitempty
-				is_required:  is_required
-				is_json_null: is_json_null
+			unsafe {
+				candidate.field_infos.free()
+				free(candidate)
 			}
+			return existing.field_infos
+		}
+		candidate.next = unsafe { &EncoderFieldInfoCacheEntry(head) }
+		mut expected := head
+		if C.atomic_compare_exchange_strong_ptr(&encoder_field_info_cache_heads[bucket_idx],
+			&expected, isize(candidate))
+		{
+			break
 		}
 	}
-	return *field_infos
+	return candidate.field_infos
 }
 
 fn (mut encoder Encoder) encode_struct_field_value[T](val T) {
