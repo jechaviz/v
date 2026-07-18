@@ -87,10 +87,10 @@
             __asm__ __volatile__ ("" : : : "memory"); \
             break; \
         case memory_order_seq_cst: \
-            __asm__ __volatile__ ("mfence" : : : "memory"); \
+            MemoryBarrier(); \
             break; \
         default: \
-            __asm__ __volatile__ ("mfence" : : : "memory"); \
+            MemoryBarrier(); \
             break; \
     } \
 } while (0)
