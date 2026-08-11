@@ -7,7 +7,7 @@ const v3_src = os.join_path(v3_dir, 'v3.v')
 
 fn build_v3() string {
 	v3_bin := os.join_path(os.temp_dir(), 'v3_veb_ctx_test')
-	build := os.execute('${vexe} -o ${v3_bin} ${v3_src}')
+	build := os.execute('${vexe} -gc none -o ${v3_bin} ${v3_src}')
 	assert build.exit_code == 0, build.output
 	return v3_bin
 }
@@ -52,7 +52,7 @@ fn main() {
 	os.write_file(src_file, src) or { panic(err) }
 	c_out := os.join_path(os.temp_dir(), 'v3_veb_ctx.c')
 	os.rm(c_out) or {}
-	compile := os.execute('${v3_bin} ${src_file} -o ${c_out}')
+	compile := os.execute('${v3_bin} -no-memory-limit ${src_file} -o ${c_out}')
 	assert compile.exit_code == 0, compile.output
 	c_code := os.read_file(c_out) or { '' }
 	// No-arg delegation forwards the enclosing ctx in the ctx slot.

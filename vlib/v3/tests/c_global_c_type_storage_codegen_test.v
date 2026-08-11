@@ -14,6 +14,7 @@ fn gen_c_for_c_global_source(name string, source string) string {
 	mut a := p.parse_file(src)
 	mut tc := types.TypeChecker.new(a)
 	tc.collect(a)
+	tc.enable_globals = true
 	tc.diagnose_unknown_calls = true
 	tc.diagnostic_files[src] = true
 	tc.check_semantics()
@@ -45,6 +46,7 @@ fn gen_c_for_c_global_sources(name string, files map[string]string) string {
 	mut a := p.parse_files(paths)
 	mut tc := types.TypeChecker.new(a)
 	tc.collect(a)
+	tc.enable_globals = true
 	tc.diagnose_unknown_calls = true
 	tc.diagnostic_files[os.join_path(root, 'main.v')] = true
 	tc.check_semantics()
@@ -75,7 +77,7 @@ fn main() {
 	_ := raw_object(logger)
 }
 ')
-	assert c_code.contains('void* pobject = ((struct log__Logger*)logger)->_object;')
+	assert c_code.contains('void* pobject = ((log__Logger*)logger)->_object;')
 	assert !c_code.contains('void** pobject')
 	assert !c_code.contains('__addr_')
 }
@@ -83,6 +85,7 @@ fn main() {
 fn test_mut_parameter_address_uses_lowered_pointer() {
 	c_code := gen_c_for_c_global_source('mut_parameter_address', 'module main
 
+@[heap]
 struct Reader {
 mut:
 	pos int
@@ -119,6 +122,7 @@ interface Reader {
 	read() int
 }
 
+@[heap]
 struct FileReader {}
 
 fn (r FileReader) read() int {
@@ -297,6 +301,20 @@ fn main() {
 	assert c_code.contains('set_stream_unbuffered(stdout);'), c_code
 	assert !c_code.contains('C__stdout'), c_code
 	assert !c_code.contains('\nFILE* stdout'), c_code
+}
+
+fn test_empty_c_struct_initializer_uses_portable_zero_value() {
+	c_code := gen_c_for_c_global_source('empty_c_struct_initializer', 'struct C.NativeDesc {
+	value int
+}
+
+fn main() {
+	desc := C.NativeDesc{}
+	_ = desc
+}
+')
+	assert c_code.contains('NativeDesc desc = (NativeDesc){0};'), c_code
+	assert !c_code.contains('(NativeDesc){}'), c_code
 }
 
 fn test_module_v_owned_global_with_c_struct_type_gets_qualified_storage() {

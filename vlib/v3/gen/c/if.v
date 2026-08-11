@@ -9,6 +9,7 @@ struct MultiReturnTailParts {
 }
 
 // gen_if emits if output for c.
+@[direct_array_access]
 fn (mut g FlatGen) gen_if(node flat.Node) {
 	// Iterate the `else if` chain rather than recursing through gen_if/gen_if_else for
 	// each link. A lowered match can produce hundreds of chained `if_expr` nodes (one
@@ -237,6 +238,19 @@ fn (mut g FlatGen) gen_if_guard(node flat.Node, cond flat.Node) {
 	lhs := g.a.nodes[int(lhs_id)]
 	lhs_ids := g.if_guard_lhs_ids(cond)
 	rhs := g.a.nodes[int(rhs_id)]
+	mut rhs_type := g.optional_source_type_for_expr(rhs_id, g.tc.resolve_type(rhs_id))
+	mut rhs_needs_deref := false
+	if rhs.kind == .ident && g.current_param_is_mut(rhs.value) {
+		if param_type := g.current_param_type(rhs.value) {
+			if param_type is types.Pointer {
+				base_type := optional_result_unalias_type(param_type.base_type)
+				if base_type is types.OptionType || base_type is types.ResultType {
+					rhs_type = param_type.base_type
+					rhs_needs_deref = true
+				}
+			}
+		}
+	}
 	var_name := g.cname(lhs.value)
 	tmp := g.tmp_name()
 	defer_start := g.defers.len
@@ -257,16 +271,16 @@ fn (mut g FlatGen) gen_if_guard(node flat.Node, cond flat.Node) {
 			g.writeln('${c_val_type} ${var_name} = *(${c_val_type}*)${tmp};')
 			g.tc.cur_scope.insert(lhs.value, base_type.value_type)
 		} else {
-			rhs_type := g.optional_source_type_for_expr(rhs_id, g.tc.resolve_type(rhs_id))
 			opt_ct := g.optional_type_name_for_expr(rhs_id, rhs_type)
-			val_ct0, val_type := g.optional_value_ct(rhs_type)
-			val_ct := if val_type is types.MultiReturn {
-				g.optional_payload_c_type(val_type)
-			} else {
-				val_ct0
-			}
+			val_ct, val_type := g.optional_value_info(rhs_type, opt_ct)
 			g.write('${opt_ct} ${tmp} = ')
-			g.gen_expr(rhs_id)
+			if rhs_needs_deref {
+				g.write('*(')
+				g.gen_expr(rhs_id)
+				g.write(')')
+			} else {
+				g.gen_expr(rhs_id)
+			}
 			g.writeln(';')
 			g.writeln('if (${tmp}.ok) {')
 			g.push_scope()
@@ -274,16 +288,16 @@ fn (mut g FlatGen) gen_if_guard(node flat.Node, cond flat.Node) {
 			g.gen_if_guard_value_bindings(lhs_ids, val_type, val_ct, tmp)
 		}
 	} else {
-		rhs_type := g.optional_source_type_for_expr(rhs_id, g.tc.resolve_type(rhs_id))
 		opt_ct := g.optional_type_name_for_expr(rhs_id, rhs_type)
-		val_ct0, val_type := g.optional_value_ct(rhs_type)
-		val_ct := if val_type is types.MultiReturn {
-			g.optional_payload_c_type(val_type)
-		} else {
-			val_ct0
-		}
+		val_ct, val_type := g.optional_value_info(rhs_type, opt_ct)
 		g.write('${opt_ct} ${tmp} = ')
-		g.gen_expr(rhs_id)
+		if rhs_needs_deref {
+			g.write('*(')
+			g.gen_expr(rhs_id)
+			g.write(')')
+		} else {
+			g.gen_expr(rhs_id)
+		}
 		g.writeln(';')
 		g.writeln('if (${tmp}.ok) {')
 		g.push_scope()
@@ -697,7 +711,7 @@ fn (mut g FlatGen) seed_scope_from_decl(node flat.Node) {
 	// disagree for lowered temps (`__or_val := <zero []Val>` resolving to the
 	// element sum type) and would poison every later use of the binding.
 	if node.typ.len > 0 {
-		typ := g.tc.parse_type(node.typ)
+		typ := g.parse_node_type(&node)
 		if !decl_annotation_is_unusable(typ, node.typ) {
 			g.tc.cur_scope.insert(lhs.value, typ)
 			return
@@ -755,10 +769,10 @@ fn (mut g FlatGen) if_expr_type(node &flat.Node) types.Type {
 
 // gen_if_expr_stmt emits if expr stmt output for c.
 fn (mut g FlatGen) gen_if_expr_stmt(node flat.Node) {
-	ret_type := if g.expected_expr_type !is types.Void {
+	ret_type := if node.typ.len > 0 {
+		g.parse_node_type(&node)
+	} else if g.expected_expr_type !is types.Void {
 		g.expected_expr_type
-	} else if node.typ.len > 0 {
-		g.tc.parse_type(node.typ)
 	} else {
 		g.if_expr_type(&node)
 	}
@@ -810,7 +824,7 @@ fn (mut g FlatGen) gen_if_expr_else_if(node flat.Node, ret_type types.Type) {
 			}
 			return
 		}
-		g.writeln('{ _ifexpr = (typeof(_ifexpr)){0}; }')
+		g.writeln('{ _ifexpr = (${g.value_c_type(ret_type)}){0}; }')
 		return
 	}
 }

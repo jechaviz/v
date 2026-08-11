@@ -71,7 +71,7 @@ fn C.OpenProcess(u32, bool, u32) voidptr
 fn C.K32GetProcessMemoryInfo(voidptr, &C.PROCESS_MEMORY_COUNTERS, u32) bool
 fn C.GetLastError() u32
 fn C.GetModuleHandleA(name &char) voidptr
-fn C.GetProcAddress(handle voidptr, procname &char) voidptr
+fn C.GetProcAddress(handle voidptr, procname &u8) voidptr
 
 type FNCreateJobObjectW = fn (voidptr, voidptr) voidptr
 
@@ -180,5 +180,5 @@ fn process_guard_kernel32_proc(name &char) voidptr {
 	if isnil(kernel32) {
 		return unsafe { nil }
 	}
-	return C.GetProcAddress(kernel32, name)
+	return C.GetProcAddress(kernel32, voidptr(name))
 }

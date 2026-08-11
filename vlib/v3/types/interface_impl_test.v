@@ -34,6 +34,20 @@ fn test_interface_impl_cache_is_explicitly_invalidated_after_type_table_growth()
 	assert 'LateType' in tc.interface_impl_names('Any')
 }
 
+fn test_prepared_interface_indexes_do_not_stale_late_implementers() {
+	mut a := flat.FlatAst.new()
+	mut tc := TypeChecker.new(&a)
+	tc.interface_names['Any'] = true
+	tc.prepare_interface_query_indexes()
+	pre_transform := tc.pre_transform_interface_impl_names('Any') or {
+		panic('missing prepared interface implementer index')
+	}
+	tc.structs['LateType'] = []StructField{}
+	tc.freeze_pre_transform_interface_impl_names()
+	assert 'LateType' !in pre_transform
+	assert 'LateType' in tc.interface_impl_names('Any')
+}
+
 fn test_stable_interface_type_ids_resolve_hash_collisions() {
 	ids := stable_interface_type_ids(['main.TZjXQlDs6', 'main.T2nAMbYQH'])
 	assert ids['main.TZjXQlDs6'] != ids['main.T2nAMbYQH']
@@ -45,4 +59,23 @@ fn test_stable_interface_type_ids_preserve_existing_ids_after_late_collisions() 
 	after := stable_interface_type_ids(['Twvlzleh', 'Tnndxrxb'])
 	assert after['Twvlzleh'] == before['Twvlzleh']
 	assert after['Tnndxrxb'] != before['Twvlzleh']
+}
+
+fn test_short_type_name_ambiguity_remains_sticky() {
+	mut index := map[string]string{}
+	index_short_type_name('first.Event', mut index)
+	index_short_type_name('second.Event', mut index)
+	index_short_type_name('third.Event', mut index)
+	assert 'Event' in index
+	assert index['Event'] == ''
+}
+
+fn test_interface_concrete_method_keys_include_dispatch_methods() {
+	mut a := flat.FlatAst.new()
+	mut tc := TypeChecker.new(&a)
+	tc.interface_names['orm.TransactionalConnection'] = true
+	tc.interface_abstract_methods['orm.TransactionalConnection'] = ['select']
+
+	keys := tc.interface_concrete_method_keys()
+	assert 'orm.TransactionalConnection.select' in keys
 }

@@ -3,6 +3,46 @@ module transform
 import v3.flat
 import v3.types
 
+fn test_generic_app_parts_distinguishes_postfix_fixed_arrays() {
+	_, _, numeric_fixed := generic_app_parts('C.sg_color_attachment_action[4]')
+	assert !numeric_fixed
+	_, _, const_fixed := generic_app_parts('http.HeaderKV[max_headers]')
+	assert !const_fixed
+	base, args, generic := generic_app_parts('json2.StructKeyDecodeResult[Item]')
+	assert generic
+	assert base == 'json2.StructKeyDecodeResult'
+	assert args == ['Item']
+	c_base, c_args, c_generic := generic_app_parts('json2.StructKeyDecodeResult[C.sg_pass_action]')
+	assert c_generic
+	assert c_base == 'json2.StructKeyDecodeResult'
+	assert c_args == ['C.sg_pass_action']
+}
+
+fn test_normalize_function_type_preserves_mut_parameter() {
+	t := Transformer{}
+	assert t.normalize_type_in_module('fn (mut Item)', 'main') == 'fn (&Item)'
+	assert t.normalize_type_in_module('fn (mut item Item) bool', 'main') == 'fn (&Item) bool'
+}
+
+fn test_normalize_type_in_module_cache_tracks_current_file() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	tc.file_imports[file_import_key('first.v', 'dep')] = 'alpha'
+	tc.file_imports[file_import_key('second.v', 'dep')] = 'beta'
+	tc.structs['alpha.Type'] = []
+	tc.structs['beta.Type'] = []
+	mut t := Transformer{
+		tc:                &tc
+		cur_module:        'shared'
+		module_type_cache: &AliasCache{}
+	}
+
+	t.cur_file = 'first.v'
+	assert t.normalize_type_in_module('dep.Type', 'shared') == 'alpha.Type'
+	t.cur_file = 'second.v'
+	assert t.normalize_type_in_module('dep.Type', 'shared') == 'beta.Type'
+}
+
 fn test_flattened_generic_receiver_short_variants() {
 	assert flattened_generic_receiver_short_variants('foo__Bar_baz__Qux') == [
 		'Bar_Qux',
@@ -11,6 +51,34 @@ fn test_flattened_generic_receiver_short_variants() {
 		'Bar_Qux',
 		'mod.Bar_Qux',
 	]
+}
+
+fn test_receiver_method_guard_accepts_short_name_for_qualified_type() {
+	t := Transformer{}
+	assert t.receiver_method_matches_type_name('Thing.str', 'pkg.Thing')
+}
+
+fn test_building_v_auto_str_helper_call_uses_main_symbol() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut t := Transformer{
+		a:          &a
+		tc:         &tc
+		cur_module: 'token'
+		cur_file:   'token.v'
+	}
+	value := t.make_ident('pos')
+	call := t.request_auto_str_helper(value, 'v.token.Pos')
+	callee := a.child_node(a.node(call), 0)
+
+	assert callee.value == '__v3_autostr_v__token__Pos'
+	assert t.auto_str_types['v.token.Pos'].helper_module == 'main'
+}
+
+fn test_if_type_merge_ignores_unresolved_branch_fallbacks() {
+	t := Transformer{}
+	assert t.merge_if_expr_types('unknown', 'int') == 'int'
+	assert t.merge_if_expr_types('int', 'unknown') == 'int'
 }
 
 fn test_generic_inference_uses_seeded_mut_param_value_type_while_cloning() {
@@ -123,8 +191,10 @@ fn test_parallel_worker_reuses_prebuilt_call_param_decl_index() {
 	mut tc := types.TypeChecker.new(a)
 	mut t := new_transformer(mut a, &tc, map[string]bool{})
 	t.prepare_parallel_call_param_types()
+	assert t.call_param_types_prepared
 	mut worker := t.fork_worker(t.a, t.tc)
 	assert worker.call_param_types_index_ready
+	assert worker.call_param_types_prepared
 	assert worker.call_param_types_decl_index.len == t.call_param_types_decl_index.len
 	assert worker.call_param_types_decl_cache.len == t.call_param_types_decl_cache.len
 	params := worker.call_param_types_from_decl('takes_string') or {
@@ -133,6 +203,22 @@ fn test_parallel_worker_reuses_prebuilt_call_param_decl_index() {
 	}
 	assert params.len == 1
 	assert params[0] is types.String
+	t.add_call_param_types_decl_key('main.takes_string', a.nodes.len - 1, 'signature_index_test.v',
+		'main')
+	assert !t.call_param_types_prepared
+}
+
+fn test_pending_generic_specialization_keys_are_private_initialized_maps() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut master := new_transformer(mut a, &tc, map[string]bool{})
+	master.pending_generic_fn_spec_keys['master'] = true
+	assert master.pending_generic_fn_spec_keys['master']
+
+	mut worker := master.fork_worker(&a, tc.fork_for_parallel_transform(&a))
+	worker.pending_generic_fn_spec_keys['worker'] = true
+	assert worker.pending_generic_fn_spec_keys['worker']
+	assert 'worker' !in master.pending_generic_fn_spec_keys
 }
 
 fn test_absorb_scoped_batch_replays_overlay_into_master_checker() {
@@ -145,7 +231,7 @@ fn test_absorb_scoped_batch_replays_overlay_into_master_checker() {
 	batch.tc.fork_overlay.resolved_call_names[10] = 'main.resolved_call'
 	batch.tc.fork_overlay.resolved_fn_values[11] = 'main.resolved_fn_value'
 
-	master.absorb_scoped_batch(batch, unsafe { nil }, a.nodes.len)
+	master.absorb_scoped_batch(batch, unsafe { nil }, batch.a.nodes.len)
 	assert tc.sparse_resolved_call_names[10] == 'main.resolved_call'
 	assert tc.sparse_resolved_fn_values[11] == 'main.resolved_fn_value'
 }

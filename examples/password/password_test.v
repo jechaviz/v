@@ -9,19 +9,21 @@ const expect_exe = os.find_abs_path_of_executable('expect') or {
 const expect_tests_path = os.join_path(@VMODROOT, 'examples', 'password', 'tests')
 
 fn test_password_input() {
-	correct := os.execute(os.join_path(expect_tests_path, 'correct.expect'))
+	correct := os.execute('${os.quoted_path(expect_exe)} ${os.quoted_path(os.join_path(expect_tests_path,
+		'correct.expect'))} ${os.quoted_path(@VEXE)}')
 	assert correct.exit_code == 0, correct.exit_code_diagnostics('0', label: @FN)
 
-	incorrect := os.execute(os.join_path(expect_tests_path, 'incorrect.expect'))
+	incorrect := os.execute('${os.quoted_path(expect_exe)} ${os.quoted_path(os.join_path(expect_tests_path,
+		'incorrect.expect'))} ${os.quoted_path(@VEXE)}')
 	assert incorrect.exit_code == 0, incorrect.exit_code_diagnostics('0', label: @FN)
 
 	expected_out := 'Enter your password : '
-	mut res :=
-		os.execute('${os.join_path(expect_tests_path, 'output_from_expect_arg.expect')} "${expected_out}"')
+	mut res := os.execute('${os.quoted_path(expect_exe)} ${os.quoted_path(os.join_path(expect_tests_path,
+		'output_from_expect_arg.expect'))} ${os.quoted_path(@VEXE)} ${os.quoted_path(expected_out)}')
 	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 
 	not_exptectd_out := 'Enter your passwords : '
-	res =
-		os.execute('${os.join_path(expect_tests_path, 'output_from_expect_arg.expect')} "${not_exptectd_out}"')
+	res = os.execute('${os.quoted_path(expect_exe)} ${os.quoted_path(os.join_path(expect_tests_path,
+		'output_from_expect_arg.expect'))} ${os.quoted_path(@VEXE)} ${os.quoted_path(not_exptectd_out)}')
 	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 }

@@ -6,7 +6,10 @@ pub:
 	offset int
 	end    int
 	id     int
+	meta   u16
 }
+
+const type_text_meta_flag = u16(0x8000)
 
 // new_pos creates a source position from a stable file id and byte offset.
 pub fn new_pos(file_id int, offset int) Pos {
@@ -24,6 +27,48 @@ pub fn new_span(file_id int, start int, end int) Pos {
 		id:     file_id
 		offset: start
 		end:    if end < start { start } else { end }
+	}
+}
+
+// with_reported_column overrides the one-based column shown in a diagnostic header.
+// Columns that do not fit in the compact metadata are ignored so diagnostics can
+// fall back to the source position instead of aborting compilation.
+pub fn (p Pos) with_reported_column(column int) Pos {
+	if column < 0 || column >= int(type_text_meta_flag) {
+		return p
+	}
+	return Pos{
+		...p
+		meta: u16(column)
+	}
+}
+
+// reported_column returns the optional diagnostic column override. The high
+// meta bit belongs to Node's canonical type-text id and is invisible to
+// ordinary source-position consumers.
+@[inline]
+pub fn (p Pos) reported_column() int {
+	return if p.meta & type_text_meta_flag == 0 { int(p.meta) } else { 0 }
+}
+
+// type_text_id returns the compact Node annotation identity stored in unused
+// position metadata. Source positions carrying a diagnostic column do not
+// carry a type identity.
+@[inline]
+pub fn (p Pos) type_text_id() u16 {
+	return if p.meta & type_text_meta_flag != 0 { p.meta & ~type_text_meta_flag } else { 0 }
+}
+
+// with_type_text_id stores a compact identity when no diagnostic column is
+// present. Larger ids use the existing string-keyed type cache.
+@[inline]
+pub fn (p Pos) with_type_text_id(id u16) Pos {
+	if p.reported_column() > 0 {
+		return p
+	}
+	return Pos{
+		...p
+		meta: if id > 0 && id < type_text_meta_flag { type_text_meta_flag | id } else { 0 }
 	}
 }
 
@@ -52,23 +97,21 @@ pub fn (p Position) str() string {
 }
 
 // File represents file data used by token.
+// Positions into a File use file-local byte offsets (Pos.offset), so a File no
+// longer carries a FileSet-global base offset.
 @[heap]
 pub struct File {
 pub:
 	name string
-	base int
 	size int
 mut:
 	line_offsets []int = [0]
-	id_counter   &int  = unsafe { nil }
 }
 
 // FileSet represents file set data used by token.
 pub struct FileSet {
 mut:
-	base       int = 1
-	id_counter int
-	files      []&File
+	files []&File
 }
 
 // new creates a FileSet value for token.
@@ -76,55 +119,19 @@ pub fn FileSet.new() &FileSet {
 	return &FileSet{}
 }
 
-// add_file updates add file state for FileSet.
-pub fn (mut fs FileSet) add_file(filename string, base_ int, size int) &File {
-	mut base := if base_ < 0 { fs.base } else { base_ }
-	if base < fs.base {
-		panic('invalid base ${base} (should be >= ${fs.base}')
-	}
-	file := &File{
-		name:       filename
-		base:       base
-		size:       size
-		id_counter: &fs.id_counter
-	}
+// add_file registers a source file with the set. Under the file-local position
+// representation there is no global base offset to assign; the caller keys the
+// returned file by its stable Pos.id (e.g. FlatAst.source_files).
+pub fn (mut fs FileSet) add_file(filename string, size int) &File {
 	if size < 0 {
 		panic('invalid size ${size} (should be >= 0)')
 	}
-	base += size + 1
-	if base < 0 {
-		panic('token.Pos offset overflow (> 2G of source code in file set)')
+	file := &File{
+		name: filename
+		size: size
 	}
-	fs.base = base
 	fs.files << file
 	return file
-}
-
-// search_files supports search files handling for token.
-fn search_files(files []&File, x int) int {
-	mut min, mut max := 0, files.len
-	for min < max {
-		mid := (min + max) / 2
-		if files[mid].base <= x {
-			min = mid + 1
-		} else {
-			max = mid
-		}
-	}
-	return min - 1
-}
-
-// file supports file handling for FileSet.
-pub fn (mut fs FileSet) file(pos Pos) &File {
-	i := search_files(fs.files, pos.offset)
-	if i >= 0 {
-		file := fs.files[i]
-		if pos.offset <= file.base + file.size {
-			return file
-		}
-	}
-	dump(fs)
-	panic('cannot find file for pos: ${pos}')
 }
 
 // add_line updates add line state for File.
@@ -159,34 +166,16 @@ pub fn (f &File) line_start(line int) int {
 }
 
 // line supports line handling for File.
+// Pos.offset is already file-local (the safe constructors store the byte offset
+// within this file, not a FileSet-global offset), so it is used directly.
 pub fn (f &File) line(pos Pos) int {
-	return f.find_line(pos.offset - f.base)
-}
-
-// pos supports pos handling for File.
-pub fn (mut f File) pos(offset int) Pos {
-	if offset > f.size {
-		panic('invalid offset')
-	}
-	mut current_id := 0
-	mut next_id := 0
-	unsafe {
-		current_id = *f.id_counter
-	}
-	next_id = current_id + 1
-	unsafe {
-		*f.id_counter = next_id
-	}
-	return Pos{
-		offset: f.base + offset
-		id:     next_id
-	}
+	return f.find_line(pos.offset)
 }
 
 // position supports position handling for File.
+// Pos.offset is file-local, matching position_at/FlatAst.source_position.
 pub fn (f &File) position(pos Pos) Position {
-	offset := pos.offset - f.base
-	return f.position_at(offset)
+	return f.position_at(pos.offset)
 }
 
 // position_at resolves a file-local byte offset to a presentation position.

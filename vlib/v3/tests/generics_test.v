@@ -9,7 +9,8 @@ const v3_src = os.join_path(v3_dir, 'v3.v')
 // build_v3 builds v3 data for v3 tests.
 fn build_v3() string {
 	v3_bin := os.join_path(os.temp_dir(), 'v3_generics_test')
-	build := os.execute('${vexe} -path "${vlib_dir}|@vlib|@vmodules" -o ${v3_bin} ${v3_src}')
+	build :=
+		os.execute('${vexe} -gc none -path "${vlib_dir}|@vlib|@vmodules" -o ${v3_bin} ${v3_src}')
 	assert build.exit_code == 0, build.output
 	return v3_bin
 }
@@ -448,4 +449,14 @@ fn main() {
 }
 ')
 	assert explicit_multi_arg_out == '2'
+
+	reused_result_out := run_generic_exec(v3_bin, 'reused_generic_result_keeps_payload_type', '
+import arrays { sum }
+
+fn main() {
+	mapped := [[1, 2], [3, 4]].map(sum(it)!)
+	println(sum(mapped[..2])!)
+}
+')
+	assert reused_result_out == '10'
 }

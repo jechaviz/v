@@ -43,9 +43,11 @@ int main(void) {
 	return 0;
 }
 ')!
+	// Each preallocated object must keep builtin globals object-local, including
+	// the thread-local g_memory_block arena root.
 	for cmd in [
-		'${test_vexe} -cc ${cc} -gc none -no-skip-unused -is_o -o ${os.quoted_path(a_c)} ${os.quoted_path(a_v)}',
-		'${test_vexe} -cc ${cc} -gc none -no-skip-unused -is_o -o ${os.quoted_path(b_c)} ${os.quoted_path(b_v)}',
+		'${test_vexe} -message-limit 199 -cc ${cc} -gc none -prealloc -no-skip-unused -is_o -o ${os.quoted_path(a_c)} ${os.quoted_path(a_v)}',
+		'${test_vexe} -message-limit 199 -cc ${cc} -gc none -prealloc -no-skip-unused -is_o -o ${os.quoted_path(b_c)} ${os.quoted_path(b_v)}',
 		'${cc} -o ${os.quoted_path(prog)} ${os.quoted_path(a_c)} ${os.quoted_path(b_c)} ${os.quoted_path(host_c)} -lm',
 	] {
 		res := os.execute(cmd)
@@ -123,4 +125,29 @@ fn test_parallel_cc_usecache_interface_index_definition_stays_out_of_header() {
 	assert header.contains('extern const u32 _IError_None___index;'), header
 	assert !header.contains('const u32 _IError_None___index = _IError_None___index_enum;')
 	assert out0.contains('const u32 _IError_None___index = _IError_None___index_enum;'), out0
+}
+
+fn test_parallel_cgen_builtin_method_prefix_uses_receiver_type_index() {
+	tmp_dir := os.join_path(os.vtmp_dir(), 'parallel_cgen_builtin_receiver_${os.getpid()}')
+	os.mkdir_all(tmp_dir)!
+	defer {
+		os.rmdir_all(tmp_dir) or {}
+	}
+	source_path := os.join_path(tmp_dir, 'main.v')
+	os.write_file(source_path,
+		'fn main() {\n\tmut values := []int{}\n\tunsafe { values.free() }\n}\n')!
+	mut prefs, _ := pref.parse_args_and_show_errors([], [
+		'',
+		'-parallel-cc',
+		source_path,
+	], false)
+	mut b := builder.new_builder(prefs)
+	mut files := b.get_builtin_files()
+	files << b.get_user_files()
+	b.set_module_lookup_paths()
+	b.front_and_middle_stages(files)!
+	result := c.gen(b.parsed_files, mut b.table, b.pref)
+	generated := result.res_builder.bytestr()
+	assert generated.contains('builtin__array_free(&values);'), generated
+	assert !generated.contains('\n\tarray_free(&values);'), generated
 }

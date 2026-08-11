@@ -8,6 +8,14 @@ mut:
 }
 
 fn pool_test_task(arg voidptr) voidptr {
+	$if prealloc {
+		scope := unsafe { prealloc_scope_begin() }
+		defer {
+			unsafe {
+				prealloc_scope_end(scope)
+			}
+		}
+	}
 	mut a := unsafe { &PoolTestArg(arg) }
 	a.value++
 	return unsafe { nil }
@@ -72,6 +80,9 @@ fn test_pool_runs_persistent_batches_and_sync_fallbacks() {
 		assert stats.worker_run_ns > 0
 	}
 	pool.close()
+	$if !windows {
+		assert pool.stats().utilization_ppm > 0
+	}
 }
 
 fn test_pool_falls_back_for_every_failed_launch_index() {

@@ -95,7 +95,7 @@ fn (err &PtrErr) code() int {
 }
 
 struct PointerWrapErr {
-	PtrErr &PtrErr
+	&PtrErr
 }
 
 fn fail_pointer() !int {
@@ -119,7 +119,7 @@ fn (err InnerErr) code() int {
 }
 
 struct PointerInner {
-	InnerErr &InnerErr
+	&InnerErr
 }
 
 struct NestedWrapErr {
@@ -157,8 +157,8 @@ fn main() {
 	assert !compile.output.contains('C compilation failed'), compile.output
 
 	c_code := os.read_file('${bin}.c') or { '' }
-	assert c_code.contains('PtrErr__msg(((PointerWrapErr*)i->_object)->PtrErr)'), c_code
-	assert c_code.contains('InnerErr__msg(*((((NestedWrapErr*)i->_object)->PointerInner).InnerErr))'), c_code
+	assert c_code.contains('PtrErr__msg(&(((PointerWrapErr*)i->_object)->PtrErr))'), c_code
+	assert c_code.contains('InnerErr__msg((((NestedWrapErr*)i->_object)->PointerInner).InnerErr)'), c_code
 
 	run := os.execute(bin)
 	assert run.exit_code == 0, run.output
@@ -327,7 +327,7 @@ fn main() {
 	c_code := os.read_file('${bin}.c') or { '' }
 	assert c_code.contains('string dead__DeadErr__msg(dead__DeadErr err)'), c_code
 	assert c_code.contains('string dead__Helper__text(dead__Helper h)'), c_code
-	assert c_code.contains('return dead__Helper__text((dead__Helper){});'), c_code
+	assert c_code.contains('return dead__Helper__text((dead__Helper){0});'), c_code
 	assert !c_code.contains('dead__unrelated_dead_fn'), c_code
 
 	run := os.execute(bin)

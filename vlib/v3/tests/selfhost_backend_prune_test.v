@@ -9,7 +9,7 @@ fn build_selfhost_prune_v3() string {
 	v3_bin := os.join_path(os.temp_dir(), 'v3_selfhost_backend_prune_boot_${os.getpid()}')
 	os.rm(v3_bin) or {}
 	build :=
-		os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(v3_bin)} ${os.quoted_path(v3_src)}')
+		os.execute('${os.quoted_path(vexe)} -gc none -o ${os.quoted_path(v3_bin)} ${os.quoted_path(v3_src)}')
 	assert build.exit_code == 0, build.output
 	return v3_bin
 }
@@ -19,7 +19,7 @@ fn selfhost_to_c(v3_bin string, name string, flags string) string {
 	out_c := out_bin + '.c'
 	os.rm(out_bin) or {}
 	os.rm(out_c) or {}
-	cmd := '${os.quoted_path(v3_bin)} --no-parallel -selfhost ${flags} -o ${os.quoted_path(out_bin)} ${os.quoted_path(v3_src)}'
+	cmd := '${os.quoted_path(v3_bin)} --no-parallel -nocache -no-memory-limit -selfhost -b c ${flags} -o ${os.quoted_path(out_bin)} ${os.quoted_path(v3_src)}'
 	res := os.execute(cmd)
 	assert res.exit_code == 0, res.output
 	assert os.exists(out_c), 'missing generated C output ${out_c}'

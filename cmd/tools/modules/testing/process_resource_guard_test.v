@@ -208,10 +208,18 @@ fn with_process_guard_env(values map[string]string, body fn ()) {
 }
 
 fn process_guard_test_env_value(env []string, name string) string {
-	prefix := '${name}='
 	for value in env {
-		if value.starts_with(prefix) {
-			return value[prefix.len..]
+		env_separator_idx := value.index('=') or { -1 }
+		if env_separator_idx < 0 {
+			continue
+		}
+		env_name := value[..env_separator_idx]
+		mut matches := env_name == name
+		$if windows {
+			matches = env_name.to_lower() == name.to_lower()
+		}
+		if matches {
+			return value[env_separator_idx + 1..]
 		}
 	}
 	return ''

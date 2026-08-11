@@ -418,14 +418,14 @@ fn drain_file(fd int, mut cs ConnState) int {
 		} else {
 			usize(cs.file_remaining)
 		}
-		sent := C.sendfile(fd, cs.file_fd, &cs.file_off, want)
+		sent := sendfile_without_sigpipe(fd, cs.file_fd, &cs.file_off, want)
 		if sent > 0 {
 			cs.file_remaining -= i64(sent)
 			continue
 		}
 		if sent < 0 {
 			errno_val := C.errno
-			if errno_val == C.EAGAIN || errno_val == C.EWOULDBLOCK {
+			if errno_val == C.EAGAIN {
 				return 0
 			}
 			if errno_val == C.EINTR {
@@ -461,7 +461,7 @@ fn flush_batch(mut w Worker, fd int, mut cs ConnState) bool {
 		}
 		if n < 0 {
 			errno_val := C.errno
-			if errno_val == C.EAGAIN || errno_val == C.EWOULDBLOCK {
+			if errno_val == C.EAGAIN {
 				return park_write(mut w, fd, mut cs)
 			}
 			if errno_val == C.EINTR {
@@ -551,7 +551,7 @@ fn compact_read_buf(mut cs ConnState, pos int) {
 // open_deferred_file opens response.file_path for a sendfile(2) body streamed by
 // flush_batch after the buffered bytes, or marks the connection to close on error.
 fn open_deferred_file(mut cs ConnState, file_path string) {
-	file_fd := C.open(file_path.str, C.O_RDONLY, 0)
+	file_fd := C.open(&char(file_path.str), C.O_RDONLY, 0)
 	if file_fd == -1 {
 		eprintln('ERROR: open file failed: ${file_path}')
 		cs.should_close = true
@@ -830,7 +830,7 @@ fn serve_conn(mut w Worker, fd int, mut cs ConnState) {
 		spare := cs.read_buf.cap - cs.read_buf.len
 		n := C.recv(fd, unsafe { &u8(cs.read_buf.data) + cs.read_buf.len }, usize(spare), 0)
 		if n < 0 {
-			if C.errno == C.EAGAIN || C.errno == C.EWOULDBLOCK {
+			if C.errno == C.EAGAIN {
 				break // socket drained
 			}
 			if C.errno == C.EINTR {
@@ -915,7 +915,7 @@ fn handle_accept_loop(mut w Worker) {
 	for {
 		client_fd := C.accept4(w.listen_fd, C.NULL, C.NULL, C.SOCK_NONBLOCK)
 		if client_fd < 0 {
-			if C.errno == C.EAGAIN || C.errno == C.EWOULDBLOCK {
+			if C.errno == C.EAGAIN {
 				break // no more incoming connections
 			}
 			if C.errno == C.EINTR {

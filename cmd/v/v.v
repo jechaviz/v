@@ -177,6 +177,13 @@ fn report_delegated_process_failure(prefix string, result DelegatedProcessResult
 	))
 }
 
+struct MacosV3CErrorReport {
+	ccompiler  string
+	c_output   string
+	c_file     string
+	report_dir string
+}
+
 @[unsafe]
 fn timers_pointer(p &util.Timers) &util.Timers {
 	// TODO: the static variable here is used as a workaround for the current incompatibility of -usecache and globals in the main module:
@@ -228,7 +235,8 @@ fn main() {
 	mut args_and_flags := util.join_env_vflags_and_os_args()[1..]
 	prefs, command := pref.parse_args_and_show_errors(external_tools, args_and_flags, true)
 	maybe_delegate_to_vvmrc(command, prefs)
-	maybe_delegate_to_ownership(command, prefs)
+	maybe_delegate_to_ownership(command, prefs, args_and_flags)
+	macos_v3_c_error_report := maybe_delegate_to_macos_v3(command, prefs)
 	if prefs.use_cache && os.user_os() == 'windows' {
 		eprintln('-usecache is currently disabled on windows')
 		exit(1)
@@ -246,8 +254,8 @@ fn main() {
 	}
 	match command {
 		'run', 'crun', 'build', 'build-module' {
-			rebuild(prefs)
-			exit(0)
+			rebuild(prefs, macos_v3_c_error_report)
+			return
 		}
 		'help' {
 			invoke_help_and_exit(args)
@@ -285,8 +293,8 @@ fn main() {
 			if command.ends_with('.v') || os.exists(command) {
 				// println('command')
 				// println(prefs.path)
-				rebuild(prefs)
-				exit(0)
+				rebuild(prefs, macos_v3_c_error_report)
+				return
 			}
 		}
 	}
@@ -319,16 +327,92 @@ fn invoke_help_and_exit(remaining []string) {
 	exit(1)
 }
 
-fn maybe_delegate_to_ownership(command string, prefs &pref.Preferences) {
-	is_ownership := '-ownership' in os.args
-	if !is_ownership {
+fn maybe_delegate_to_ownership(command string, prefs &pref.Preferences, merged_args []string) {
+	is_ownership := '-ownership' in merged_args
+	is_autofree := prefs.autofree
+	if !ownership_delegation_is_requested(is_ownership, is_autofree, prefs.old_compiler,
+		os.user_os()) {
+		return
+	}
+	if is_autofree && !is_ownership && (autofree_requires_standard_compiler(prefs)
+		|| autofree_args_require_standard_compiler(merged_args, command)) {
 		return
 	}
 	if !is_ownership_relevant_command(command, prefs) {
-		eprintln('v: `-ownership` currently supports direct compilation only. Use `v -ownership module_dir`.')
+		// `-autofree` is also an established option for command modes such as
+		// `run` and `test`. Leave modes that do not compile directly on the regular
+		// command path instead of rejecting them in the ownership dispatcher.
+		if is_autofree && !is_ownership {
+			return
+		}
+		mode := if is_autofree { '-autofree' } else { '-ownership' }
+		eprintln('v: `${mode}` currently supports direct compilation only. Use `v ${mode} module_dir`.')
 		exit(1)
 	}
-	launch_v3_ownership_compiler(prefs.is_verbose, os.args[1..].filter(it != '-ownership'))
+	ownership_args := v3_ownership_forwarded_args(prefs, merged_args)
+	launch_v3_ownership_compiler(prefs.is_verbose, ownership_args)
+}
+
+fn autofree_args_require_standard_compiler(args []string, command string) bool {
+	$if macos {
+		return macos_v3_has_v1_only_leading_option(args, command)
+	}
+	return false
+}
+
+fn v3_ownership_forwarded_args(prefs &pref.Preferences, merged_args []string) []string {
+	ownership_args := merged_args.filter(it != '-ownership')
+	$if macos {
+		return macos_v3_forwarded_args(prefs, ownership_args)
+	}
+	return ownership_args
+}
+
+fn autofree_requires_standard_compiler(prefs &pref.Preferences) bool {
+	// Autofree selects no-GC by default, but an explicit collector still belongs
+	// to V1 until ownership mode implements it.
+	return v3_has_v1_only_preferences(prefs) || (prefs.gc_set_by_flag && prefs.gc_mode != .no_gc)
+}
+
+fn v3_has_v1_only_preferences(prefs &pref.Preferences) bool {
+	if prefs.cmain.len > 0 || prefs.custom_prelude.len > 0 || prefs.is_check_return
+		|| prefs.div_by_zero_is_zero || prefs.obfuscate_removed || prefs.no_std
+		|| prefs.is_vls || prefs.new_transform || prefs.show_asserts
+		|| prefs.show_callgraph || prefs.show_depgraph || prefs.hide_auto_str
+		|| prefs.no_rsp || prefs.message_limit != 200 || prefs.warn_about_allocs
+		|| prefs.c_error_bug_report_url.len > 0 || prefs.wasm_validate
+		|| prefs.wasm_stack_top != 1024 + (16 * 1024) || prefs.line_info.len > 0
+		|| prefs.use_coroutines || prefs.checker_match_exhaustive_cutoff_limit != 12
+		|| (prefs.backend == .c && prefs.os !in [._auto, .macos])
+		|| prefs.build_options.any(it.starts_with('-debug-tcc')) || prefs.is_musl
+		|| prefs.build_options.any(it in ['-musl', '-glibc']) || !prefs.relaxed_gcc14 {
+		return true
+	}
+	return prefs.sanitize || prefs.is_livemain || prefs.is_liveshared
+		|| prefs.is_prof || prefs.profile_fns.len > 0 || prefs.output_cross_c
+		|| prefs.experimental || prefs.use_os_system_to_run || prefs.is_apk
+		|| prefs.json_errors || prefs.no_preludes || prefs.is_quiet
+		|| prefs.skip_warnings || prefs.skip_notes || prefs.fatal_errors
+		|| prefs.print_watched_files || prefs.dump_modules.len > 0
+		|| prefs.dump_files.len > 0 || prefs.dump_defines.len > 0
+		|| prefs.print_autofree_vars || prefs.is_vlines || prefs.warn_impure_v
+		|| prefs.trace_calls || prefs.trace_fns.len > 0 || prefs.test_runner.len > 0
+		|| prefs.exclude.len > 0 || prefs.ldflags.len > 0 || prefs.nofloat
+		|| prefs.fast_math || prefs.compress || prefs.is_bare || prefs.no_closures
+		|| prefs.disable_explicit_mutability || prefs.assert_failure_mode != .default
+		|| prefs.macosx_version_min != '0'
+		|| prefs.build_options.any(it in ['-m32', '-m64']) || prefs.backend.is_js()
+		|| (prefs.backend == .wasm && prefs.is_run) || prefs.path.ends_with('.vv')
+}
+
+fn ownership_delegation_is_requested(is_ownership bool, is_autofree bool, old_compiler bool, host_os string) bool {
+	if old_compiler {
+		return false
+	}
+	if is_ownership {
+		return true
+	}
+	return is_autofree && host_os == 'macos'
 }
 
 fn is_ownership_relevant_command(command string, prefs &pref.Preferences) bool {
@@ -353,14 +437,22 @@ fn launch_v3_ownership_compiler(is_verbose bool, args []string) {
 		exit(1)
 	}
 	if util.should_recompile_tool(vexe, v3_src_dir, tool_name, v3_exe) {
-		compilation_command := '${os.quoted_path(vexe)} -gc none -d ownership -o ${os.quoted_path(v3_exe)} ${os.quoted_path(v3_main_source)}'
+		compilation_command := '${os.quoted_path(vexe)} -nocache -gc none -d ownership -o ${os.quoted_path(v3_exe)} ${os.quoted_path(v3_main_source)}'
 		if is_verbose {
 			println('Compiling ${tool_name} with: "${compilation_command}"')
 		}
 		current_work_dir := os.getwd()
+		caller_vflags := os.getenv('VFLAGS')
+		caller_vosargs := os.getenv('VOSARGS')
+		// The bootstrap command already supplies its compiler configuration. Do not
+		// let target flags recursively select this ownership launcher again.
+		os.unsetenv('VFLAGS')
+		os.unsetenv('VOSARGS')
 		os.chdir(vroot) or {}
 		tool_compilation := run_delegate_compilation_command(compilation_command)
 		os.chdir(current_work_dir) or {}
+		os.setenv('VFLAGS', caller_vflags, true)
+		os.setenv('VOSARGS', caller_vosargs, true)
 		if tool_compilation.exit_code != 0 {
 			report_delegate_compilation_failure(tool_name, v3_main_source, compilation_command,
 				tool_compilation)
@@ -368,6 +460,14 @@ fn launch_v3_ownership_compiler(is_verbose bool, args []string) {
 		}
 	}
 	mut forwarded_args := ['-ownership']
+	$if macos {
+		// The embedded/default V3 path disables its conservative compiler-memory
+		// guard on macOS too. Keep `-autofree` on the same footing when it uses the
+		// dedicated ownership-enabled V3 binary.
+		if '-no-memory-limit' !in args && '--no-memory-limit' !in args {
+			forwarded_args << '-no-memory-limit'
+		}
+	}
 	for arg in args {
 		forwarded_args << arg
 	}
@@ -409,7 +509,7 @@ fn cached_v3_ownership_executable_path(vroot string) string {
 		'v3_ownership'))
 }
 
-fn rebuild(prefs &pref.Preferences) {
+fn rebuild(prefs &pref.Preferences, macos_v3_c_error_report ?MacosV3CErrorReport) {
 	if prefs.os == .target_os && prefs.backend == .c {
 		builder.compile('build', prefs, target_osbuilder.compile_target_os)
 		return
@@ -423,7 +523,17 @@ fn rebuild(prefs &pref.Preferences) {
 				// `v -os cross -o v.c cmd/v` having a functional C codegen inside instead.
 				util.launch_tool(prefs.is_verbose, 'builders/c_builder', os.args[1..])
 			}
-			builder.compile('build', prefs, cbuilder.compile_c)
+			if failed := macos_v3_c_error_report {
+				builder.compile_with_external_c_error_report('build', prefs, cbuilder.compile_c, builder.ExternalCErrorBugReport{
+					ccompiler:   failed.ccompiler
+					c_output:    failed.c_output
+					c_file:      failed.c_file
+					tag:         'V3'
+					cleanup_dir: failed.report_dir
+				})
+			} else {
+				builder.compile('build', prefs, cbuilder.compile_c)
+			}
 		}
 		.js_node, .js_freestanding, .js_browser {
 			util.launch_tool(prefs.is_verbose, 'builders/js_builder', os.args[1..])

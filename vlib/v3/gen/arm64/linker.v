@@ -8,7 +8,7 @@ import os
 import time
 
 // C.open declares the C open symbol used by arm64.
-fn C.open(charptr, int, int) int
+fn C.open(charptr, int, ...int) int
 
 // C.write declares the C write symbol used by arm64.
 fn C.write(int, voidptr, int) int
@@ -47,7 +47,7 @@ const cs_hashtype_sha256 = u8(2)
 const cs_hash_size = 32 // SHA256 = 32 bytes
 const cs_page_size_arm64 = 16384 // Code signing page size for ARM64 macOS
 const cs_page_shift_arm64 = 14 // log2(16384)
-const o_wronly_creat_trunc = 0x601 // O_WRONLY | O_CREAT | O_TRUNC on Darwin
+const o_wronly_creat_trunc = $if linux { 0x241 } $else { 0x601 }
 
 // ARM64 page size on macOS
 const page_size = 0x4000 // 16KB
@@ -93,7 +93,7 @@ const force_external_syms = ['_malloc', '_free', '_calloc', '_realloc', '_exit',
 	'_time', '_localtime_r', '_gmtime_r', '_mktime', '_gettimeofday', '_clock',
 	'_clock_gettime_nsec_np', '_mach_absolute_time', '_mach_timebase_info', '_nanosleep', '_sleep',
 	'_usleep', '_strftime',
-	'_task_info', '_mach_task_self_',
+	'_task_info', '_mach_task_self', '_mach_task_self_', '_getrusage', '_proc_pid_rusage',
 	// Other
 	'_rand', '_srand', '_isdigit', '_isspace', '_tolower', '_toupper', '_setenv',
 	'_unsetenv', '_sysconf', '_uname', '_gethostname', '_pthread_mutex_init', '_pthread_mutex_lock',
@@ -543,10 +543,10 @@ pub fn (mut l Linker) link(output_path string, entry_name string) {
 	if !write_file_array_raw(tmp_output_path, l.buf) {
 		panic('failed to write output file')
 	}
-	if C.chmod(tmp_output_path.str, 0o755) != 0 {
+	if C.chmod(&char(tmp_output_path.str), 0o755) != 0 {
 		panic('failed to chmod output file')
 	}
-	if C.rename(tmp_output_path.str, output_path.str) != 0 {
+	if C.rename(&char(tmp_output_path.str), &char(output_path.str)) != 0 {
 		panic('failed to rename output file')
 	}
 
@@ -556,7 +556,7 @@ pub fn (mut l Linker) link(output_path string, entry_name string) {
 
 // write_file_array_raw writes file array raw output for arm64.
 fn write_file_array_raw(path string, data []u8) bool {
-	fd := C.open(path.str, o_wronly_creat_trunc, 0o755)
+	fd := C.open(&char(path.str), o_wronly_creat_trunc, 0o755)
 	if fd < 0 {
 		return false
 	}

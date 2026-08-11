@@ -71,6 +71,7 @@ struct Completion {
 struct C.pthread_t {}
 
 fn C.pthread_join(thread C.pthread_t, retval voidptr) int
+fn C.v3_pthread_zero() C.pthread_t
 fn C.v3_pthread_create(thread &C.pthread_t, stack_size usize, start_routine fn (voidptr) voidptr, arg voidptr) int
 
 // Pool owns a bounded set of persistent compiler workers. Phase payloads stay
@@ -88,6 +89,7 @@ mut:
 	fallback_task_count    u64
 	launch_attempt_count   u64
 	launch_failure_count   u64
+	launched_thread_count  u64
 	queue_wait_ns          u64
 	worker_run_ns          u64
 	started_at_ns          u64
@@ -112,6 +114,11 @@ fn pool_worker(arg voidptr) voidptr {
 			worker_run_ns: if finished_at >= started_at { finished_at - started_at } else { 0 }
 		}
 	}
+	$if prealloc {
+		unsafe {
+			prealloc_thread_cleanup()
+		}
+	}
 	return unsafe { nil }
 }
 
@@ -119,16 +126,21 @@ fn pool_worker(arg voidptr) voidptr {
 // the available parallelism; run executes synchronously if none launch.
 pub fn new(size int) &Pool {
 	wanted := if size < 0 { 0 } else { size }
+	// Compiler phases deliberately oversubscribe the workers with small chunks
+	// so that uneven AST bodies do not leave cores idle. Buffer the whole normal
+	// batch: otherwise Pool.run has to wait for early completions while it is
+	// still submitting work, delaying the caller's force_sync chunk.
+	queue_cap := if wanted > 0 { wanted * 16 } else { 1 }
 	mut pool := &Pool{
-		jobs:                 chan Task{cap: if wanted > 0 { wanted * 2 } else { 1 }}
-		done:                 chan Completion{cap: if wanted > 0 { wanted * 2 } else { 1 }}
+		jobs:                 chan Task{cap: queue_cap}
+		done:                 chan Completion{cap: queue_cap}
 		launch_attempt_count: u64(wanted)
 		started_at_ns:        time.sys_mono_now()
 	}
 	fail := os.getenv('V3_TEST_PTHREAD_CREATE_FAIL')
 	stack_size := worker_stack_size()
 	for idx in 0 .. wanted {
-		mut thread_id := C.pthread_t{}
+		mut thread_id := C.v3_pthread_zero()
 		result := if fail == 'pool:all' || fail == 'pool:${idx}' {
 			11
 		} else {
@@ -140,6 +152,7 @@ pub fn new(size int) &Pool {
 			pool.launch_failure_count++
 		}
 	}
+	pool.launched_thread_count = u64(pool.threads.len)
 	return pool
 }
 
@@ -220,7 +233,7 @@ pub fn (p &Pool) tasks_run() u64 {
 pub fn (p &Pool) stats() Stats {
 	now := time.sys_mono_now()
 	elapsed_ns := if now >= p.started_at_ns { now - p.started_at_ns } else { 0 }
-	capacity_ns := elapsed_ns * u64(p.threads.len)
+	capacity_ns := elapsed_ns * p.launched_thread_count
 	utilization_ppm := if capacity_ns > 0 {
 		p.worker_run_ns * 1_000_000 / capacity_ns
 	} else {

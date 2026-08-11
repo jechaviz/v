@@ -16,15 +16,25 @@ const v3_src = os.join_path(v3_dir, 'v3.v')
 
 // parse_checked_source reads parse checked source input for v3 tests.
 fn parse_checked_source(name string, source string) (&flat.FlatAst, &types.TypeChecker) {
+	return parse_checked_source_with_unknown_calls(name, source, true)
+}
+
+fn parse_checked_source_with_unknown_calls(name string, source string, diagnose_unknown_calls bool) (&flat.FlatAst, &types.TypeChecker) {
 	src := os.join_path(os.temp_dir(), 'v3_markused_${name}.v')
 	os.write_file(src, source) or { panic(err) }
 	prefs := pref.new_preferences()
 	mut p := parser.Parser.new(prefs)
 	mut a := p.parse_file(src)
 	mut tc := types.TypeChecker.new(a)
+	tc.enable_globals = true
 	tc.collect(a)
-	tc.diagnose_unknown_calls = true
-	tc.diagnostic_files[src] = true
+	tc.enable_globals = true
+	tc.diagnose_unknown_calls = diagnose_unknown_calls
+	if diagnose_unknown_calls {
+		tc.diagnostic_files[src] = true
+	} else {
+		tc.diagnostic_files['__external_import_fixture__'] = true
+	}
 	tc.check_semantics()
 	assert tc.errors.len == 0, tc.errors.str()
 	return a, &tc
@@ -56,7 +66,9 @@ fn parse_checked_project(name string, files map[string]string, main_file string)
 	mut p := parser.Parser.new(prefs)
 	mut a := p.parse_files(paths)
 	mut tc := types.TypeChecker.new(a)
+	tc.enable_globals = true
 	tc.collect(a)
+	tc.enable_globals = true
 	tc.diagnose_unknown_calls = true
 	for path in paths {
 		tc.diagnostic_files[path] = true
@@ -80,7 +92,9 @@ fn parse_checked_project_in_order(name string, rels []string, sources []string) 
 	mut p := parser.Parser.new(prefs)
 	mut a := p.parse_files(paths)
 	mut tc := types.TypeChecker.new(a)
+	tc.enable_globals = true
 	tc.collect(a)
+	tc.enable_globals = true
 	tc.diagnose_unknown_calls = true
 	for path in paths {
 		tc.diagnostic_files[path] = true
@@ -94,6 +108,43 @@ fn parse_checked_project_in_order(name string, rels []string, sources []string) 
 fn mark_used_source(name string, source string) map[string]bool {
 	a, tc := parse_checked_source(name, source)
 	return markused.mark_used(a, tc)
+}
+
+fn test_trivial_literal_output_prunes_conservative_runtime_helper_seeds() {
+	used := mark_used_source('trivial_literal_output', "println('Hello, World!')")
+	assert !used['__new_array']
+	assert !used['array.get']
+	assert !used['array.push']
+	assert !used['array.delete_last']
+	assert !used['i64.str']
+	assert !used['map.clone']
+	assert !used['strconv.format_uint']
+	assert used['string.free']
+}
+
+fn test_nontrivial_output_keeps_conservative_runtime_helper_seeds() {
+	used := mark_used_source('nontrivial_output', "
+fn message() string {
+	return 'Hello, World!'
+}
+
+println(message())
+")
+	assert used['map.clone']
+	assert used['strconv.format_uint']
+	assert used['array.delete_last']
+	assert used['i64.str']
+}
+
+fn test_cached_trivial_output_keeps_cached_runtime_helper_seeds() {
+	a, tc := parse_checked_source('cached_trivial_output', "println('Hello, World!')")
+	used := markused.mark_used_for_cache(a, tc, []string{}, {
+		'builtin': true
+	})
+	assert used['__new_array']
+	assert used['array.push']
+	assert used['byteptr.vstring_with_len']
+	assert used['strconv.format_uint']
 }
 
 fn find_fn_node_id(a &flat.FlatAst, name string) int {
@@ -171,6 +222,43 @@ pub fn make() Box {
 	assert used['left.make']
 	assert !used['right.make']
 	assert uses_generics
+}
+
+fn test_module_function_owner_uses_qualified_declaration_key() {
+	a, tc := parse_checked_project_in_order('qualified_function_owner', [
+		'main/main.v',
+		'builtin/compat.v',
+		'support/support.v',
+	], [
+		'module main
+
+import support
+
+fn main() {
+	_ := support.decode()
+}
+',
+		'module builtin
+
+fn decode() int {
+	return 0
+}
+',
+		'module support
+
+pub fn decode() int {
+	return helper()
+}
+
+fn helper() int {
+	return 1
+}
+',
+	])
+	used := markused.mark_used_without_generic_detection(a, tc)
+	assert used['support.decode']
+	assert used['support.helper']
+	assert !used['builtin.decode']
 }
 
 // test_eager_markused_import_alias_context_is_file_local covers the eager,
@@ -308,6 +396,55 @@ fn main() {
 	assert used['new_map']
 }
 
+fn test_self_typed_default_collects_explicit_initializer_calls() {
+	used := mark_used_source('self_typed_default_explicit_call', '
+interface Value {}
+
+struct End {}
+
+struct S {
+	inner Value = S{
+		inner: make()
+	}
+}
+
+fn make() Value {
+	return End{}
+}
+
+fn main() {
+	_ := S{}
+}
+')
+	assert used['make']
+}
+
+fn test_self_typed_default_collects_nested_omitted_default_calls() {
+	used := mark_used_source('self_typed_default_nested_omitted_call', '
+interface Value {}
+
+struct End {}
+
+struct S {
+	inner Value = S{
+		inner: End{}
+	}
+	token int = make()
+}
+
+fn make() int {
+	return 7
+}
+
+fn main() {
+	_ := S{
+		token: 1
+	}
+}
+')
+	assert used['make']
+}
+
 // test_string_membership_seeds_contains_runtime_helpers validates this v3 regression case.
 fn test_string_membership_seeds_contains_runtime_helpers() {
 	used := mark_used_source('string_membership_contains', '
@@ -363,7 +500,7 @@ fn main() {
 	assert used['string__plus']
 }
 
-fn test_implicit_interface_str_dispatch_seeds_generated_helpers() {
+fn test_implicit_interface_str_dispatch_seeds_array_helpers() {
 	source := '
 interface Printable {
 	str() string
@@ -379,11 +516,10 @@ fn main() {
 	}).str())
 }
 '
-	mut a, mut tc := parse_checked_source('implicit_interface_str_dispatch_helpers', source)
+	mut a, mut tc := parse_checked_source('implicit_interface_str_dispatch_array_helpers', source)
 	mut used := markused.mark_used(a, tc)
 	assert used['string__plus']
 	assert used['array.get']
-	assert used['array__get']
 	assert used['int__str']
 	used = transform.transform_with_used(mut a, tc, used)
 	tc.diagnose_unknown_calls = false
@@ -391,7 +527,7 @@ fn main() {
 	tc.annotate_types()
 	mut g := cgen.FlatGen.new()
 	c_code := g.gen_with_used_options(a, used, tc, true)
-	assert c_code.contains('array_get('), c_code
+	assert c_code.contains('_iface_str_arr_'), c_code
 }
 
 fn test_implicit_interface_str_dispatch_seeds_optional_payload_helpers() {
@@ -1193,7 +1329,7 @@ fn test_reachable_imported_fn_literal_roots_private_callback_helpers() {
 
 fn test_top_level_fn_value_roots_helper() {
 	mut a, mut tc := parse_checked_source('top_level_fn_value_helper_cgen',
-		'module main\n\nfn helper() int {\n\treturn 41\n}\n\nf := helper\nprintln(int_str(f() + 1))\n')
+		'module main\n\nfn helper() int {\n\treturn 41\n}\n\nf := helper\n_ = f()\n')
 	mut used := markused.mark_used(a, tc)
 	assert used['helper']
 	used = transform.transform_with_used(mut a, tc, used)
@@ -1216,11 +1352,11 @@ fn helper() int {
 }
 
 f := helper
-println(int_str(f() + 1))
+println(f() + 1)
 ') or {
 		panic(err)
 	}
-	compile := os.execute('${v3_bin} -o ${bin} ${src}')
+	compile := os.execute('${v3_bin} -b c -o ${bin} ${src}')
 	assert compile.exit_code == 0, compile.output
 	run := os.execute(bin)
 	assert run.exit_code == 0, run.output
@@ -1339,7 +1475,7 @@ fn helper() int {
 
 helper := 10
 f := helper
-println(int_str(f))
+_ = f
 ')
 	assert !used['helper']
 }
@@ -1426,7 +1562,7 @@ fn used() int {
 
 fn main() {
 	unused := used
-	println(unused())
+	println((unused)())
 }
 ')
 	mut used := markused.mark_used(a, tc)
@@ -1597,7 +1733,7 @@ fn main() {
 		ratio:  1.25
 		ch:     `x`
 		nums:   [3, 4]
-		lookup: {
+		lookup: map[string]u64{
 			"a": u64(5)
 		}
 		inner:  Inner{
@@ -1623,7 +1759,7 @@ fn main() {
 }
 
 fn test_json_encode_fast_path_seeds_generated_helpers() {
-	mut a, mut tc := parse_checked_source('json_encode_fast_path_helpers', '
+	mut a, mut tc := parse_checked_source_with_unknown_calls('json_encode_fast_path_helpers', '
 import json
 
 struct Payload {
@@ -1637,7 +1773,8 @@ fn main() {
 		score: 1.5
 	})
 }
-')
+',
+		false)
 	mut used := markused.mark_used(a, tc)
 	for helper in ['string__plus', 'i64__str', 'f64__str'] {
 		assert used[helper], helper

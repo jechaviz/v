@@ -25,6 +25,145 @@ fn stmt_test_prefix(mut a flat.FlatAst, op flat.Op, child flat.NodeId) flat.Node
 	})
 }
 
+fn test_primitive_fixed_array_zero_initializer_is_compact() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+
+	large := types.ArrayFixed{
+		elem_type: types.Type(types.u8_)
+		len:       65536
+	}
+	assert g.empty_fixed_array_initializer_string(large) == '{0}'
+
+	nested := types.ArrayFixed{
+		elem_type: types.Type(types.ArrayFixed{
+			elem_type: types.Type(types.i32_)
+			len:       32
+		})
+		len:       32
+	}
+	assert g.empty_fixed_array_initializer_string(nested) == '{0}'
+
+	dynamic_arrays := types.ArrayFixed{
+		elem_type: types.Type(types.Array{
+			elem_type: types.Type(types.int_)
+		})
+		len:       2
+	}
+	dynamic_init := g.empty_fixed_array_initializer_string(dynamic_arrays)
+	assert dynamic_init.count('array_new(') == 2
+}
+
+fn test_usable_resolved_sum_type_requires_exact_qualified_name() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	tc.sum_types['bar.Result'] = ['bar.Failed', 'bar.Ok']
+	tc.sum_types['foo.Choice'] = ['foo.Left', 'foo.Right']
+	mut g := FlatGen.new()
+	g.tc = &tc
+	g.precompute_sum_name_lookup()
+
+	preserved := g.usable_resolved_sum_type(types.Type(types.Struct{
+		name: 'foo.Result'
+	}))
+	assert preserved is types.Struct
+	if preserved is types.Struct {
+		assert preserved.name == 'foo.Result'
+	}
+
+	exact := g.usable_resolved_sum_type(types.Type(types.Struct{
+		name: 'foo.Choice'
+	}))
+	assert exact is types.SumType
+	if exact is types.SumType {
+		assert exact.name == 'foo.Choice'
+	}
+}
+
+fn test_fixed_array_address_to_byte_pointer_decl_uses_data_pointer() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	fixed_type := types.Type(types.ArrayFixed{
+		elem_type: types.Type(types.u8_)
+		len:       2
+	})
+	byte_pointer := types.Type(types.Pointer{
+		base_type: types.Type(types.u8_)
+	})
+	tc.push_scope()
+	tc.cur_scope.insert('buf', fixed_type)
+	buf_id := stmt_test_node(mut a, .ident, 'buf', [])
+	rhs_id := stmt_test_prefix(mut a, .amp, buf_id)
+	g.gen_decl_init_expr(rhs_id, a.nodes[int(rhs_id)], byte_pointer, 'u8*', true)
+	assert g.sb.str() == '((u8*)(buf))'
+	fixed_pointer := types.Type(types.Pointer{
+		base_type: fixed_type
+	})
+	mut assign_gen := FlatGen.new()
+	assign_gen.a = &a
+	assign_gen.tc = &tc
+	p_id := stmt_test_node(mut a, .ident, 'p', [])
+	assert assign_gen.gen_fixed_array_address_to_byte_pointer_assign(p_id, rhs_id, byte_pointer,
+		fixed_pointer)
+	assert assign_gen.sb.str() == 'p = ((u8*)(buf));\n'
+	int_fixed_type := types.Type(types.ArrayFixed{
+		elem_type: types.Type(types.i32_)
+		len:       2
+	})
+	tc.cur_scope.insert('int_buf', int_fixed_type)
+	int_buf_id := stmt_test_node(mut a, .ident, 'int_buf', [])
+	int_rhs_id := stmt_test_prefix(mut a, .amp, int_buf_id)
+	int_fixed_pointer := types.Type(types.Pointer{
+		base_type: int_fixed_type
+	})
+	mut rejected_gen := FlatGen.new()
+	rejected_gen.a = &a
+	rejected_gen.tc = &tc
+	assert !rejected_gen.gen_fixed_array_address_to_byte_pointer_assign(p_id, int_rhs_id,
+		byte_pointer, int_fixed_pointer)
+	assert rejected_gen.sb.str() == ''
+	tc.pop_scope()
+}
+
+fn test_mut_parameter_power_assign_uses_scalar_result_type() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	int_type := types.Type(types.int_)
+	ptr_type := types.Type(types.Pointer{
+		base_type: int_type
+	})
+
+	tc.push_scope()
+	arg_owner := tc.cur_scope.insert_with_owner('arg', ptr_type)
+	g.cur_param_types['arg'] = ptr_type
+	g.cur_mut_params['arg'] = true
+	g.cur_mut_param_owners['arg'] = arg_owner
+	arg_id := stmt_test_node(mut a, .ident, 'arg', [])
+	exponent_id := stmt_test_node(mut a, .int_literal, '2', [])
+	children_start := a.children.len
+	a.children << arg_id
+	a.children << exponent_id
+	g.gen_assign(flat.Node{
+		kind:           .assign
+		op:             .power_assign
+		children_start: i32(children_start)
+		children_count: 2
+	})
+	compact := g.sb.str().replace('\t', '').replace(' ', '').replace('\n', '')
+	assert compact.contains('*arg=((int)__v_pow_i64('), compact
+	assert !compact.contains('(int*)__v_pow_i64('), compact
+	tc.pop_scope()
+}
+
 fn test_local_pointer_alias_clear_preserves_outer_branch_markers() {
 	mut a := flat.FlatAst.new()
 	mut tc := types.TypeChecker.new(&a)
@@ -257,4 +396,75 @@ fn test_heap_local_memdup_expr_uses_aligned_memdup_for_aligned_structs() {
 		name: 'Plain'
 	})
 	assert g.heap_local_memdup_expr('p', plain_type, 'Plain', true) == '(Plain*)memdup(p, sizeof(Plain))'
+}
+
+fn test_heap_local_address_expr_copies_pointer_local_slot() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	int_ptr := types.Type(types.Pointer{
+		base_type: types.Type(types.int_)
+	})
+	int_ptr_ptr := types.Type(types.Pointer{
+		base_type: int_ptr
+	})
+	tc.push_scope()
+	tc.cur_scope.insert_with_owner('p', int_ptr)
+	p_id := stmt_test_node(mut a, .ident, 'p', [])
+	amp_p_id := stmt_test_prefix(mut a, .amp, p_id)
+	heap_expr := g.heap_local_address_expr(amp_p_id, int_ptr_ptr) or {
+		assert false, 'expected the address of a pointer local to escape through a heap copy'
+		return
+	}
+	assert heap_expr == '(int**)memdup(&p, sizeof(int*))'
+	tc.pop_scope()
+}
+
+fn test_heap_local_address_expr_copies_selector_from_stack_alias() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	int_type := types.Type(types.int_)
+	struct_type := types.Type(types.Struct{
+		name: 'S'
+	})
+	struct_ptr := types.Type(types.Pointer{
+		base_type: struct_type
+	})
+	int_ptr := types.Type(types.Pointer{
+		base_type: int_type
+	})
+	tc.structs['S'] = [types.StructField{
+		name: 'x'
+		typ:  int_type
+	}]
+	tc.push_scope()
+	tc.cur_scope.insert_with_owner('s', struct_type)
+	p_owner := tc.cur_scope.insert_with_owner('p', struct_ptr)
+	g.declare_local_pointer_alias_source(p_owner, 's')
+	p_id := stmt_test_node(mut a, .ident, 'p', [])
+	selector_id := stmt_test_node(mut a, .selector, 'x', [p_id])
+	amp_selector_id := stmt_test_prefix(mut a, .amp, selector_id)
+	heap_expr := g.heap_local_address_expr(amp_selector_id, int_ptr) or {
+		assert false, 'expected a selected field in stack-aliased storage to escape through a heap copy'
+		return
+	}
+	assert heap_expr == '(int*)memdup(&p->x, sizeof(int))'
+	g.declare_local_pointer_alias_source_kind(p_owner, 'arg', true)
+	mut_param_expr := g.heap_local_address_expr(amp_selector_id, int_ptr) or {
+		assert false, 'expected a selected field backed by a mut parameter to keep its address'
+		return
+	}
+	assert mut_param_expr == '&p->x'
+	g.declare_local_pointer_alias_source(p_owner, '')
+	external_expr := g.heap_local_address_expr(amp_selector_id, int_ptr) or {
+		assert false, 'expected a selected field in non-stack storage to keep its address'
+		return
+	}
+	assert external_expr == '&p->x'
+	tc.pop_scope()
 }

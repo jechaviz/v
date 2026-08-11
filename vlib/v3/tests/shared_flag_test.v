@@ -1,4 +1,5 @@
 import os
+import dl
 
 const shared_flag_vexe = @VEXE
 const shared_flag_tests_dir = os.dir(@FILE)
@@ -9,7 +10,7 @@ const shared_flag_v3_src = os.join_path(shared_flag_v3_dir, 'v3.v')
 fn test_shared_flag_builds_no_main_module() {
 	v3_bin := os.join_path(os.temp_dir(), 'v3_shared_flag_test_${os.getpid()}')
 	build :=
-		os.execute('${os.quoted_path(shared_flag_vexe)} -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
+		os.execute('${os.quoted_path(shared_flag_vexe)} -gc none -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
 	assert build.exit_code == 0, build.output
 
 	tmp_dir := os.join_path(os.temp_dir(), 'v3_shared_flag_module_${os.getpid()}')
@@ -21,8 +22,54 @@ fn test_shared_flag_builds_no_main_module() {
 	}
 
 	os.write_file(os.join_path(tmp_dir, 'v.mod'), 'Module { name: "shared_flag_module" }\n')!
-	os.write_file(os.join_path(tmp_dir, 'module.v'),
-		'module shared_flag_module\n\npub fn answer() int {\n\treturn 42\n}\n')!
+	os.write_file(os.join_path(tmp_dir, 'module.v'), "module shared_flag_module
+
+import os
+
+fn write_lifecycle_event(event string) {
+	path := os.getenv('V3_SHARED_LIFECYCLE_FILE')
+	if path.len == 0 {
+		return
+	}
+	mut file := os.open_append(path) or { return }
+	file.writeln(event) or {}
+	file.close()
+}
+
+fn init() {
+	write_lifecycle_event('init')
+}
+
+fn cleanup() {
+	write_lifecycle_event('cleanup')
+}
+
+@[export: 'answer']
+pub fn answer() int {
+	return 42
+}
+")!
+
+	out_c := os.join_path(tmp_dir, 'shared_flag_module.c')
+	compile_c :=
+		os.execute('${os.quoted_path(v3_bin)} -shared -o ${os.quoted_path(out_c)} ${os.quoted_path(tmp_dir)}')
+	assert compile_c.exit_code == 0, compile_c.output
+	generated_c := os.read_file(out_c)!
+	assert generated_c.contains('void _vcleanup(void) {'), generated_c
+	assert generated_c.contains('\tshared_flag_module__cleanup();'), generated_c
+	$if !windows {
+		assert generated_c.contains('__attribute__((constructor))\nvoid _vinit_caller(void) {'), generated_c
+		assert generated_c.contains('__attribute__((destructor))\nvoid _vcleanup_caller(void) {'), generated_c
+	}
+	assert generated_c.contains('void _vcleanup_caller(void) {\n\tstatic bool once = false;\n\tif (once) { return; }\n\tonce = true;\n\t_vcleanup();\n}'), generated_c
+
+	coverage_dir := os.join_path(tmp_dir, 'coverage')
+	coverage_c := os.join_path(tmp_dir, 'shared_flag_module_coverage.c')
+	compile_coverage_c :=
+		os.execute('${os.quoted_path(v3_bin)} -coverage ${os.quoted_path(coverage_dir)} -shared -o ${os.quoted_path(coverage_c)} ${os.quoted_path(tmp_dir)}')
+	assert compile_coverage_c.exit_code == 0, compile_coverage_c.output
+	generated_coverage_c := os.read_file(coverage_c)!
+	assert generated_coverage_c.contains('void _vcleanup_caller(void) {\n\tstatic bool once = false;\n\tif (once) { return; }\n\tonce = true;\n\t_vcleanup();\n\tv3_write_coverage_stats();\n}'), generated_coverage_c
 
 	out_lib := os.join_path(os.temp_dir(), 'v3_shared_flag_module_${os.getpid()}')
 	out_path := out_lib + shared_flag_library_postfix()
@@ -32,12 +79,33 @@ fn test_shared_flag_builds_no_main_module() {
 	}
 
 	compile :=
-		os.execute('${os.quoted_path(v3_bin)} -shared -o ${os.quoted_path(out_lib)} ${os.quoted_path(tmp_dir)}')
+		os.execute('${os.quoted_path(v3_bin)} -coverage ${os.quoted_path(coverage_dir)} -shared -o ${os.quoted_path(out_lib)} ${os.quoted_path(tmp_dir)}')
 	assert compile.exit_code == 0, compile.output
 	assert compile.output.contains('-shared'), compile.output
 	assert !compile.output.contains('_main not defined'), compile.output
 	assert os.exists(out_path)
 	assert os.file_size(out_path) > 0
+
+	$if !windows {
+		lifecycle_env := 'V3_SHARED_LIFECYCLE_FILE'
+		old_lifecycle_path := os.getenv(lifecycle_env)
+		lifecycle_env_was_set := lifecycle_env in os.environ()
+		lifecycle_path := os.join_path(tmp_dir, 'lifecycle.txt')
+		os.rm(lifecycle_path) or {}
+		os.setenv(lifecycle_env, lifecycle_path, true)
+		defer {
+			if lifecycle_env_was_set {
+				os.setenv(lifecycle_env, old_lifecycle_path, true)
+			} else {
+				os.unsetenv(lifecycle_env)
+			}
+		}
+		handle := dl.open(out_path, dl.rtld_now)
+		assert handle != unsafe { nil }, dl.dlerror()
+		assert os.read_file(lifecycle_path)! == 'init\n'
+		assert dl.close(handle), dl.dlerror()
+		assert os.read_file(lifecycle_path)! == 'init\ncleanup\n'
+	}
 }
 
 // test_shared_flag_builds_object_dependencies_as_pic validates that cached
@@ -49,7 +117,7 @@ fn test_shared_flag_builds_object_dependencies_as_pic() {
 	pid := os.getpid()
 	v3_bin := os.join_path(os.temp_dir(), 'v3_shared_flag_pic_test_${pid}')
 	build :=
-		os.execute('${os.quoted_path(shared_flag_vexe)} -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
+		os.execute('${os.quoted_path(shared_flag_vexe)} -gc none -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
 	assert build.exit_code == 0, build.output
 
 	tmp_dir := os.join_path(os.temp_dir(), 'v3_shared_flag_pic_${pid}')
@@ -112,7 +180,13 @@ pub fn answer() int {
 	assert compile_shared.exit_code == 0, compile_shared.output
 	assert compile_shared.output.contains('-fPIC'), compile_shared.output
 	cached_after_shared := shared_flag_cached_objects(obj_path)
-	assert cached_after_shared.len == 2, '${compile_shared.output}\n${cached_after_shared}'
+	$if macos {
+		// Cached development executables already link through a PIC dylib on macOS,
+		// so the normal and shared builds can reuse the same dependency object.
+		assert cached_after_shared.len == 1, '${compile_shared.output}\n${cached_after_shared}'
+	} $else {
+		assert cached_after_shared.len == 2, '${compile_shared.output}\n${cached_after_shared}'
+	}
 	assert os.exists(out_path)
 	assert os.file_size(out_path) > 0
 }
@@ -124,7 +198,7 @@ fn test_relative_c_object_cache_rebuilds_when_header_changes() {
 	pid := os.getpid()
 	v3_bin := os.join_path(os.temp_dir(), 'v3_c_object_header_test_${pid}')
 	build :=
-		os.execute('${os.quoted_path(shared_flag_vexe)} -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
+		os.execute('${os.quoted_path(shared_flag_vexe)} -gc none -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
 	assert build.exit_code == 0, build.output
 
 	project_dir := os.join_path(os.temp_dir(), 'v3_c_object_header_${pid}')
@@ -187,7 +261,7 @@ fn test_relative_c_object_caches_use_resolved_source_path() {
 	pid := os.getpid()
 	v3_bin := os.join_path(os.temp_dir(), 'v3_c_object_path_test_${pid}')
 	build :=
-		os.execute('${os.quoted_path(shared_flag_vexe)} -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
+		os.execute('${os.quoted_path(shared_flag_vexe)} -gc none -o ${os.quoted_path(v3_bin)} ${os.quoted_path(shared_flag_v3_src)}')
 	assert build.exit_code == 0, build.output
 
 	root := os.join_path(os.temp_dir(), 'v3_c_object_path_${pid}')
@@ -235,6 +309,8 @@ fn main() {
 	first_run := os.execute(os.quoted_path(first_bin))
 	assert first_run.exit_code == 0, first_run.output
 	assert first_run.output.trim_space() == '41'
+	first_cached_objects := shared_flag_cached_objects(first_object)
+	assert first_cached_objects.len == 1, first_cached_objects.str()
 
 	second_bin := os.join_path(second_project, 'out')
 	second_compile :=
@@ -243,9 +319,8 @@ fn main() {
 	second_run := os.execute(os.quoted_path(second_bin))
 	assert second_run.exit_code == 0, second_run.output
 	assert second_run.output.trim_space() == '42'
-	first_cached_objects := shared_flag_cached_objects(first_object)
-	second_cached_objects := shared_flag_cached_objects(second_object)
-	assert first_cached_objects.len == 1, first_cached_objects.str()
+	second_cached_objects :=
+		shared_flag_cached_objects(second_object).filter(it != first_cached_objects[0])
 	assert second_cached_objects.len == 1, second_cached_objects.str()
 	assert first_cached_objects[0] != second_cached_objects[0]
 }

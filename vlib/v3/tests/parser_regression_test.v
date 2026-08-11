@@ -25,6 +25,25 @@ fn parse_parser_regression_sources(name string, sources []string) &flat.FlatAst 
 	return p.a
 }
 
+fn parse_parser_regression_diagnostics(name string, source string) []parser.Diagnostic {
+	src := os.join_path(os.temp_dir(), 'v3_${name}.v')
+	os.write_file(src, source) or { panic(err) }
+	mut prefs := pref.new_preferences()
+	mut p := parser.Parser.new(prefs)
+	p.parse_into(src)
+	return p.diagnostics
+}
+
+fn parse_parser_regression_backend_diagnostics(name string, source string, backend string) []parser.Diagnostic {
+	src := os.join_path(os.temp_dir(), 'v3_${name}.v')
+	os.write_file(src, source) or { panic(err) }
+	mut prefs := pref.new_preferences()
+	prefs.backend = backend
+	mut p := parser.Parser.new(prefs)
+	p.parse_into(src)
+	return p.diagnostics
+}
+
 // interface_method_param_types supports interface method param types handling for v3 tests.
 fn interface_method_param_types(a &flat.FlatAst, iface string, method string) []string {
 	for node in a.nodes {
@@ -164,13 +183,140 @@ fn test_isreftype_qualified_type_names_parse_as_types() {
 	a := parse_parser_regression_source('isreftype_qualified_type_names',
 		'module main\n\nfn main() {\n\t_ = isreftype(foo.Bar)\n\t_ = isreftype(&foo.Bar)\n}\n')
 	assert 'Bar' !in selector_values(a)
-	mut false_literals := 0
+	mut type_args := []string{}
 	for node in a.nodes {
-		if node.kind == .bool_literal && node.value == 'false' {
-			false_literals++
+		if node.kind == .sizeof_expr {
+			type_args << node.value
 		}
 	}
-	assert false_literals == 2
+	assert type_args == ['foo.Bar', '&foo.Bar']
+}
+
+fn test_or_block_inside_index_stays_in_index_expression() {
+	a := parse_parser_regression_source('or_block_inside_index', 'fn idx() ?int {
+	return none
+}
+
+fn run() int {
+	mut xs := [0]
+	xs[idx() or { return 7 }] = 1
+	return xs[0]
+}
+')
+	mut saw_index_assign := false
+	for node in a.nodes {
+		if node.kind != .index_assign || node.children_count < 2 {
+			continue
+		}
+		index := a.child_node(&node, 0)
+		if index.kind == .index && index.children_count > 1
+			&& a.child_node(index, 1).kind == .or_expr {
+			saw_index_assign = true
+		}
+	}
+	assert saw_index_assign
+}
+
+fn test_dollar_prefixed_pseudo_functions_are_rejected() {
+	diagnostics := parse_parser_regression_diagnostics('dollar_pseudo_functions',
+		'struct Item {\n\tvalue int\n}\n\nfn main() {\n\tx := Item{}\n\t_ = $sizeof(int)\n\t_ = $typeof(x)\n\t_ = $isreftype(x)\n\t_ = $__offsetof(Item, value)\n\t_ = $dump(x)\n}\n')
+	assert diagnostics.len == 5, '${diagnostics}'
+	assert diagnostics[0].message.contains('`$sizeof` is not supported'), '${diagnostics}'
+	assert diagnostics[1].message.contains('`$typeof` is not supported'), '${diagnostics}'
+	assert diagnostics[2].message.contains('`$isreftype` is not supported'), '${diagnostics}'
+	assert diagnostics[3].message.contains('`$__offsetof` is not supported'), '${diagnostics}'
+	assert diagnostics[4].message.contains('`$dump` is not supported'), '${diagnostics}'
+}
+
+fn test_res_is_rejected_outside_the_active_defer_body() {
+	outside := parse_parser_regression_diagnostics('res_outside_defer',
+		'fn value() int {\n\treturn $res()\n}\n')
+	assert outside.any(it.message.contains('`res` can only be used in defer blocks')), '${outside}'
+	nested_fn := parse_parser_regression_diagnostics('res_in_nested_fn_inside_defer',
+		'fn value() int {\n\tdefer {\n\t\tcallback := fn () int {\n\t\t\treturn $res()\n\t\t}\n\t\t_ = callback\n\t}\n\treturn 1\n}\n')
+	assert nested_fn.any(it.message.contains('`res` can only be used in defer blocks')), '${nested_fn}'
+	no_arg_lambda := parse_parser_regression_diagnostics('res_in_no_arg_lambda_inside_defer',
+		'fn consume(callback fn () int) {\n\t_ = callback\n}\n\nfn value() int {\n\tdefer {\n\t\tconsume(|| $res())\n\t}\n\treturn 1\n}\n')
+	assert no_arg_lambda.any(it.message.contains('`res` can only be used in defer blocks')), '${no_arg_lambda}'
+
+	pipe_lambda := parse_parser_regression_diagnostics('res_in_pipe_lambda_inside_defer',
+		'fn consume(callback fn (int) int) {\n\t_ = callback\n}\n\nfn value() int {\n\tdefer {\n\t\tconsume(|x| $res())\n\t}\n\treturn 1\n}\n')
+	assert pipe_lambda.any(it.message.contains('`res` can only be used in defer blocks')), '${pipe_lambda}'
+}
+
+fn test_res_is_restricted_to_function_exit_defers() {
+	nested_block := parse_parser_regression_diagnostics('res_in_nested_scoped_defer',
+		'fn value() int {\n\t{\n\t\tdefer {\n\t\t\tprintln($res())\n\t\t}\n\t}\n\treturn 7\n}\n')
+	assert nested_block.any(it.message.contains('`res` can only be used in function-exit defer blocks')), '${nested_block}'
+
+	loop := parse_parser_regression_diagnostics('res_in_loop_scoped_defer',
+		'fn value() int {\n\tfor _ in 0 .. 1 {\n\t\tdefer {\n\t\t\tprintln($res())\n\t\t}\n\t}\n\treturn 7\n}\n')
+	assert loop.any(it.message.contains('`res` can only be used in function-exit defer blocks')), '${loop}'
+
+	direct := parse_parser_regression_diagnostics('res_in_direct_scoped_defer',
+		'fn value() int {\n\tdefer {\n\t\tprintln($res())\n\t}\n\treturn 7\n}\n')
+	assert !direct.any(it.message.contains('`res` can only be used in function-exit defer blocks')), '${direct}'
+
+	explicit_function := parse_parser_regression_diagnostics('res_in_explicit_function_defer',
+		'fn value() int {\n\t{\n\t\tdefer(fn) {\n\t\t\tprintln($res())\n\t\t}\n\t}\n\treturn 7\n}\n')
+	assert !explicit_function.any(it.message.contains('`res` can only be used in function-exit defer blocks')), '${explicit_function}'
+}
+
+fn test_res_uses_a_dedicated_node_and_rejects_trailing_argument_tokens() {
+	valid := parse_parser_regression_source('res_dedicated_node',
+		'fn value() (int, int) {\n\tdefer {\n\t\t_ := $res(0)\n\t}\n\treturn 1, 2\n}\n')
+	result_nodes := valid.nodes.filter(it.kind == .defer_result)
+	assert result_nodes.len == 1, '${result_nodes}'
+	assert result_nodes[0].value == '0'
+	assert !valid.nodes.any(it.kind == .ident && it.value == '__v3_defer_result')
+
+	max_index := parse_parser_regression_source('res_max_int_index',
+		'fn value() (int, int) {\n\tdefer {\n\t\t_ := $res(2147483647)\n\t}\n\treturn 1, 2\n}\n')
+	max_index_nodes := max_index.nodes.filter(it.kind == .defer_result)
+	assert max_index_nodes.len == 1, '${max_index_nodes}'
+	assert max_index_nodes[0].value == '2147483647'
+
+	overflow := parse_parser_regression_diagnostics('res_index_overflows_int',
+		'fn value() (int, int) {\n\tdefer {\n\t\t_ := $res(4294967296)\n\t}\n\treturn 1, 2\n}\n')
+	assert overflow.any(it.message.contains('`res` index must be a non-negative integer literal')), '${overflow}'
+
+	trailing := parse_parser_regression_diagnostics('res_trailing_argument_tokens',
+		'fn value() (int, int) {\n\tdefer {\n\t\t_ := $res(0 + 1)\n\t}\n\treturn 1, 2\n}\n')
+	assert trailing.any(it.message.contains('expected `)` immediately after the `$res` index')), '${trailing}'
+
+	bare := parse_parser_regression_diagnostics('res_requires_parentheses',
+		'fn value() int {\n\tdefer {\n\t\t_ := $res\n\t}\n\treturn 1\n}\n')
+	assert bare.any(it.message.contains('expected `(` after `$res`')), '${bare}'
+}
+
+fn test_defer_result_backend_rejection_is_not_parser_level() {
+	source := 'fn specialized[T]() int {
+	defer {
+		$if T is int {
+			assert $res() == 1
+		}
+	}
+	return 1
+}
+
+fn main() {
+	assert specialized[string]() == 1
+}
+'
+	for backend in ['arm64', 'eval', 'wasm'] {
+		diagnostics := parse_parser_regression_backend_diagnostics('deferred_res_${backend}',
+			source, backend)
+		assert !diagnostics.any(it.message.contains('is not supported by the V3 ${backend} backend')), '${diagnostics}'
+	}
+}
+
+fn test_memory_only_inline_assembly_is_not_treated_as_empty() {
+	barrier := parse_parser_regression_diagnostics('asm_memory_barrier',
+		'fn main() {\n\tasm volatile amd64 {\n\t\t;\n\t\t;\n\t\t;\n\t\tmemory\n\t}\n}\n')
+	assert barrier.any(it.message.contains('inline assembly is not supported')), '${barrier}'
+	empty := parse_parser_regression_diagnostics('asm_truly_empty',
+		'fn main() {\n\tasm volatile amd64 {\n\t\t;\n\t}\n}\n')
+	assert !empty.any(it.message.contains('inline assembly is not supported')), '${empty}'
 }
 
 fn test_c_pointer_cast_selector_parses_cast_before_selector() {
@@ -432,6 +578,23 @@ fn test_empty_struct_literals_parse_in_control_header_conditions() {
 	assert foo_struct_inits == 4
 }
 
+fn test_positional_struct_literal_in_control_header_call_keeps_later_declaration() {
+	a := parse_parser_regression_source('positional_struct_literal_control_header_call',
+		'struct Range {\n\tfirst int\n\tlast int\n}\n\nfn allowed(range_ Range) bool {\n\treturn range_.first <= range_.last\n}\n\nfn check() bool {\n\tif true\n\t\t&& !allowed(Range{0, 1}) {\n\t\treturn false\n\t}\n\treturn true\n}\n\nfn declared_after() int {\n\treturn 1\n}\n')
+	mut range_struct_inits := 0
+	mut has_later_declaration := false
+	for node in a.nodes {
+		if node.kind == .struct_init && node.value == 'Range' {
+			range_struct_inits++
+		}
+		if node.kind == .fn_decl && node.value == 'declared_after' {
+			has_later_declaration = true
+		}
+	}
+	assert range_struct_inits == 1
+	assert has_later_declaration
+}
+
 fn test_local_sibling_types_are_predeclared_before_fields() {
 	a := parse_parser_regression_source('local_sibling_struct_fields',
 		'module main\n\nfn main() {\n\t_ := []struct {\n\t\tn int\n\t}{}\n\tstruct A {\n\t\tb &B\n\t}\n\tstruct B {\n\t\ta &A\n\t}\n}\n')
@@ -508,6 +671,28 @@ fn test_multiline_keyword_infix_expressions_continue_after_semicolon() {
 	assert is_count == 1
 	assert in_count == 1
 	assert as_count == 1
+}
+
+fn test_indented_plus_minus_continue_before_operand_column() {
+	a := parse_parser_regression_source('indented_plus_minus_continuation',
+		"module main\n\nfn main() {\n\tfirst := 7\n\tsecond := 2\n\ttotal := first\n\t\t+ second\n\tdifference := first\n\t\t- second\n\tfallback := none or {\n\t\tprintln('fallback')\n\t\t-1\n\t}\n\t_ = total\n\t_ = difference\n\t_ = fallback\n}\n")
+	mut infix_plus := 0
+	mut infix_minus := 0
+	mut prefix_minus := 0
+	for node in a.nodes {
+		if node.kind == .infix && node.op == .plus {
+			infix_plus++
+		}
+		if node.kind == .infix && node.op == .minus {
+			infix_minus++
+		}
+		if node.kind == .prefix && node.op == .minus {
+			prefix_minus++
+		}
+	}
+	assert infix_plus == 1
+	assert infix_minus == 1
+	assert prefix_minus == 1
 }
 
 fn test_parenthesized_statement_after_call_is_not_call_continuation() {

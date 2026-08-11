@@ -4,6 +4,7 @@ import os
 import strconv
 import strings
 import v3.flat
+import v3.types
 
 const comptime_unsupported_late_generic_call = '__v3_comptime_unsupported_late_generic_call'
 const comptime_method_selector_marker = '__v3_comptime_method_selector'
@@ -130,7 +131,8 @@ fn (t &Transformer) comptime_for_base_type(raw string) string {
 	} else {
 		raw
 	}
-	return t.comptime_normalize_type_alias_chain(t.comptime_resolve_selective_import_type(source))
+	base := t.comptime_for_value_type_base(source)
+	return t.comptime_normalize_type_alias_chain(t.comptime_resolve_selective_import_type(base))
 }
 
 fn (t &Transformer) comptime_for_value_source_type(raw string) ?string {
@@ -177,11 +179,16 @@ fn (t &Transformer) comptime_for_field_source_type(owner_type string, field_name
 
 fn (t &Transformer) comptime_for_value_type_base(raw string) string {
 	mut typ := raw.trim_space()
-	if typ.starts_with('mut ') {
-		typ = typ[4..].trim_space()
-	}
-	for typ.starts_with('&') {
-		typ = typ[1..].trim_space()
+	for {
+		if typ.starts_with('mut ') {
+			typ = typ[4..].trim_space()
+		} else if typ.starts_with('shared ') || typ.starts_with('atomic ') {
+			typ = typ[7..].trim_space()
+		} else if typ.starts_with('&') {
+			typ = typ[1..].trim_space()
+		} else {
+			break
+		}
 	}
 	return typ
 }
@@ -335,7 +342,7 @@ fn (mut t Transformer) expand_comptime_for(id flat.NodeId, node flat.Node) []fla
 	// An open generic template must survive the pre-monomorph transform pass.
 	// Its metadata and `$zero(field.typ)` children are needed when the concrete
 	// specialization is cloned later; erasing them here leaves empty child ids.
-	if is_generic_fn_placeholder_name(base_type) || t.generic_arg_is_unresolved(base_type) {
+	if t.generic_arg_is_unresolved(base_type) {
 		return arr1(id)
 	}
 	t.ignore_comptime_for_subtree(id)
@@ -375,10 +382,7 @@ fn (mut t Transformer) expand_comptime_for(id flat.NodeId, node flat.Node) []fla
 			return []flat.NodeId{}
 		}
 		// One block per iteration so per-field temps get their own scope.
-		block := t.make_block(cloned)
-		for s in t.transform_stmt(block) {
-			out << s
-		}
+		out << t.make_block(t.transform_stmts(cloned))
 	}
 	return out
 }
@@ -390,10 +394,7 @@ fn (mut t Transformer) expand_comptime_for_attributes(var_name string, source st
 		for sid in body_stmts {
 			cloned << t.clone_attribute_subst(sid, var_name, attr)
 		}
-		block := t.make_block(cloned)
-		for stmt in t.transform_stmt(block) {
-			out << stmt
-		}
+		out << t.make_block(t.transform_stmts(cloned))
 	}
 	return out
 }
@@ -401,6 +402,7 @@ fn (mut t Transformer) expand_comptime_for_attributes(var_name string, source st
 fn (t &Transformer) comptime_attribute_metas(source string, loop_id flat.NodeId) []AttributeMeta {
 	raw_name := t.comptime_reflection_source(source, loop_id)
 	name := t.comptime_resolve_selective_import_reflection_source(raw_name)
+	lookup_name := if name.starts_with('main.') { name['main.'.len..] } else { name }
 	mut module_name := ''
 	for idx, node in t.a.nodes {
 		if node.kind == .file {
@@ -419,7 +421,8 @@ fn (t &Transformer) comptime_attribute_metas(source string, loop_id flat.NodeId)
 		} else {
 			node.value
 		}
-		if qualified == name || (module_name == t.cur_module && node.value == name) {
+		if qualified == name || qualified == lookup_name
+			|| (module_name == t.cur_module && node.value == lookup_name) {
 			return t.comptime_node_attribute_metas(idx)
 		}
 	}
@@ -709,7 +712,7 @@ fn (mut t Transformer) clone_attribute_subst_children_with_value(node flat.Node,
 	for child in children {
 		t.a.children << child
 	}
-	return t.a.add_node(flat.Node{
+	result := t.a.add_node(flat.Node{
 		kind:           node.kind
 		op:             node.op
 		pos:            node.pos
@@ -720,6 +723,13 @@ fn (mut t Transformer) clone_attribute_subst_children_with_value(node flat.Node,
 		children_start: start
 		children_count: flat.child_count(children.len)
 	})
+	if t.specialization_node_start >= 0 && node.kind == .decl_assign && children.len >= 2 {
+		lhs := t.a.nodes[int(children[0])]
+		if lhs.kind == .ident && lhs.value.len > 0 {
+			t.specialization_decl_nodes_by_name[lhs.value] << int(result)
+		}
+	}
+	return result
 }
 
 fn (mut t Transformer) make_attribute_literal(attr AttributeMeta) flat.NodeId {
@@ -753,10 +763,7 @@ fn (mut t Transformer) expand_comptime_for_params(var_name string, fn_name strin
 				cloned << cid
 			}
 		}
-		block := t.make_block(cloned)
-		for stmt in t.transform_stmt(block) {
-			out << stmt
-		}
+		out << t.make_block(t.transform_stmts(cloned))
 	}
 	return out
 }
@@ -794,6 +801,9 @@ fn (t &Transformer) comptime_param_metas(fn_name string) []ParamMeta {
 		for i in 0 .. node.children_count {
 			param := t.a.child_node(&node, i)
 			if param.kind != .param {
+				if t.prefix_param_scan {
+					break
+				}
 				continue
 			}
 			if i == 0 && param.op == .dot {
@@ -1031,10 +1041,7 @@ fn (mut t Transformer) expand_comptime_for_methods(var_name string, base_type st
 				cloned << cid
 			}
 		}
-		block := t.make_block(cloned)
-		for stmt in t.transform_stmt(block) {
-			out << stmt
-		}
+		out << t.make_block(t.transform_stmts(cloned))
 	}
 	return out
 }
@@ -1061,6 +1068,9 @@ fn comptime_method_receiver_type(raw string) string {
 
 fn comptime_method_receiver_name(raw string, module_name string) string {
 	name := comptime_method_receiver_base(raw)
+	if name.starts_with('main.') {
+		return name['main.'.len..]
+	}
 	if name.len == 0 || name.contains('.') || module_name.len == 0
 		|| module_name in ['main', 'builtin'] {
 		return name
@@ -1096,7 +1106,7 @@ fn comptime_source_location(path string, encoded_offset int, line_offsets []int)
 		}
 	}
 	line_index := if lo > 0 { lo - 1 } else { 0 }
-	return '${path}:${line_index + 1}:${offset - line_offsets[line_index]}'
+	return '${path}:${line_index + 1}:${offset - line_offsets[line_index] + 1}'
 }
 
 fn comptime_method_receiver_matches(receiver string, requested string, normalized string, receiver_module string, requested_module string) bool {
@@ -1145,13 +1155,17 @@ fn (t &Transformer) comptime_method_metas(base_type string) []MethodMeta {
 		mut params := []ParamMeta{}
 		for i in 1 .. node.children_count {
 			param := t.a.child_node(&node, i)
-			if param.kind == .param {
-				params << ParamMeta{
-					name:        param.value
-					typ:         substitute_generic_type_text_with_params(param.typ, generic_args,
-						generic_params)
-					module_name: module_name
+			if param.kind != .param {
+				if t.prefix_param_scan {
+					break
 				}
+				continue
+			}
+			params << ParamMeta{
+				name:        param.value
+				typ:         substitute_generic_type_text_with_params(param.typ, generic_args,
+					generic_params)
+				module_name: module_name
 			}
 		}
 		return_type := substitute_generic_type_text_with_params(if node.typ.len > 0 {
@@ -1280,7 +1294,80 @@ fn (mut t Transformer) clone_method_subst_scoped(id flat.NodeId, var_name string
 		}
 		return t.clone_method_subst_children_with_value(node, var_name, method, inner_vars, cond)
 	}
+	if node.kind == .if_expr && node.children_count >= 2 {
+		if taken := t.method_if_condition_value(t.a.child(&node, 0), var_name, method) {
+			branch_idx := if taken { 1 } else { 2 }
+			if branch_idx >= int(node.children_count) {
+				return none
+			}
+			return t.clone_method_subst_scoped(t.a.child(&node, branch_idx), var_name, method,
+				inner_vars)
+		}
+	}
 	return t.clone_method_subst_children(node, var_name, method, inner_vars)
+}
+
+fn (t &Transformer) method_if_condition_value(id flat.NodeId, var_name string, method MethodMeta) ?bool {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return none
+	}
+	node := t.a.nodes[int(id)]
+	if node.kind in [.paren, .expr_stmt] && node.children_count > 0 {
+		return t.method_if_condition_value(t.a.child(&node, 0), var_name, method)
+	}
+	if node.kind == .prefix && node.op == .not && node.children_count > 0 {
+		value := t.method_if_condition_value(t.a.child(&node, 0), var_name, method) or {
+			return none
+		}
+		return !value
+	}
+	if node.kind != .infix || node.children_count != 2 {
+		return none
+	}
+	if node.op == .logical_and {
+		left := t.method_if_condition_value(t.a.child(&node, 0), var_name, method) or {
+			return none
+		}
+		if !left {
+			return false
+		}
+		return t.method_if_condition_value(t.a.child(&node, 1), var_name, method)
+	}
+	if node.op == .logical_or {
+		left := t.method_if_condition_value(t.a.child(&node, 0), var_name, method) or {
+			return none
+		}
+		if left {
+			return true
+		}
+		return t.method_if_condition_value(t.a.child(&node, 1), var_name, method)
+	}
+	if node.op !in [.eq, .ne] {
+		return none
+	}
+	left := t.method_const_string_value(t.a.child(&node, 0), var_name, method) or { return none }
+	right := t.method_const_string_value(t.a.child(&node, 1), var_name, method) or { return none }
+	return if node.op == .eq { left == right } else { left != right }
+}
+
+fn (t &Transformer) method_const_string_value(id flat.NodeId, var_name string, method MethodMeta) ?string {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return none
+	}
+	node := t.a.nodes[int(id)]
+	if node.kind in [.paren, .expr_stmt] && node.children_count > 0 {
+		return t.method_const_string_value(t.a.child(&node, 0), var_name, method)
+	}
+	if node.kind == .string_literal {
+		return node.value
+	}
+	if node.kind == .selector && node.value == 'name' && node.children_count > 0 {
+		base := t.a.child_node(&node, 0)
+		if base.kind == .ident && base.value == var_name {
+			return method.name
+		}
+	}
+	return none
 }
 
 fn (mut t Transformer) make_attribute_array_literal(attrs []AttributeMeta) flat.NodeId {
@@ -1384,6 +1471,12 @@ fn (mut t Transformer) clone_method_subst_children_with_value(node flat.Node, va
 		t.a.children << child
 	}
 	mut typ := node.typ
+	if node.kind == .call && children.len > 0 {
+		callee := t.a.node(children[0])
+		if callee.kind == .selector && comptime_method_selector_marker in callee.generic_params() {
+			typ = callee.typ
+		}
+	}
 	if node.kind == .comptime_for {
 		receiver_name := comptime_method_receiver_name(method.receiver, method.module_name)
 		typ = comptime_cond_replace_bare_ident(typ, var_name, '${receiver_name}.${method.name}')
@@ -1420,7 +1513,7 @@ fn (t &Transformer) subst_method_cond(cond string, var_name string, method Metho
 			expected := result[idx + op.len..].trim_space()
 			normalized := if !isnil(t.tc)
 				&& (expected.starts_with('fn(') || expected.starts_with('fn (')) {
-				t.tc.parse_type(expected).name()
+				t.comptime_field_type_id_key(expected, t.cur_module)
 			} else {
 				t.comptime_normalize_type_alias_chain(expected)
 			}
@@ -1526,10 +1619,7 @@ fn (mut t Transformer) expand_comptime_for_values(var_name string, base_type str
 				cloned << cid
 			}
 		}
-		block := t.make_block(cloned)
-		for s in t.transform_stmt(block) {
-			out << s
-		}
+		out << t.make_block(t.transform_stmts(cloned))
 	}
 	return out
 }
@@ -1546,10 +1636,7 @@ fn (mut t Transformer) expand_comptime_for_variants(var_name string, base_type s
 				cloned << cid
 			}
 		}
-		block := t.make_block(cloned)
-		for s in t.transform_stmt(block) {
-			out << s
-		}
+		out << t.make_block(t.transform_stmts(cloned))
 	}
 	return out
 }
@@ -1581,7 +1668,19 @@ fn (t &Transformer) comptime_sum_variants(base_type string) []VariantMeta {
 
 fn (t &Transformer) comptime_resolve_sum_type_name(base_type string) string {
 	base := base_type.trim_space()
-	if base.len == 0 || isnil(t.tc) {
+	if base.len == 0 {
+		return base
+	}
+	// Main-module declarations are stored under their bare names. Generic
+	// specialization locks can make that ownership explicit (`main.Sum`), so
+	// normalize the lock before looking up reflection metadata.
+	if base.starts_with('main.') {
+		storage_name := base['main.'.len..]
+		if storage_name in t.sum_types || (!isnil(t.tc) && storage_name in t.tc.sum_types) {
+			return storage_name
+		}
+	}
+	if isnil(t.tc) {
 		return base
 	}
 	if base.contains('.') {
@@ -1644,11 +1743,16 @@ fn (t &Transformer) comptime_local_sum_variants(name string) ?[]string {
 // underlying enum).
 fn (t &Transformer) comptime_enum_members(base_type string) []EnumValueMeta {
 	mut names := []string{}
-	mut resolved := base_type
-	if got := t.enum_types[base_type] {
+	storage_name := if base_type.starts_with('main.') {
+		base_type['main.'.len..]
+	} else {
+		base_type
+	}
+	mut resolved := storage_name
+	if got := t.enum_types[storage_name] {
 		names = got.clone()
 	} else {
-		qname := t.qualified_alias_name(base_type)
+		qname := t.qualified_alias_name(storage_name)
 		if got := t.enum_types[qname] {
 			names = got.clone()
 			resolved = qname
@@ -1770,7 +1874,7 @@ fn (t &Transformer) enum_field_int_value_with_enum(id flat.NodeId, enum_module s
 			parsed := strconv.common_parse_int(clean, 0, 64, true, true) or { return none }
 			return parsed
 		}
-		.paren {
+		.paren, .cast_expr {
 			if node.children_count == 0 {
 				return none
 			}
@@ -1810,6 +1914,9 @@ fn (t &Transformer) enum_field_int_value_with_enum(id flat.NodeId, enum_module s
 				}
 				.mul {
 					l * r
+				}
+				.power {
+					enum_metadata_int_power(l, r)
 				}
 				.div {
 					if r == 0 {
@@ -1875,6 +1982,30 @@ fn (t &Transformer) enum_field_int_value_with_enum(id flat.NodeId, enum_module s
 			return none
 		}
 	}
+}
+
+@[ignore_overflow]
+fn enum_metadata_int_power(base i64, exponent i64) i64 {
+	mut exp := exponent
+	mut power := base
+	mut value := i64(1)
+	if exp < 0 {
+		if base == 0 {
+			return -1
+		}
+		if base != 1 && base != -1 {
+			return 0
+		}
+		return if exp & 1 != 0 { base } else { 1 }
+	}
+	for exp > 0 {
+		if exp & 1 != 0 {
+			value *= power
+		}
+		power *= power
+		exp >>= 1
+	}
+	return value
 }
 
 fn (t &Transformer) enum_decl_field_ref_value(field_name string, enum_module string, enum_name string, mut field_values map[string]i64, field_exprs map[string]flat.NodeId, mut resolving map[string]bool) ?i64 {
@@ -2059,6 +2190,9 @@ fn (mut t Transformer) comptime_field_call_generic_args(node flat.Node, mut chil
 	for i in 0 .. decl.node.children_count {
 		param := t.a.child_node(&decl.node, i)
 		if param.kind != .param {
+			if t.prefix_param_scan {
+				break
+			}
 			continue
 		}
 		arg_id := if is_receiver && param_idx == 0 {
@@ -2077,16 +2211,27 @@ fn (mut t Transformer) comptime_field_call_generic_args(node flat.Node, mut chil
 		arg := t.a.nodes[int(arg_id)]
 		mut arg_type := if arg.kind == .ident {
 			t.local_decl_type_before(arg.value, arg_id) or {
-				t.generic_call_arg_type_for_inference(arg_id)
+				t.comptime_reflected_for_in_local_type(arg.value, fm) or {
+					t.generic_call_arg_type_for_inference(arg_id)
+				}
 			}
 		} else {
 			t.generic_call_arg_type_for_inference(arg_id)
+		}
+		if arg.kind == .ident {
+			if payload := t.comptime_option_unwrapped_local_type(arg.value, node, fm) {
+				arg_type = payload
+			}
 		}
 		if arg_type.len == 0 || arg_type in ['array', 'map', 'unknown', 'generic']
 			|| is_generic_fn_placeholder_name(arg_type) {
 			arg_type = fm.comptime_typ
 		}
-		infer_generic_type_args(param.typ, arg_type, mut inferred)
+		mut inference_type := t.comptime_normalize_type_alias_chain(arg_type)
+		if inference_type.len == 0 {
+			inference_type = fm.comptime_unaliased
+		}
+		infer_generic_type_args(param.typ, inference_type, mut inferred)
 		param_idx++
 	}
 	mut inferred_args := []string{cap: param_names.len}
@@ -2097,9 +2242,21 @@ fn (mut t Transformer) comptime_field_call_generic_args(node flat.Node, mut chil
 	if args.len != param_names.len || t.generic_args_have_placeholders(args) {
 		return comptime_unsupported_late_generic_call
 	}
-	spec_value := specialized_generic_fn_value(decl.node.value, args)
+	mut symbol_args := []string{cap: args.len}
+	for arg in args {
+		symbol_args << generic_type_name_display(arg)
+	}
+	spec_value := specialized_generic_fn_value(decl.node.value, symbol_args)
 	spec_name := transform_qualified_fn_name(decl.module, spec_value)
-	if spec_name !in t.fn_ret_types {
+	t.record_generic_specialization_args_for_names([
+		spec_value,
+		spec_name,
+		c_name(spec_value),
+		c_name(spec_name),
+	], args)
+	if t.defer_nested_generic_emissions || t.parallel_monomorph_worker {
+		t.request_generic_fn_specialization(decl, args)
+	} else {
 		clone_id := t.emit_generic_fn_specialization(decl, args)
 		t.generated_fn_used_names(decl, clone_id, args)
 	}
@@ -2110,7 +2267,143 @@ fn (mut t Transformer) comptime_field_call_generic_args(node flat.Node, mut chil
 	} else {
 		t.set_node_value(int(children[0]), spec_name)
 	}
+	// The callee now carries the exact specialization. Call.value stores source
+	// generic arguments, so leaving the generated function name there makes a
+	// later monomorphization pass interpret that name as the concrete type.
 	return ''
+}
+
+fn (t &Transformer) comptime_option_unwrapped_local_type(name string, call flat.Node, fm FieldMeta) ?string {
+	if !fm.is_option || !fm.comptime_typ.starts_with('?') || name.len == 0 || !call.pos.is_valid() {
+		return none
+	}
+	mut source_name := name
+	for _ in 0 .. 4 {
+		mut found_offset := -1
+		mut next_name := ''
+		for candidate in t.a.nodes {
+			if candidate.kind != .decl_assign || candidate.children_count < 2
+				|| !candidate.pos.is_valid() || candidate.pos.id != call.pos.id
+				|| candidate.pos.offset >= call.pos.offset || candidate.pos.offset <= found_offset {
+				continue
+			}
+			lhs := t.a.child_node(&candidate, 0)
+			rhs := t.a.child_node(&candidate, 1)
+			if lhs.kind == .ident && lhs.value == source_name && rhs.kind == .ident {
+				found_offset = candidate.pos.offset
+				next_name = rhs.value
+			}
+		}
+		if next_name.len == 0 || next_name == source_name {
+			break
+		}
+		source_name = next_name
+	}
+	for candidate in t.a.nodes {
+		if candidate.kind != .if_expr || candidate.children_count < 2 {
+			continue
+		}
+		body := t.a.child_node(&candidate, 1)
+		if !body.pos.is_valid() || body.pos.id != call.pos.id || call.pos.offset < body.pos.offset
+			|| call.pos.offset > body.pos.end {
+			continue
+		}
+		condition := t.a.child_node(&candidate, 0)
+		if condition.kind != .infix || condition.op != .ne || condition.children_count < 2 {
+			continue
+		}
+		left := t.a.child_node(condition, 0)
+		right := t.a.child_node(condition, 1)
+		if (left.kind == .ident && left.value == source_name && right.kind == .none_expr)
+			|| (right.kind == .ident && right.value == source_name && left.kind == .none_expr) {
+			return fm.comptime_typ[1..].trim_space()
+		}
+	}
+	return none
+}
+
+fn (t &Transformer) comptime_reflected_for_in_local_type(name string, fm FieldMeta) ?string {
+	if name.len == 0 {
+		return none
+	}
+	iter_type := t.comptime_normalize_type_alias_chain(fm.comptime_typ)
+	if !iter_type.starts_with('map[') && !iter_type.starts_with('[]') {
+		return none
+	}
+	for node in t.a.nodes {
+		if node.kind != .for_in_stmt || node.children_count < 3 {
+			continue
+		}
+		key := t.a.child_node(&node, 0)
+		value := t.a.child_node(&node, 1)
+		container_id := t.a.child(&node, 2)
+		if !t.comptime_for_container_uses_reflected_field(container_id) {
+			continue
+		}
+		has_index := value.kind == .ident && value.value.len > 0
+		if iter_type.starts_with('map[') {
+			if key.kind == .ident && key.value == name {
+				return t.map_key_type(iter_type)
+			}
+			if value.kind == .ident && value.value == name {
+				return t.map_value_type(iter_type)
+			}
+		} else {
+			elem_type := iter_type[2..]
+			if has_index && key.kind == .ident && key.value == name {
+				return 'int'
+			}
+			if (has_index && value.value == name) || (!has_index && key.value == name) {
+				return elem_type
+			}
+		}
+	}
+	return none
+}
+
+fn (t &Transformer) comptime_for_container_uses_reflected_field(container_id flat.NodeId) bool {
+	if t.subtree_has_comptime_field_selector(container_id) {
+		return true
+	}
+	if int(container_id) < 0 || int(container_id) >= t.a.nodes.len {
+		return false
+	}
+	container := t.a.nodes[int(container_id)]
+	if container.kind != .ident || container.value.len == 0 {
+		return false
+	}
+	// A common reflection pattern first saves `value := object.$(field.name)`
+	// and then iterates `value`. Find that source declaration in the template;
+	// its cloned concrete declaration no longer contains the `$` selector.
+	for candidate in t.a.nodes {
+		if candidate.kind != .decl_assign || candidate.children_count < 2 {
+			continue
+		}
+		lhs := t.a.child_node(&candidate, 0)
+		if lhs.kind != .ident || lhs.value != container.value {
+			continue
+		}
+		if t.subtree_has_comptime_field_selector(t.a.child(&candidate, 1)) {
+			return true
+		}
+	}
+	return false
+}
+
+fn (t &Transformer) subtree_has_comptime_field_selector(id flat.NodeId) bool {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return false
+	}
+	node := t.a.nodes[int(id)]
+	if node.kind == .selector && node.value == '$' {
+		return true
+	}
+	for i in 0 .. node.children_count {
+		if t.subtree_has_comptime_field_selector(t.a.child(&node, i)) {
+			return true
+		}
+	}
+	return false
 }
 
 fn (mut t Transformer) make_comptime_enum_value(item EnumValueMeta) flat.NodeId {
@@ -2206,7 +2499,7 @@ fn (mut t Transformer) clone_variant_subst_with_smartcast(id flat.NodeId, var_na
 	mut branch_smartcast := ''
 	if node.kind == .if_expr && node.children_count >= 2 {
 		cond := t.a.child_node(&node, 0)
-		if cond.kind == .is_expr && cond.value == var_name && cond.children_count > 0 {
+		if cond.kind == .is_expr && cond.value in [var_name, item.typ] && cond.children_count > 0 {
 			base := t.a.child_node(cond, 0)
 			if base.kind == .ident {
 				branch_smartcast = base.value
@@ -2238,7 +2531,12 @@ fn (mut t Transformer) clone_variant_subst_with_smartcast(id flat.NodeId, var_na
 			return t.make_sum_literal(target_sum, item.typ, children[0])
 		}
 	}
-	mut typ := node.typ
+	retargeted_call_type := if node.kind == .call && smartcast_name.len > 0 {
+		t.retarget_cloned_generic_call(node, mut children, t.active_specialization_args)
+	} else {
+		''
+	}
+	mut typ := if retargeted_call_type.len > 0 { retargeted_call_type } else { node.typ }
 	if node.kind == .ident && smartcast_name.len > 0 && node.value == smartcast_name {
 		typ = item.typ
 	} else if node.kind == .ident && t.mut_param_values[node.value] {
@@ -2254,7 +2552,7 @@ fn (mut t Transformer) clone_variant_subst_with_smartcast(id flat.NodeId, var_na
 			typ = local_type
 		}
 	}
-	if node.kind == .decl_assign && children.len >= 2 {
+	if t.specialization_node_start >= 0 && node.kind == .decl_assign && children.len >= 2 {
 		rhs := t.a.nodes[int(children[1])]
 		rhs_typ := if rhs.kind == .ident && smartcast_name.len > 0 && rhs.value == smartcast_name
 			&& rhs.typ.len > 0 {
@@ -2289,6 +2587,11 @@ fn (mut t Transformer) clone_variant_subst_with_smartcast(id flat.NodeId, var_na
 		children_start: start
 		children_count: flat.child_count(children.len)
 	})
+	if node.kind == .ident && smartcast_name.len > 0 && node.value == smartcast_name {
+		// Keep the loop variant refinement separate from the function-scope type.
+		// Later generic-call inference runs after the smartcast stack has unwound.
+		t.record_refined_node_type(int(clone_id), item.typ)
+	}
 	if node.kind == .ident && t.mut_param_values[node.value] {
 		t.mut_value_ident_nodes[int(clone_id)] = true
 	}
@@ -2514,14 +2817,30 @@ struct FieldDeclMeta {
 }
 
 // comptime_field_metas derives FieldData for every field of the concrete struct type.
-fn (t &Transformer) comptime_field_metas(base_type string) []FieldMeta {
+fn (mut t Transformer) comptime_field_metas(base_type string) []FieldMeta {
+	if interface_metas := t.comptime_interface_field_metas(base_type) {
+		return interface_metas
+	}
+	clean_base := base_type.trim_space()
+	// Builtin runtime representations such as `string` and `array` are structs
+	// in the generated C ABI, but they are not language-level structs and must
+	// not expose those implementation fields through `T.fields`.
+	if comptime_is_primitive_type(clean_base) || clean_base.starts_with('[]')
+		|| clean_base.starts_with('map[') || clean_base.starts_with('chan ')
+		|| clean_base.starts_with('fn ') || clean_base.starts_with('[') {
+		return []FieldMeta{}
+	}
 	// A monomorphized generic struct instance (`Box[int]`) is stored in the struct table under
 	// its generic declaration name (`Box`), so a direct lookup misses; resolve it through the
 	// generic-struct field substitution path before giving up.
 	info := t.lookup_struct_info(base_type) or {
 		t.generic_struct_info_for_stringify(base_type) or { return []FieldMeta{} }
 	}
-	decl_metas := t.struct_field_decl_metas(base_type)
+	cache_key := comptime_struct_info_cache_key(info)
+	if cached := t.comptime_field_metas_cache[cache_key] {
+		return cached
+	}
+	decl_metas := t.struct_field_decl_metas_in_module(cache_key, info.module)
 	mut metas := []FieldMeta{cap: info.fields.len}
 	for f in info.fields {
 		// V's `field.typ` is the type as written (`MyInt`, `?[]int`); `raw_typ` preserves that,
@@ -2538,73 +2857,190 @@ fn (t &Transformer) comptime_field_metas(base_type string) []FieldMeta {
 		}
 		metas << t.field_meta_for(f.name, ftyp, f.typ, info.module, f.is_embedded, extra)
 	}
+	t.comptime_field_metas_cache[cache_key] = metas
 	return metas
 }
 
-// struct_field_decl_metas scans the declaration of `base_type` (resolving a generic instance such
-// as `Box[int]` to its base `Box`, module-aware like enum lookup) and returns each field's real
-// `is_mut`/`is_pub`/attrs, which the parser recorded on the `field_decl` node.
+fn (mut t Transformer) comptime_interface_field_metas(base_type string) ?[]FieldMeta {
+	if isnil(t.tc) {
+		return none
+	}
+	clean := base_type.trim_space().trim_left('&?!')
+	mut iface_name := clean
+	if iface_name !in t.tc.interface_names {
+		qualified := t.tc.qualify_name(clean)
+		if qualified !in t.tc.interface_names {
+			return none
+		}
+		iface_name = qualified
+	}
+	mut seen_ifaces := map[string]bool{}
+	mut seen_fields := map[string]bool{}
+	mut metas := []FieldMeta{}
+	t.collect_comptime_interface_field_metas(iface_name, mut seen_ifaces, mut seen_fields, mut
+		metas)
+	return metas
+}
+
+fn (mut t Transformer) collect_comptime_interface_field_metas(iface_name string, mut seen_ifaces map[string]bool, mut seen_fields map[string]bool, mut metas []FieldMeta) {
+	if iface_name in seen_ifaces {
+		return
+	}
+	seen_ifaces[iface_name] = true
+	for embedded in t.tc.interface_embeds[iface_name] or { []string{} } {
+		t.collect_comptime_interface_field_metas(embedded, mut seen_ifaces, mut seen_fields, mut
+			metas)
+	}
+	decl_module := iface_name.all_before_last('.')
+	for field in t.tc.interface_fields[iface_name] or { []types.StructField{} } {
+		if field.name in seen_fields {
+			continue
+		}
+		seen_fields[field.name] = true
+		field_type := field.typ.name()
+		metas << t.field_meta_for(field.name, field_type, field_type, decl_module, false, FieldDeclMeta{
+			is_mut: field.is_mut
+			is_pub: true
+		})
+	}
+}
+
+fn comptime_struct_info_cache_key(info StructInfo) string {
+	if info.module.len == 0 || info.name.starts_with('${info.module}.')
+		|| info.name.starts_with('${c_name(info.module)}__') {
+		return info.name
+	}
+	return '${info.module}.${info.name}'
+}
+
+fn (mut t Transformer) build_struct_field_decl_metas_cache() {
+	mut cache := map[string]map[string]FieldDeclMeta{}
+	mut cur_mod := ''
+	mut cur_file_id := 0
+	use_idx := !isnil(t.tc) && t.tc.top_level_idx.len > 0
+		&& t.tc.top_level_idx_nodes_len == t.a.nodes.len
+	count := if use_idx { t.tc.top_level_idx.len } else { t.a.nodes.len }
+	for ii in 0 .. count {
+		node := if use_idx { t.a.nodes[t.tc.top_level_idx[ii]] } else { t.a.nodes[ii] }
+		if use_idx && node.kind == .file {
+			cur_mod = t.tc.file_modules[node.value] or { 'main' }
+			continue
+		}
+		if !use_idx && node.pos.id > 0 && node.pos.id != cur_file_id {
+			cur_file_id = node.pos.id
+			// Files without an explicit module declaration belong to main.
+			cur_mod = 'main'
+		}
+		if node.kind == .module_decl {
+			cur_mod = node.value
+			continue
+		}
+		if node.kind != .struct_decl {
+			continue
+		}
+		mut fields := map[string]FieldDeclMeta{}
+		for i in 0 .. node.children_count {
+			field := t.a.child_node(&node, i)
+			if field.kind == .field_decl {
+				fields[field.value] = field_decl_meta(field)
+			}
+		}
+		if cur_mod.len > 0 {
+			cache['${cur_mod}.${node.value}'] = fields.clone()
+		}
+		// Bare names are used for unqualified/main lookups. Builtin is parsed before
+		// main, so let a main declaration replace an earlier builtin homonym.
+		if cur_mod == 'main' || node.value !in cache {
+			cache[node.value] = fields.clone()
+		}
+	}
+	t.struct_field_decl_metas_cache = cache.move()
+}
+
+fn field_decl_meta(field flat.Node) FieldDeclMeta {
+	params := field.generic_params()
+	if params.len == 0 {
+		return FieldDeclMeta{}
+	}
+	flags := params[0]
+	return FieldDeclMeta{
+		is_mut: flags.contains('m')
+		is_pub: flags.contains('p')
+		attrs:  params[1..].clone()
+	}
+}
+
+// struct_field_decl_metas returns parser metadata for the declaration of `base_type`, resolving a
+// generic instance such as `Box[int]` to its base `Box`.
 fn (t &Transformer) struct_field_decl_metas(base_type string) map[string]FieldDeclMeta {
-	mut out := map[string]FieldDeclMeta{}
+	return t.struct_field_decl_metas_in_module(base_type, '')
+}
+
+fn (t &Transformer) struct_field_decl_metas_in_module(base_type string, decl_module string) map[string]FieldDeclMeta {
 	mut decl_name := base_type.trim_space()
 	if idx := decl_name.index('[') {
 		decl_name = decl_name[..idx]
 	}
+	mut short_name := decl_name
+	if decl_module.len > 0 {
+		if decl_name.starts_with('${decl_module}.') {
+			short_name = decl_name[decl_module.len + 1..]
+		} else if decl_name.starts_with('${c_name(decl_module)}__') {
+			short_name = decl_name[c_name(decl_module).len + 2..]
+		}
+	}
+	if decl_module.len > 0 {
+		if cached := t.struct_field_decl_metas_cache['${decl_module}.${short_name}'] {
+			return cached
+		}
+	}
+	lookup_name := if decl_module in ['main', 'builtin'] { short_name } else { decl_name }
+	if cached := t.struct_field_decl_metas_cache[lookup_name] {
+		if decl_module.len == 0 || decl_module in ['main', 'builtin'] {
+			return cached
+		}
+	}
+	// Materialized generic instances can reach comptime expansion under their C
+	// name (`Box_int`, `mod__Box_int`) rather than bracket syntax. The cache is
+	// keyed by source declarations, so recover the generic declaration prefix.
 	mut cur_mod := ''
-	for idx in 0 .. t.a.nodes.len {
-		kind := t.a.nodes[idx].kind
-		if kind == .module_decl {
-			cur_mod = t.a.nodes[idx].value
+	mut cur_file_id := 0
+	for node in t.a.nodes {
+		if node.pos.id > 0 && node.pos.id != cur_file_id {
+			cur_file_id = node.pos.id
+			cur_mod = 'main'
+		}
+		if node.kind == .module_decl {
+			cur_mod = node.value
 			continue
 		}
-		if kind != .struct_decl {
+		if node.kind != .struct_decl || node.generic_params().len == 0 {
 			continue
 		}
-		node := t.a.nodes[idx]
-		qualified := if cur_mod.len > 0 && cur_mod != 'main' && cur_mod != 'builtin' {
+		if decl_module.len > 0 && cur_mod != decl_module {
+			continue
+		}
+		qualified := if cur_mod.len > 0 {
 			'${cur_mod}.${node.value}'
 		} else {
 			node.value
 		}
-		mut matches_decl := decl_name == node.value || decl_name == qualified
-		if !matches_decl && node.generic_params().len > 0 {
-			for prefix in [node.value, qualified, c_name(node.value),
-				c_name(qualified)] {
-				if prefix.len > 0 && decl_name.starts_with('${prefix}_') {
-					matches_decl = true
-					break
-				}
-			}
-		}
-		if !matches_decl {
-			continue
-		}
-		for i in 0 .. node.children_count {
-			f := t.a.child_node(&node, i)
-			if f.kind != .field_decl {
+		for prefix in [node.value, qualified, c_name(node.value),
+			c_name(qualified)] {
+			if prefix.len == 0 || !lookup_name.starts_with('${prefix}_') {
 				continue
 			}
-			// The parser packs field metadata into generic_params: element 0 is a flag string
-			// (`m` = mut, `p` = pub), the rest are attributes. An empty list is the default
-			// (private, immutable, no attrs).
-			mut is_mut := false
-			mut is_pub := false
-			mut attrs := []string{}
-			if f.generic_params().len > 0 {
-				flags := f.generic_params()[0]
-				is_mut = flags.contains('m')
-				is_pub = flags.contains('p')
-				attrs = f.generic_params()[1..].clone()
+			if decl_module.len == 0 {
+				if cached := t.struct_field_decl_metas_cache[node.value] {
+					return cached
+				}
 			}
-			out[f.value] = FieldDeclMeta{
-				is_mut: is_mut
-				is_pub: is_pub
-				attrs:  attrs
+			if cached := t.struct_field_decl_metas_cache[qualified] {
+				return cached
 			}
 		}
-		return out
 	}
-	return out
+	return map[string]FieldDeclMeta{}
 }
 
 fn (t &Transformer) field_meta_for(name string, ftyp string, resolved_typ string, decl_module string, is_embed bool, extra FieldDeclMeta) FieldMeta {
@@ -2687,11 +3123,26 @@ fn (t &Transformer) comptime_field_type_id(typ string, decl_module string) int {
 	if key.len == 0 {
 		return 0
 	}
-	builtin_idx := comptime_builtin_type_idx(key)
-	if builtin_idx > 0 {
-		return builtin_idx
+	mut base_key := key
+	mut indirections := 0
+	for base_key.starts_with('?') || base_key.starts_with('!') {
+		base_key = base_key[1..].trim_space()
 	}
-	return comptime_type_id_hash(key)
+	for base_key.starts_with('&') {
+		indirections++
+		base_key = base_key[1..].trim_space()
+	}
+	builtin_idx := comptime_builtin_type_idx(base_key)
+	indirection_bits := int(u32(indirections) << 16)
+	if builtin_idx > 0 {
+		return builtin_idx | indirection_bits
+	}
+	mut custom_idx := comptime_type_id_hash(base_key) & ~(0xff << 16)
+	if custom_idx < 65536 {
+		// Bit 24 is the first available bit above the reserved indirection byte.
+		custom_idx |= 1 << 24
+	}
+	return custom_idx | indirection_bits
 }
 
 // comptime_builtin_type_idx maps a builtin type name to V's stable ast type index
@@ -2735,8 +3186,11 @@ fn (t &Transformer) comptime_field_type_id_key(typ string, decl_module string) s
 	if core.len == 0 {
 		return ''
 	}
-	if core.starts_with('?') {
-		return '?' + t.comptime_field_type_id_key(core[1..], decl_module)
+	if core.starts_with('?') || core.starts_with('!') {
+		return core[..1] + t.comptime_field_type_id_key(core[1..], decl_module)
+	}
+	if core.starts_with('mut ') {
+		return 'mut ' + t.comptime_field_type_id_key(core[4..], decl_module)
 	}
 	if core.starts_with('shared ') {
 		return 'shared ' + t.comptime_field_type_id_key(core[7..], decl_module)
@@ -2780,9 +3234,37 @@ fn (t &Transformer) comptime_field_type_id_key(typ string, decl_module string) s
 			return out
 		}
 	}
-	if comptime_is_primitive_type(core) || core.contains('.') || core.contains('[')
-		|| core.contains(' ') || decl_module.len == 0 || decl_module in ['main', 'builtin'] {
+	if core.starts_with('fn(') || core.starts_with('fn (') {
+		params, ret := fn_type_text_parts(core) or { return core }
+		mut qualified_params := []string{cap: params.len}
+		for param in params {
+			qualified_params << t.comptime_field_type_id_key(param, decl_module)
+		}
+		qualified_ret := t.comptime_field_type_id_key(ret, decl_module)
+		return if qualified_ret.len > 0 {
+			'fn(${qualified_params.join(', ')}) ${qualified_ret}'
+		} else {
+			'fn(${qualified_params.join(', ')})'
+		}
+	}
+	base, args, is_generic := generic_app_parts(core)
+	if is_generic {
+		qualified_base := t.comptime_field_type_id_key(base, decl_module)
+		mut qualified_args := []string{cap: args.len}
+		for arg in args {
+			qualified_args << t.comptime_field_type_id_key(arg, decl_module)
+		}
+		return '${qualified_base}[${qualified_args.join(', ')}]'
+	}
+	if is_generic_fn_placeholder_name(core) {
 		return core
+	}
+	if comptime_is_primitive_type(core) || core.contains('.') || core.contains('[')
+		|| core.contains(' ') || decl_module == 'builtin' {
+		return core
+	}
+	if decl_module in ['', 'main'] {
+		return if t.type_authority_has(core) { 'main.${core}' } else { core }
 	}
 	return '${decl_module}.${core}'
 }
@@ -2853,6 +3335,7 @@ fn (mut t Transformer) clone_field_subst(id flat.NodeId, var_name string, fm Fie
 	return t.clone_field_subst_scoped(id, var_name, fm, []string{})
 }
 
+@[direct_array_access]
 fn (mut t Transformer) clone_field_subst_scoped(id flat.NodeId, var_name string, fm FieldMeta, inner_vars []string) ?flat.NodeId {
 	if int(id) < 0 {
 		return id
@@ -2873,8 +3356,84 @@ fn (mut t Transformer) clone_field_subst_scoped(id flat.NodeId, var_name string,
 		return t.clone_node_preserving_children_with_type(node, t.clone_field_subst_type_text(node,
 			var_name, fm))
 	}
+	if node.kind == .or_expr && node.value == '?' && node.children_count > 0 && !fm.is_option
+		&& t.direct_reflected_field_selector(t.a.child(&node, 0), var_name) {
+		source_id := t.a.child(&node, 0)
+		t.tc.record_cgen_error_at('cannot use `?` on non-option expression', id, source_id, '?')
+		return t.clone_field_subst_children(node, var_name, fm, inner_vars)
+	}
+	// `sizeof(field)` stores the parser's ambiguous identifier in the node value rather
+	// than as a child expression. Inside a reflected field loop it denotes the concrete
+	// field type, just like `typeof(field)`.
+	if node.kind == .sizeof_expr && node.value == var_name {
+		return t.make_sizeof_type(fm.comptime_typ)
+	}
+	// `isreftype(field)` does carry `field` as an expression. Preserve its reflected type
+	// instead of materializing the FieldData value used by ordinary bare `field` access.
+	if node.kind == .call && node.children_count == 2 {
+		callee := t.a.child_node(&node, 0)
+		arg := t.a.child_node(&node, 1)
+		if callee.kind == .ident && callee.value == '__v3_isreftype' && arg.kind == .ident
+			&& arg.value == var_name {
+			return t.make_call('__v3_isreftype', arr1(t.make_sizeof_type(fm.comptime_typ)))
+		}
+	}
 	if node.kind == .ident && node.value == var_name {
 		return t.make_field_data_literal(fm)
+	}
+	if node.children_count == 0 {
+		return t.a.add_node(node)
+	}
+	// Field attributes are compile-time metadata. Avoid materializing and then
+	// lowering runtime array work for operations whose result is already known
+	// for this unrolled field.
+	if node.kind == .call {
+		if contains := t.comptime_field_attrs_condition(id, var_name, fm) {
+			return t.make_bool_literal(contains)
+		}
+	}
+	if node.kind == .for_in_stmt && node.children_count >= 3 && fm.attrs.len == 0
+		&& t.direct_reflected_field_attrs_selector(t.a.child(&node, 2), var_name) {
+		return none
+	}
+	if node.kind == .match_stmt && node.children_count > 1 {
+		subject := t.a.child_node(&node, 0)
+		if subject.kind == .selector && subject.value == 'typ' && subject.children_count > 0 {
+			base := t.a.child_node(subject, 0)
+			if base.kind == .ident && base.value == var_name {
+				mut else_branch := flat.empty_node
+				for i in 1 .. node.children_count {
+					branch_id := t.a.child(&node, i)
+					branch := t.a.nodes[int(branch_id)]
+					if branch.kind != .match_branch {
+						continue
+					}
+					if branch.value == 'else' {
+						else_branch = branch_id
+						continue
+					}
+					n_conds := t.count_conds(branch)
+					mut selected := false
+					for j in 0 .. n_conds {
+						pattern := t.type_pattern_name(t.a.child(&branch, j))
+						matches := t.comptime_type_matches(fm.comptime_typ, pattern) or { false }
+						if pattern.len > 0 && matches {
+							selected = true
+							break
+						}
+					}
+					if selected {
+						return t.clone_field_match_branch_body(branch, n_conds, var_name, fm,
+							inner_vars)
+					}
+				}
+				if int(else_branch) >= 0 {
+					branch := t.a.nodes[int(else_branch)]
+					return t.clone_field_match_branch_body(branch, 0, var_name, fm, inner_vars)
+				}
+				return none
+			}
+		}
 	}
 	if node.kind == .prefix && node.op == .amp && node.children_count > 0
 		&& t.subtree_has_reflected_typeof_idx(t.a.child(&node, 0), var_name) {
@@ -2932,6 +3491,32 @@ fn (mut t Transformer) clone_field_subst_scoped(id flat.NodeId, var_name string,
 	}
 	// `typeof(<var>)` / `typeof(<var>).name` / `typeof(<var>).idx`: the field's own type,
 	// not the FieldData metadata struct.
+	if node.kind == .typeof_expr && t.typeof_arg_is_field_typ(id, var_name) {
+		return t.make_string_literal(fm.typ)
+	}
+	if node.kind == .typeof_expr && node.children_count > 0
+		&& t.reflected_field_value_selector(t.a.child(&node, 0), var_name) {
+		return t.make_string_literal(fm.typ)
+	}
+	if node.kind == .selector && node.children_count > 0
+		&& t.typeof_arg_is_field_typ(t.a.child(&node, 0), var_name) {
+		match node.value {
+			'name' { return t.make_string_literal(fm.typ) }
+			'idx' { return t.make_int_literal(fm.typ_id) }
+			else {}
+		}
+	}
+	if node.kind == .selector && node.children_count > 0 {
+		base := t.a.child_node(&node, 0)
+		if base.kind == .typeof_expr && base.children_count > 0
+			&& t.reflected_field_value_selector(t.a.child(base, 0), var_name) {
+			return match node.value {
+				'name' { t.make_string_literal(fm.typ) }
+				'idx' { t.make_int_literal(fm.typ_id) }
+				else { t.clone_field_subst_children(node, var_name, fm, inner_vars) }
+			}
+		}
+	}
 	if node.kind == .typeof_expr && t.typeof_arg_is_var(id, var_name) {
 		return t.make_string_literal(fm.typ)
 	}
@@ -2966,6 +3551,21 @@ fn (mut t Transformer) clone_field_subst_scoped(id flat.NodeId, var_name string,
 			return t.make_selector(receiver, fm.name, fm.comptime_typ)
 		}
 	}
+	// A normal `if !field.attrs.contains('skip')` inside a reflected field loop is
+	// compile-time data even though V exposes `attrs` as an array. Fold it before
+	// generic discovery so calls in a skipped field's branch do not instantiate
+	// serializers for types that can never be visited at runtime.
+	if node.kind == .if_expr && node.children_count >= 2 {
+		cond_id := t.a.child(&node, 0)
+		if taken := t.comptime_field_attrs_condition(cond_id, var_name, fm) {
+			branch_idx := if taken { 1 } else { 2 }
+			if branch_idx >= int(node.children_count) {
+				return none
+			}
+			return t.clone_field_subst_scoped(t.a.child(&node, branch_idx), var_name, fm,
+				inner_vars)
+		}
+	}
 	// `$if`/`$else $if` referencing the loop variable: evaluate now, keep the taken branch.
 	if node.kind == .comptime_if {
 		substituted := t.subst_field_cond(node.value, var_name, fm)
@@ -2986,6 +3586,71 @@ fn (mut t Transformer) clone_field_subst_scoped(id flat.NodeId, var_name string,
 		return t.clone_field_subst_children_with_value(node, var_name, fm, inner_vars, cond)
 	}
 	return t.clone_field_subst_children(node, var_name, fm, inner_vars)
+}
+
+fn (t &Transformer) reflected_field_value_selector(id flat.NodeId, var_name string) bool {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return false
+	}
+	node := t.a.node(id)
+	if node.kind != .selector || node.value != '$' || node.children_count < 2 {
+		return false
+	}
+	receiver := t.a.child_node(node, 0)
+	return receiver.kind == .ident && receiver.value == var_name
+		&& t.dollar_selector_names_var(t.a.child(node, 1), var_name)
+}
+
+fn (t &Transformer) direct_reflected_field_attrs_selector(id flat.NodeId, var_name string) bool {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return false
+	}
+	node := t.a.nodes[int(id)]
+	if node.kind != .selector || node.value != 'attrs' || node.children_count == 0 {
+		return false
+	}
+	base := t.a.child_node(&node, 0)
+	return base.kind == .ident && base.value == var_name
+}
+
+fn (mut t Transformer) clone_field_match_branch_body(branch flat.Node, body_start int, var_name string, fm FieldMeta, inner_vars []string) flat.NodeId {
+	mut body := []flat.NodeId{}
+	for i in body_start .. branch.children_count {
+		if child := t.clone_field_subst_scoped(t.a.child(&branch, i), var_name, fm, inner_vars) {
+			body << child
+		}
+	}
+	return t.make_block(body)
+}
+
+fn (t &Transformer) comptime_field_attrs_condition(id flat.NodeId, var_name string, fm FieldMeta) ?bool {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return none
+	}
+	node := t.a.nodes[int(id)]
+	if node.kind == .prefix && node.op == .not && node.children_count == 1 {
+		value := t.comptime_field_attrs_condition(t.a.child(&node, 0), var_name, fm) or {
+			return none
+		}
+		return !value
+	}
+	if node.kind != .call || node.children_count != 2 {
+		return none
+	}
+	callee := t.a.child_node(&node, 0)
+	if callee.kind != .selector || callee.value != 'contains' || callee.children_count == 0 {
+		return none
+	}
+	attrs := t.a.child_node(callee, 0)
+	if attrs.kind != .selector || attrs.value != 'attrs' || attrs.children_count == 0 {
+		return none
+	}
+	base := t.a.child_node(attrs, 0)
+	needle := t.a.child_node(&node, 1)
+	if base.kind != .ident || base.value != var_name || needle.kind != .string_literal {
+		return none
+	}
+	return needle.value in fm.attrs
 }
 
 // direct_reflected_field_selector reports whether an iterable is exactly
@@ -3089,6 +3754,22 @@ fn (t &Transformer) typeof_arg_is_var(id flat.NodeId, var_name string) bool {
 	return arg.kind == .ident && arg.value == var_name
 }
 
+fn (t &Transformer) typeof_arg_is_field_typ(id flat.NodeId, var_name string) bool {
+	if int(id) < 0 || int(id) >= t.a.nodes.len {
+		return false
+	}
+	node := t.a.nodes[int(id)]
+	if node.kind != .typeof_expr || node.children_count == 0 {
+		return false
+	}
+	arg := t.a.child_node(&node, 0)
+	if arg.kind != .selector || arg.value != 'typ' || arg.children_count == 0 {
+		return false
+	}
+	base := t.a.child_node(arg, 0)
+	return base.kind == .ident && base.value == var_name
+}
+
 // dollar_selector_names_var reports whether a `$(...)` selector's name expression is the current
 // field loop's `<var>.name`, so only the matching loop rewrites the selector and a nested loop's
 // `$(inner.name)` is deferred to its own unroll.
@@ -3108,6 +3789,7 @@ fn (mut t Transformer) clone_field_subst_children(node flat.Node, var_name strin
 	return t.clone_field_subst_children_with_value(node, var_name, fm, inner_vars, node.value)
 }
 
+@[direct_array_access]
 fn (mut t Transformer) clone_field_subst_children_with_value(node flat.Node, var_name string, fm FieldMeta, inner_vars []string, value string) ?flat.NodeId {
 	child_inner_vars := comptime_nested_loop_vars(node, var_name, inner_vars)
 	mut children := []flat.NodeId{cap: int(node.children_count)}
@@ -3155,7 +3837,7 @@ fn (mut t Transformer) clone_field_subst_children_with_value(node flat.Node, var
 	for c in children {
 		t.a.children << c
 	}
-	return t.a.add_node(flat.Node{
+	result := t.a.add_node(flat.Node{
 		kind:           node.kind
 		op:             node.op
 		pos:            node.pos
@@ -3165,6 +3847,13 @@ fn (mut t Transformer) clone_field_subst_children_with_value(node flat.Node, var
 		children_start: start
 		children_count: flat.child_count(children.len)
 	})
+	if t.specialization_node_start >= 0 && node.kind == .decl_assign && children.len >= 2 {
+		lhs := t.a.nodes[int(children[0])]
+		if lhs.kind == .ident && lhs.value.len > 0 {
+			t.specialization_decl_nodes_by_name[lhs.value] << int(result)
+		}
+	}
+	return result
 }
 
 fn (mut t Transformer) comptime_field_type_accessor(id flat.NodeId, var_name string, fm FieldMeta) ?string {
@@ -3205,10 +3894,13 @@ fn (mut t Transformer) comptime_field_type_accessor(id flat.NodeId, var_name str
 }
 
 fn (mut t Transformer) comptime_new_value(typ string) flat.NodeId {
-	zero := t.zero_value_for_type(typ)
-	addr := t.make_prefix(.amp, zero)
-	dup := t.make_call_typed('memdup', arr2(addr, t.make_sizeof_type(typ)), 'voidptr')
-	return t.make_cast('&${typ}', dup, '&${typ}')
+	value := t.transform_expr(t.zero_value_for_type(typ))
+	tmp_name := t.new_temp('new')
+	t.pending_stmts << t.make_decl_assign_typed(tmp_name, value, typ)
+	addr := t.make_prefix(.amp, t.make_ident(tmp_name))
+	t.set_node_typ(int(addr), '&${typ}')
+	allocation := t.make_memdup_call_for_type(addr, typ)
+	return t.make_cast('&${typ}', allocation, '&${typ}')
 }
 
 fn (t &Transformer) clone_field_subst_type_text(node flat.Node, var_name string, fm FieldMeta) string {
@@ -3297,25 +3989,25 @@ fn (t &Transformer) subst_field_cond(cond string, var_name string, fm FieldMeta)
 fn (t &Transformer) subst_unquoted_field_cond(cond string, var_name string, fm FieldMeta) string {
 	mut c := cond
 	if t.cur_module.len > 0 {
-		c = c.replace('${t.cur_module}.${var_name}', var_name)
+		c = comptime_cond_replace_unquoted(c, '${t.cur_module}.${var_name}', var_name)
 	}
-	c = c.replace('${var_name}.unaliased_typ', fm.comptime_unaliased)
-	c = c.replace('${var_name}.indirections', fm.indirections.str())
-	c = c.replace('${var_name}.is_option', fm.is_option.str())
-	c = c.replace('${var_name}.is_opt', fm.is_option.str())
-	c = c.replace('${var_name}.is_embed', fm.is_embed.str())
-	c = c.replace('${var_name}.is_array', fm.is_array.str())
-	c = c.replace('${var_name}.is_map', fm.is_map.str())
-	c = c.replace('${var_name}.is_chan', fm.is_chan.str())
-	c = c.replace('${var_name}.is_struct', fm.is_struct.str())
-	c = c.replace('${var_name}.is_enum', fm.is_enum.str())
-	c = c.replace('${var_name}.is_alias', fm.is_alias.str())
-	c = c.replace('${var_name}.is_shared', fm.is_shared.str())
-	c = c.replace('${var_name}.is_atomic', fm.is_atomic.str())
-	c = c.replace('${var_name}.is_mut', fm.is_mut.str())
-	c = c.replace('${var_name}.is_pub', fm.is_pub.str())
-	c = c.replace('${var_name}.typ', fm.comptime_typ)
-	c = c.replace('${var_name}.name', "'${fm.name}'")
+	c = comptime_cond_replace_unquoted(c, '${var_name}.unaliased_typ', fm.comptime_unaliased)
+	c = comptime_cond_replace_unquoted(c, '${var_name}.indirections', fm.indirections.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_option', fm.is_option.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_opt', fm.is_option.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_embed', fm.is_embed.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_array', fm.is_array.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_map', fm.is_map.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_chan', fm.is_chan.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_struct', fm.is_struct.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_enum', fm.is_enum.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_alias', fm.is_alias.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_shared', fm.is_shared.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_atomic', fm.is_atomic.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_mut', fm.is_mut.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.is_pub', fm.is_pub.str())
+	c = comptime_cond_replace_unquoted(c, '${var_name}.typ', fm.comptime_typ)
+	c = comptime_cond_replace_unquoted(c, '${var_name}.name', "'${fm.name}'")
 	c = comptime_cond_replace_bare_ident(c, var_name, fm.comptime_typ)
 	return c
 }
