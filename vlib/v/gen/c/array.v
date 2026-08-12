@@ -2640,7 +2640,15 @@ fn (mut g Gen) write_prepared_tmp_value(tmp string, node &ast.CallExpr, tmp_styp
 	}
 	left_sym := g.table.final_sym(left_type)
 	if left_sym.kind == .array {
-		g.write('${g.styp(left_type)} ${tmp}_orig = ')
+		// Keep the receiver declaration separate from its initializer.  Array calls such as
+		// `rows.filter(...).len` may need to hoist their temporaries out of a large struct
+		// literal.  Emitting the type and assignment as one partially-built statement lets
+		// nested statement extraction cut at the whitespace between them, producing invalid
+		// C like `Array_Foo_tmp_orig = rows`.
+		// Parenthesize the declarator as well.  It stays valid C even when a nested
+		// extraction boundary lands exactly between the typedef and the variable.
+		g.writeln('${g.styp(left_type)}(${tmp}_orig);')
+		g.write('${tmp}_orig = ')
 		if g.array_receiver_is_indirect(node.left, resolved_left_type) {
 			g.write('*')
 		}
