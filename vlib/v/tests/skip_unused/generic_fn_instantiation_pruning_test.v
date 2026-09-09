@@ -27,8 +27,7 @@ fn test_skip_unused_prunes_unused_generic_fn_instantiations() {
 		'\tdump(x)',
 		'}',
 	].join('\n')
-	os.write_file(source_path, source) or { panic(err) }
-	cmd := '${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}'
+	cmd := '${os.quoted_path(vexe)} -old-compiler -o - ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
 		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
@@ -64,7 +63,7 @@ fn test_skip_unused_keeps_generic_offsetof_struct_instantiations() {
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
 	res :=
-		os.execute('${os.quoted_path(vexe)} -skip-unused -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}')
+		os.execute('${os.quoted_path(vexe)} -old-compiler -skip-unused -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}')
 	if res.exit_code != 0 {
 		panic(res.output)
 	}
@@ -115,7 +114,7 @@ fn test_skip_unused_does_not_emit_impl_methods_for_interface_extensions() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	cmd := '${os.quoted_path(vexe)} -o - ${os.quoted_path(source_path)}'
+	cmd := '${os.quoted_path(vexe)} -old-compiler -o - ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
 		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
@@ -151,7 +150,7 @@ fn test_skip_unused_keeps_json2_embedded_struct_decode_helpers() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	cmd := '${os.quoted_path(vexe)} -w -o - ${os.quoted_path(source_path)}'
+	cmd := '${os.quoted_path(vexe)} -old-compiler -w -o - ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
 		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
@@ -209,7 +208,7 @@ fn test_skip_unused_marks_dependencies_inside_generic_anon_fns() {
 		'}',
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
-	cmd := '${os.quoted_path(vexe)} -d no_backtrace -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}'
+	cmd := '${os.quoted_path(vexe)} -old-compiler -d no_backtrace -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}'
 	res := os.execute(cmd)
 	if res.exit_code != 0 {
 		panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
@@ -270,7 +269,7 @@ fn test_skip_unused_keeps_generic_next_for_for_in_when_direct_calls_use_other_ty
 	].join('\n')
 	os.write_file(source_path, source) or { panic(err) }
 	res :=
-		os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}')
+		os.execute('${os.quoted_path(vexe)} -old-compiler -o ${os.quoted_path(binary_path)} ${os.quoted_path(source_path)}')
 	if res.exit_code != 0 {
 		panic(res.output)
 	}

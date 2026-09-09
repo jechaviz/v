@@ -39,6 +39,12 @@ fn main() {
 	os.chdir(app.vroot)!
 	println('Updating V...')
 	app.update_from_master()
+	if !app.update_tcc() {
+		app.show_current_v_version()
+		eprintln('Updating TCC *failed*.')
+		eprintln('Try running `${get_tcc_update_cmd()}` .')
+		exit(1)
+	}
 	hash_when_vup_was_compiled := @VCURRENTHASH
 	current_hash_from_filesystem := version.githash(vroot) or { hash_when_vup_was_compiled }
 	if !app.skip_current && hash_when_vup_was_compiled == current_hash_from_filesystem {
@@ -64,7 +70,11 @@ fn main() {
 		eprintln('Try running `${get_make_cmd_name()}` .')
 		exit(1)
 	}
-	app.recompile_vup()
+	if !app.recompile_vup() {
+		app.show_current_v_version()
+		eprintln('`v up` failed. Run `cd ${os.quoted_path(app.vroot)} && ${v_upstream_pull_command()} && ${get_make_cmd_name()}` to finish updating V.')
+		exit(1)
+	}
 	app.show_current_v_version()
 }
 
@@ -97,6 +107,23 @@ fn v_upstream_pull_command() string {
 	return 'git pull --rebase ${v_upstream_url} ${v_upstream_branch}'
 }
 
+fn (app App) update_tcc() bool {
+	command := get_tcc_update_cmd()
+	if os.user_os() != 'windows' {
+		make_sure_cmd_is_available(get_tcc_make_cmd_name())
+	}
+	println('> updating TCC ...')
+	result := os.execute(command)
+	if result.exit_code != 0 {
+		eprintln('> `${command}` failed:')
+		eprintln(result.output)
+		return false
+	}
+	app.vprintln(result.output)
+	println('> done updating TCC.')
+	return true
+}
+
 fn (app App) recompile_v() bool {
 	// Note: app.vexe is more reliable than just v (which may be a symlink)
 	vexe_path := app.current_vexe_path()
@@ -110,20 +137,32 @@ fn (app App) recompile_v() bool {
 		return app.make(vself)
 	}
 
-	self_result := os.execute(vself)
-	if self_result.exit_code == 0 {
-		println(self_result.output.trim_space())
+	// Let `v self` inherit stdio instead of buffering all of its output. Rebuilding
+	// a V3-enabled compiler can take several seconds, and hiding the initial status
+	// makes `v up` appear to hang after TCC. On Windows the default `os.Process`
+	// launch does not wire inherited standard handles into STARTUPINFO, while
+	// `os.system` does preserve redirected stdout and stderr through `_wsystem`.
+	mut self_exit_code := -1
+	$if windows {
+		self_exit_code = os.system(vself)
+	} $else {
+		mut self_process := os.new_process(vexe_path)
+		self_process.set_args(if app.is_prod { ['-prod', 'self'] } else { ['self'] })
+		self_process.wait()
+		self_exit_code = self_process.code
+		self_process.close()
+	}
+	if self_exit_code == 0 {
 		println('> Done recompiling.')
 		return true
-	} else {
-		println('> `${vself}` failed, running `make`...')
-		eprintln(self_result.command_failure_report('vup.command',
-			reason:  'v_self_failed'
-			action:  'fall_back_to_make'
-			message: 'v self failed; falling back to make'
-			command: vself
-		))
 	}
+	println('> `${vself}` failed, running `make`...')
+	eprintln(os.process_command_failure_report('vup.command', self_exit_code,
+		reason:  'v_self_failed'
+		action:  'fall_back_to_make'
+		message: 'v self failed; falling back to make'
+		command: vself
+	))
 	return app.make(vself)
 }
 
@@ -134,13 +173,16 @@ fn (app App) recompile_vup() bool {
 		eprintln('> Skipping recompiling vup.v, `${vexe_path}` is missing.')
 		return false
 	}
-	vup_result := os.execute('${os.quoted_path(vexe_path)} -g cmd/tools/vup.v')
+	// `-gc none` matches how `util.launch_tool` builds vup, so this self-rebuild
+	// after a successful update does not overwrite the GC-free executable with a
+	// libgc-linked one (which could fail to start in the dynamic loader). See #27148.
+	vup_result := os.execute('${os.quoted_path(vexe_path)} -g -gc none cmd/tools/vup.v')
 	if vup_result.exit_code != 0 {
 		eprintln(vup_result.command_failure_report('vup.command',
 			reason:  'vup_recompile_failed'
 			action:  'inspect_recompile_output'
 			message: 'Failed recompiling vup.v.'
-			command: '${os.quoted_path(vexe_path)} -g cmd/tools/vup.v'
+			command: '${os.quoted_path(vexe_path)} -g -gc none cmd/tools/vup.v'
 		))
 		return false
 	}
@@ -296,6 +338,18 @@ fn get_make_cmd_name() string {
 	cc := os.getenv_opt('CC') or { 'cc' }
 	make_sure_cmd_is_available(cc)
 	return cmd
+}
+
+fn get_tcc_update_cmd() string {
+	return '${get_tcc_make_cmd_name()} latest_tcc'
+}
+
+fn get_tcc_make_cmd_name() string {
+	return match os.user_os() {
+		'windows' { 'makev.bat' }
+		'freebsd', 'openbsd', 'netbsd', 'dragonfly', 'solaris' { 'gmake' }
+		else { 'make' }
+	}
 }
 
 fn make_sure_cmd_is_available(cmd string) {
