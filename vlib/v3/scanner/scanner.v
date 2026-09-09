@@ -568,6 +568,10 @@ fn (mut s Scanner) whitespace() {
 			}
 			s.offset++
 			continue
+		} else if c == 0xef && s.offset + 2 < s.src.len && s.src[s.offset + 1] == 0xbb
+			&& s.src[s.offset + 2] == 0xbf {
+			s.offset += 3
+			continue
 		}
 		break
 	}

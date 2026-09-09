@@ -168,3 +168,20 @@ fn test_keyword_enum_selector_inserts_semicolon() {
 		assert scanner.scan() == expected
 	}
 }
+
+fn test_utf8_bom_is_treated_as_whitespace() {
+	source := '\xef\xbb\xbfmodule main\n'
+	mut files := token.FileSet.new()
+	mut file := files.add_file('bom.v', source.len)
+	file.index_lines(source)
+	preferences := &pref.Preferences{}
+	mut scanner := new_scanner(preferences, .normal)
+	scanner.init(file, source)
+
+	assert scanner.scan() == .key_module
+	assert scanner.scan() == .name
+	assert scanner.scan() == .semicolon
+	assert scanner.scan() == .eof
+	assert scanner.diagnostics.len == 0
+}
+

@@ -422,7 +422,7 @@ fn (foptions &FormatOptions) format_pipe() {
 		os.rm(stdin_path) or {}
 	}
 	formatted_content := foptions.formatted_content_from_file(stdin_path, true) or { exit(1) }
-	print(formatted_content)
+	print(formatted_content_with_original_bom(input_text, formatted_content))
 	flush_stdout()
 	foptions.vlog('vfmt wrote ${formatted_content.len} bytes to stdout.')
 }
