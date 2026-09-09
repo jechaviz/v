@@ -167,12 +167,12 @@ const metal_syms = ['_MTLCreateSystemDefaultDevice']
 pub struct Linker {
 	macho &MachOObject
 
-	// Frameworks to link (e.g. ['Metal', 'Cocoa', 'QuartzCore'])
 pub mut:
+	// Frameworks to link (e.g. ['Metal', 'Cocoa', 'QuartzCore'])
 	frameworks []string
 
-	// Output buffer
 mut:
+	// Output buffer
 	buf []u8
 
 	// Segment/section info
