@@ -17,7 +17,7 @@ fn process_singleton_enabled() bool {
 	if mode in ['1', 'true', 'on', 'yes', 'always', 'enabled'] {
 		return true
 	}
-	return false
+	return os.user_os() == 'windows'
 }
 
 fn process_singleton_jobs(requested int) int {

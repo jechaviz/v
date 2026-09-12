@@ -127,7 +127,7 @@ pub fn memory_backpressure_enabled() bool {
 	if memory_backpressure_limit_from_env() > 0 {
 		return true
 	}
-	return false
+	return os.user_os() == 'windows'
 }
 
 fn memory_backpressure_mode() string {
