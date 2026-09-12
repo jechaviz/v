@@ -81,8 +81,8 @@ pub const max_compilation_retries = get_max_compilation_retries()
 const c_error_bug_report_disabled_env = 'V_C_ERROR_BUG_REPORT_DISABLED'
 // Each worker compiles a separate test program, so bound automatic parallelism
 // by a conservative memory budget. VJOBS remains an explicit override.
-const test_job_memory_budget = u64(8) * 1024 * 1024 * 1024
-const max_automatic_test_jobs = 4
+const test_job_memory_budget = u64(1) * 1024 * 1024 * 1024
+const max_automatic_test_jobs = 8
 
 fn get_max_compilation_retries() int {
 	return os.getenv_opt('VTEST_MAX_COMPILATION_RETRIES') or { '3' }.int()
