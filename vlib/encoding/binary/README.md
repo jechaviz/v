@@ -138,5 +138,10 @@ fn main() {
 	mut decoded := Header{}
 	binary.read(mut buf, binary.big_endian, mut decoded)!
 	assert decoded == header
+
+	// or using the functional read_val without a mutable target:
+	buf.pos = 0
+	decoded2 := binary.read_val[Header](mut buf, binary.big_endian)!
+	assert decoded2 == header
 }
 ```
