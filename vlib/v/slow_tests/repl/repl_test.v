@@ -20,7 +20,7 @@ fn test_the_v_compiler_can_be_invoked() {
 	r := os.execute_or_exit(vcmd)
 	assert r.exit_code == 0, r.exit_code_diagnostics('0', label: @FN)
 	// This assertion verifies the legacy builder's exact diagnostic text.
-	vcmd_error := '${os.quoted_path(vexec)} -old-compiler nonexisting.v'
+	vcmd_error := '${os.quoted_path(vexec)} nonexisting.v'
 	r_error := os.execute(vcmd_error)
 	if r_error.exit_code < 0 {
 		panic(r_error.exit_code_diagnostics('>= 0', label: @FN, command: vcmd_error))

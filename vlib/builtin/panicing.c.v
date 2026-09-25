@@ -4,7 +4,7 @@ module builtin
 // recent versions of tcc print nicer backtraces automatically
 // Note: the duplication here is because tcc_backtrace should be called directly
 // inside the panic functions.
-@[noreturn]
+@[markused; noreturn]
 fn panic_debug(line_no int, file string, mod string, fn_name string, s string) {
 	$if !freestanding {
 		// recoverable-panic hook (see panic()): unwind to an active recover_call() guard.
@@ -57,7 +57,7 @@ fn panic_debug(line_no int, file string, mod string, fn_name string, s string) {
 			}
 			C.exit(1)
 		} $else {
-			$if use_libbacktrace ? && !tinyc {
+			$if use_libbacktrace ?&& !tinyc {
 				$if openbsd {
 					print_backtrace_skipping_top_frames(1)
 				} $else {
@@ -136,7 +136,7 @@ pub fn panic(s string) {
 			}
 			C.exit(1)
 		} $else {
-			$if use_libbacktrace ? && !tinyc {
+			$if use_libbacktrace ?&& !tinyc {
 				$if openbsd {
 					print_backtrace_skipping_top_frames(1)
 				} $else {

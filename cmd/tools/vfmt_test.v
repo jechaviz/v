@@ -90,7 +90,7 @@ fn test_fmt_uses_v3_formatter() {
 	res := os.execute('${os.quoted_path(vexe)} fmt -verbose ${os.quoted_path(source_path)}')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert res.output.contains("fn main() {\n\tprintln('v3')\n}"), res.output
 }
 
@@ -167,7 +167,7 @@ fn test_fmt_preserves_comments_with_v3() {
 	res, formatted := run_vfmt_write('comments', source, '')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert formatted.contains('// vfmt off')
 	assert formatted.contains('// vfmt on')
 	assert formatted.contains('println("keep this")')
@@ -179,7 +179,7 @@ fn test_fmt_keeps_regular_comments_attached_with_v3() {
 	res, formatted := run_vfmt_write('regular_comments', source, '')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert formatted.starts_with('// docs\nfn main() {')
 	assert formatted.contains('x := 1 // inline')
 }
@@ -217,7 +217,7 @@ fn only_comments() {
 	res, formatted := run_vfmt_write('construct_comment_boundaries', source, '')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert formatted == source, formatted
 	second_res, formatted_twice :=
 		run_vfmt_write('construct_comment_boundaries_twice', formatted, '')
@@ -253,8 +253,7 @@ fn test_fmt_keeps_trailing_block_and_struct_update_comments_inside_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('trailing_block_update_comments_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('trailing_block_update_comments_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -276,8 +275,7 @@ fn test_fmt_preserves_compact_empty_literals_and_declarations_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('compact_empty_literals_declarations_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('compact_empty_literals_declarations_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -288,8 +286,7 @@ fn test_fmt_preserves_loop_labels_debugger_and_enum_groups_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('loop_label_debugger_enum_groups_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('loop_label_debugger_enum_groups_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -322,8 +319,7 @@ fn test_fmt_keeps_trailing_comptime_for_comments_inside_body_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('trailing_comptime_for_comments_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('trailing_comptime_for_comments_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -359,8 +355,7 @@ fn test_fmt_keeps_trailing_positional_struct_init_comments_inside_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == expected, formatted
-	second_res, formatted_twice := run_vfmt_write('trailing_positional_struct_init_comment_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('trailing_positional_struct_init_comment_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -383,8 +378,7 @@ fn test_fmt_expands_grouped_consts_and_keeps_trailing_global_comments_inside_wit
 
 	assert res.exit_code == 0, res.output
 	assert formatted == expected, formatted
-	second_res, formatted_twice := run_vfmt_write('grouped_consts_trailing_global_comment_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('grouped_consts_trailing_global_comment_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -395,8 +389,7 @@ fn test_fmt_keeps_trailing_array_initializer_comments_inside_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('trailing_array_initializer_comment_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('trailing_array_initializer_comment_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -408,8 +401,7 @@ fn test_fmt_keeps_singleton_grouped_const_comments_before_declaration_with_v3() 
 
 	assert res.exit_code == 0, res.output
 	assert formatted == expected, formatted
-	second_res, formatted_twice := run_vfmt_write('singleton_grouped_const_comment_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('singleton_grouped_const_comment_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -433,8 +425,7 @@ fn test_fmt_keeps_comptime_branch_and_selective_import_comments_inside_with_v3()
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('comptime_branch_selective_import_comments_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('comptime_branch_selective_import_comments_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -521,8 +512,7 @@ fn test_fmt_expands_long_single_line_named_call_arguments_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == expected, formatted
-	second_res, formatted_twice := run_vfmt_write('long_single_line_named_call_arguments_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('long_single_line_named_call_arguments_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -608,7 +598,7 @@ fn test_fmt_preserves_comptime_if_with_v3() {
 	res, formatted := run_vfmt_write('comptime_if', source, '')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert formatted.contains('$if windows')
 	assert formatted.contains("println('windows')")
 	assert formatted.contains("println('other')")
@@ -889,8 +879,7 @@ fn f() {
 		assert formatted.contains('import json\n'), formatted
 		assert formatted.contains('json.encode('), formatted
 		assert !formatted.contains('import json2'), formatted
-		second_res, formatted_twice := run_vfmt_write('comptime_json2_${name}_collision_twice',
-			formatted, '')
+		second_res, formatted_twice := run_vfmt_write('comptime_json2_${name}_collision_twice', formatted, '')
 		assert second_res.exit_code == 0, second_res.output
 		assert formatted_twice == formatted
 	}
@@ -1159,8 +1148,7 @@ fn convert(value int) int {
 	return int(value)
 }
 '
-	translated_res, translated_formatted := run_vfmt_write('new_int_translated', translated_source,
-		'-new_int')
+	translated_res, translated_formatted := run_vfmt_write('new_int_translated', translated_source, '-new_int')
 	assert translated_res.exit_code == 0, translated_res.output
 	assert translated_formatted.contains('fn convert(value i32) i32'), translated_formatted
 	assert translated_formatted.contains('return i32(value)'), translated_formatted
@@ -1259,7 +1247,7 @@ fn test_fmt_preserves_c_string_prefix_with_v3() {
 	res, formatted := run_vfmt_write('c_string', source, '')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert formatted.contains("x := c' '")
 }
 
@@ -1276,7 +1264,7 @@ fn test_fmt_accepts_inline_asm_with_v3() {
 	res, formatted := run_vfmt_write('inline_asm', source, '')
 
 	assert res.exit_code == 0, res.output
-	assert res.output.contains('vfmt running v3.gen.v over file:'), res.output
+	assert res.output.contains('vfmt running v.gen.v over file:'), res.output
 	assert formatted.contains('asm amd64 {')
 	assert formatted.contains('nop')
 }
@@ -1286,7 +1274,7 @@ fn test_fmt_preserves_json_migration_options_with_v3() {
 	migrate_res, migrated := run_vfmt_write('json_migrate', source, '')
 
 	assert migrate_res.exit_code == 0, migrate_res.output
-	assert migrate_res.output.contains('vfmt running v3.gen.v over file:'), migrate_res.output
+	assert migrate_res.output.contains('vfmt running v.gen.v over file:'), migrate_res.output
 	assert migrated.contains('import json2')
 	assert migrated.contains('json2.encode(')
 
@@ -1371,8 +1359,7 @@ struct Hex2 {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('selective_import_and_field_layout_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('selective_import_and_field_layout_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -1432,8 +1419,7 @@ fn test_fmt_preserves_statement_gaps_and_interface_end_comments_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('statement_gaps_and_interface_comment_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('statement_gaps_and_interface_comment_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -1457,8 +1443,7 @@ fn test_fmt_preserves_multiline_strings_and_trailing_struct_comments_with_v3() {
 
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
-	second_res, formatted_twice := run_vfmt_write('multiline_string_struct_comments_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('multiline_string_struct_comments_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }
@@ -1515,8 +1500,7 @@ fn test_fmt_demangles_function_local_aggregate_types_with_v3() {
 	assert res.exit_code == 0, res.output
 	assert formatted == source, formatted
 	assert !formatted.contains('@local@'), formatted
-	second_res, formatted_twice := run_vfmt_write('function_local_aggregate_types_twice',
-		formatted, '')
+	second_res, formatted_twice := run_vfmt_write('function_local_aggregate_types_twice', formatted, '')
 	assert second_res.exit_code == 0, second_res.output
 	assert formatted_twice == formatted
 }

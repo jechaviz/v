@@ -240,7 +240,7 @@ fn (mut l SSLListener) init() ! {
 	C.mbedtls_pk_init(&l.certs.client_key)
 
 	unsafe {
-		C.mbedtls_ssl_conf_rng(&l.conf, tls_listener_rng, l)
+		C.mbedtls_ssl_conf_rng(&l.conf, tls_listener_rng, &l)
 	}
 
 	mut ret := 0
@@ -611,7 +611,7 @@ pub fn (mut s SSLConn) shutdown() ! {
 pub fn (s &SSLConn) negotiated_alpn() string {
 	// mbedtls_ssl_get_alpn_protocol returns a `const char *`; cast away const
 	// for V, since we only read from it (and copy it below).
-	p := &char(C.mbedtls_ssl_get_alpn_protocol(&s.ssl))
+	p := unsafe { &char(C.mbedtls_ssl_get_alpn_protocol(&s.ssl)) }
 	if p == unsafe { nil } {
 		return ''
 	}
@@ -926,7 +926,8 @@ pub fn (mut s SSLConn) read(mut buffer []u8) !int {
 	$if trace_ssl ? {
 		eprintln('${@METHOD} buffer.len: ${buffer.len}')
 	}
-	return s.socket_read_into_ptr(&u8(buffer.data), buffer.len)
+	ptr := unsafe { &u8(buffer.data) }
+	return s.socket_read_into_ptr(ptr, buffer.len)
 }
 
 // write_ptr writes `len` bytes from `bytes` to the ssl connection
@@ -941,7 +942,7 @@ pub fn (mut s SSLConn) write_ptr(bytes &u8, len int) !int {
 	s.last_write_sent = 0
 	deadline := ssl_timeout_deadline(s.duration)
 	unsafe {
-		mut ptr_base := bytes
+		ptr_base := bytes
 		for total_sent < len {
 			ptr := ptr_base + total_sent
 			remaining := len - total_sent
@@ -979,7 +980,8 @@ pub fn (mut s SSLConn) write_ptr(bytes &u8, len int) !int {
 
 // write writes data from `bytes` to the ssl connection
 pub fn (mut s SSLConn) write(bytes []u8) !int {
-	return s.write_ptr(&u8(bytes.data), bytes.len)
+	ptr := unsafe { &u8(bytes.data) }
+	return s.write_ptr(ptr, bytes.len)
 }
 
 // write_string writes a string to the ssl connection
@@ -996,8 +998,6 @@ fn select(handle int, test Select, timeout time.Duration) !bool {
 		eprintln('${@METHOD} handle: ${handle}, timeout: ${timeout}')
 	}
 	set := C.fd_set{}
-	C.FD_ZERO(&set)
-	C.FD_SET(handle, &set)
 
 	is_infinite := timeout <= 0 || timeout == net.infinite_timeout
 	deadline := ssl_timeout_deadline(timeout)
@@ -1012,16 +1012,24 @@ fn select(handle int, test Select, timeout time.Duration) !bool {
 		}
 		timeval_timeout := if is_infinite { &C.timeval(unsafe { nil }) } else { &tt }
 
+		// (Re)arm the set on every iteration: select() leaves its contents
+		// unspecified after a failure, so a retry after EINTR must not reuse it.
+		C.FD_ZERO(&set)
+		C.FD_SET(handle, &set)
+		// Inspect the raw result here instead of wrapping the call in
+		// net.socket_error()!, which would turn EINTR (a spurious wakeup, e.g.
+		// from the GC signalling another thread) into a hard error before the
+		// retry below could ever run.
 		mut res := -1
 		match test {
 			.read {
-				res = net.socket_error(C.select(handle + 1, &set, C.NULL, C.NULL, timeval_timeout))!
+				res = C.select(handle + 1, &set, unsafe { nil }, unsafe { nil }, timeval_timeout)
 			}
 			.write {
-				res = net.socket_error(C.select(handle + 1, C.NULL, &set, C.NULL, timeval_timeout))!
+				res = C.select(handle + 1, unsafe { nil }, &set, unsafe { nil }, timeval_timeout)
 			}
 			.except {
-				res = net.socket_error(C.select(handle + 1, C.NULL, C.NULL, &set, timeval_timeout))!
+				res = C.select(handle + 1, unsafe { nil }, unsafe { nil }, &set, timeval_timeout)
 			}
 		}
 
@@ -1033,8 +1041,8 @@ fn select(handle int, test Select, timeout time.Duration) !bool {
 				}
 				continue
 			}
-			cerr := C.errno
-			return error_with_code('net.mbedtls select, failed, res: ${res}', cerr)
+			net.socket_error(res)!
+			return error_with_code('net.mbedtls select, failed, res: ${res}', C.errno)
 		} else if res == 0 {
 			return net.err_timed_out
 		}

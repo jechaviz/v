@@ -6,14 +6,12 @@ on:
       - master
     paths:
       - 'vlib/**'
-      - '!vlib/v3/**'
       - '.github/actions/setup-v/**'
       - '**/toml_ci.yml'
       - '!**.md'
   pull_request:
     paths:
       - 'vlib/**'
-      - '!vlib/v3/**'
       - '.github/actions/setup-v/**'
       - '**/toml_ci.yml'
       - '!**.md'
@@ -30,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Cache V toolchain
         id: cache-v
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             v

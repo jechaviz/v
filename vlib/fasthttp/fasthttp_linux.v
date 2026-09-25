@@ -57,16 +57,16 @@ pub:
 	timeout_in_seconds      int = 30
 	user_data               voidptr
 mut:
-	listen_fds      []int = []int{len: max_thread_pool_size, cap: max_thread_pool_size, init: -1}
-	epoll_fds       []int = []int{len: max_thread_pool_size, cap: max_thread_pool_size, init: -1}
-	threads         []thread = []thread{len: max_thread_pool_size, cap: max_thread_pool_size}
+	listen_fds      []int                          = []int{len: max_thread_pool_size, cap: max_thread_pool_size, init: -1}
+	epoll_fds       []int                          = []int{len: max_thread_pool_size, cap: max_thread_pool_size, init: -1}
+	threads         []thread                       = []thread{len: max_thread_pool_size, cap: max_thread_pool_size}
 	request_handler fn (HttpRequest) !HttpResponse = unsafe { nil }
-	append_handler  AppendHandler = unsafe { nil }
-	make_state      fn () voidptr = unsafe { nil }
-	running         &stdatomic.AtomicVal[bool] = stdatomic.new_atomic(false)
-	shutting_down   &stdatomic.AtomicVal[bool] = stdatomic.new_atomic(false)
-	stopped         &stdatomic.AtomicVal[bool] = stdatomic.new_atomic(true)
-	active_requests &stdatomic.AtomicVal[int] = stdatomic.new_atomic(0)
+	append_handler  AppendHandler                  = unsafe { nil }
+	make_state      fn () voidptr                  = unsafe { nil }
+	running         &stdatomic.AtomicVal[bool]     = stdatomic.new_atomic(false)
+	shutting_down   &stdatomic.AtomicVal[bool]     = stdatomic.new_atomic(false)
+	stopped         &stdatomic.AtomicVal[bool]     = stdatomic.new_atomic(true)
+	active_requests &stdatomic.AtomicVal[int]      = stdatomic.new_atomic(0)
 }
 
 // new_server creates and initializes a new Server instance.
@@ -86,20 +86,20 @@ pub fn new_server(config ServerConfig) !&Server {
 		return error('set only one of `handler` or `append_handler`, not both')
 	}
 	mut server := &Server{
-		family: config.family
-		host: config.host
-		port: config.port
+		family:                  config.family
+		host:                    config.host
+		port:                    config.port
 		max_request_buffer_size: config.max_request_buffer_size
-		max_request_body_size: config.max_request_body_size
-		timeout_in_seconds: config.timeout_in_seconds
-		user_data: config.user_data
-		request_handler: config.handler
-		append_handler: config.append_handler
-		make_state: config.make_state
-		running: stdatomic.new_atomic(false)
-		shutting_down: stdatomic.new_atomic(false)
-		stopped: stdatomic.new_atomic(true)
-		active_requests: stdatomic.new_atomic(0)
+		max_request_body_size:   config.max_request_body_size
+		timeout_in_seconds:      config.timeout_in_seconds
+		user_data:               config.user_data
+		request_handler:         config.handler
+		append_handler:          config.append_handler
+		make_state:              config.make_state
+		running:                 stdatomic.new_atomic(false)
+		shutting_down:           stdatomic.new_atomic(false)
+		stopped:                 stdatomic.new_atomic(true)
+		active_requests:         stdatomic.new_atomic(0)
 	}
 	unsafe {
 		server.listen_fds.flags.set(.noslices | .noshrink | .nogrow)
@@ -145,8 +145,8 @@ mut:
 	should_close   bool // close the connection once the current batch is flushed
 	read_eof       bool // peer half-closed its write side; flush queued responses, then close
 	request_active bool // a response is buffered/parked and counts toward active_requests
-	read_start_ns  i64 // monotonic ns; >0 while a partial request is buffered (408)
-	write_start_ns i64 // monotonic ns; >0 while a batch is parked for writing
+	read_start_ns  i64  // monotonic ns; >0 while a partial request is buffered (408)
+	write_start_ns i64  // monotonic ns; >0 while a batch is parked for writing
 	// request_arena is the -prealloc scope that must be freed once a parked write
 	// completes (the response bytes were copied out of it into write_buf, but the
 	// scope is kept and freed as a unit for symmetry with the non-parked path).
@@ -162,7 +162,7 @@ mut:
 	listen_fd    int
 	conns        []&ConnState
 	free_conns   []&ConnState
-	parked       int // connections with an armed read/write deadline (gates the sweep)
+	parked       int     // connections with an armed read/write deadline (gates the sweep)
 	worker_state voidptr // this worker thread's ServerConfig.make_state value (nil if unset)
 }
 
@@ -260,7 +260,7 @@ fn mod_fd_in_epoll(epoll_fd int, fd int, events u32) int {
 
 // remove_fd_from_epoll removes a file descriptor from the epoll instance
 fn remove_fd_from_epoll(epoll_fd int, fd int) bool {
-	ret := C.epoll_ctl(epoll_fd, C.EPOLL_CTL_DEL, fd, C.NULL)
+	ret := C.epoll_ctl(epoll_fd, C.EPOLL_CTL_DEL, fd, unsafe { nil })
 	if ret == -1 {
 		log_errno_failure('epoll_delete_failed', 'report_and_continue_closure',
 			'failed to remove socket from epoll', C.errno, ['epoll_fd=${epoll_fd}', 'fd=${fd}'])
@@ -291,7 +291,7 @@ fn state_for(mut w Worker, fd int) &ConnState {
 			return w.conns[fd]
 		}
 		w.conns[fd] = &ConnState{
-			read_buf: []u8{len: 0, cap: read_buf_cap}
+			read_buf:  []u8{len: 0, cap: read_buf_cap}
 			write_buf: []u8{len: 0, cap: write_buf_cap}
 		}
 	}
@@ -968,7 +968,7 @@ fn handle_writable(mut w Worker, fd int) {
 // registers each with this worker's epoll for readability.
 fn handle_accept_loop(mut w Worker) {
 	for {
-		client_fd := C.accept4(w.listen_fd, C.NULL, C.NULL, C.SOCK_NONBLOCK)
+		client_fd := C.accept4(w.listen_fd, unsafe { nil }, unsafe { nil }, C.SOCK_NONBLOCK)
 		if client_fd < 0 {
 			if C.errno == C.EAGAIN {
 				break // no more incoming connections
@@ -1030,9 +1030,9 @@ fn close_worker_clients(mut w Worker) {
 
 fn process_events(server &Server, epoll_fd int, listen_fd int) {
 	mut w := Worker{
-		epoll_fd: epoll_fd
+		epoll_fd:  epoll_fd
 		listen_fd: listen_fd
-		conns: []&ConnState{len: conn_table_min, init: unsafe { nil }}
+		conns:     []&ConnState{len: conn_table_min, init: unsafe { nil }}
 	}
 	unsafe {
 		w.server = server

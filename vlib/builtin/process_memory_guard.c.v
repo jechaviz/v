@@ -3,6 +3,7 @@ module builtin
 
 $if windows {
 	#define PSAPI_VERSION 2
+	#include <windows.h>
 	#include <psapi.h>
 
 	@[typedef]
@@ -116,7 +117,25 @@ fn auto_process_memory_guard_env_int(name &char, fallback int) int {
 	if value == unsafe { nil } {
 		return fallback
 	}
-	return int(C.atoi(value))
+	unsafe {
+		mut p := &u8(value)
+		for *p == ` ` || *p == `\t` {
+			p++
+		}
+		mut sign := 1
+		if *p == `-` {
+			sign = -1
+			p++
+		} else if *p == `+` {
+			p++
+		}
+		mut n := 0
+		for *p >= `0` && *p <= `9` {
+			n = n * 10 + int(*p - `0`)
+			p++
+		}
+		return sign * n
+	}
 }
 
 fn auto_process_memory_guard_env_off(name &char) bool {
@@ -204,7 +223,14 @@ fn auto_process_memory_guard_used_bytes() u64 {
 			if ndigits <= 0 {
 				return 0
 			}
-			rss_pages := pc.vstring_with_len(ndigits).u64()
+			mut rss_pages := u64(0)
+			for i in 0 .. ndigits {
+				ch := *(pc + i)
+				if ch < `0` || ch > `9` {
+					break
+				}
+				rss_pages = rss_pages * 10 + u64(ch - `0`)
+			}
 			page_size := C.sysconf(C._SC_PAGESIZE)
 			if page_size <= 0 {
 				return 0

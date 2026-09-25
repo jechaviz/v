@@ -5,6 +5,9 @@ module builtin
 
 @[markused]
 fn builtin_init() {
+	$if prealloc && v3_backend ? {
+		unsafe { prealloc_vinit() }
+	}
 	auto_process_memory_guard_init()
 	$if gcboehm ? {
 		$if !gc_warn_on_stderr ? {

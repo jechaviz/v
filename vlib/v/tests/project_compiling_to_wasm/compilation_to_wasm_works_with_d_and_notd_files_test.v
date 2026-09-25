@@ -22,7 +22,7 @@ fn test_normal() {
 	}
 	defer { println('done ${@FN}') }
 	dump(vexe)
-	cmd := '${vexe} -old-compiler -o normal.exe ${os.quoted_path(project_folder)}'
+	cmd := '${vexe} -o normal.exe ${os.quoted_path(project_folder)}'
 	res := os.execute(cmd)
 	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	dump(res)
@@ -41,7 +41,7 @@ fn test_emcc() {
 		return
 	}
 	dump(emcc)
-	cmd := '${vexe} -old-compiler -os wasm32_emscripten -o wasm_check.html ${os.quoted_path(project_folder)}'
+	cmd := '${vexe} -os wasm32_emscripten -o wasm_check.html ${os.quoted_path(project_folder)}'
 	res := os.execute(cmd)
 	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	dump(res)

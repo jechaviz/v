@@ -215,7 +215,8 @@ fn (mut app App) process_line(text string) ! {
 	// exit(0)
 	//}
 	if (semicolon_pos < 15
-		&& prefix in ['checker', 'cgen', 'fix', 'orm', 'parser', 'v.parser', 'native', 'ast', 'jsgen', 'v.gen.js', 'fmt', 'vfmt', 'tools', 'examples', 'eval'])
+		&& prefix in ['checker', 'cgen', 'fix', 'orm', 'parser', 'v.parser', 'native', 'ast', 'jsgen',
+			'v.gen.js', 'fmt', 'vfmt', 'tools', 'examples', 'eval'])
 		|| (semicolon_pos < 30 && prefix.contains(', ')) {
 		s = '- ' + text[semicolon_pos + 2..].capitalize()
 	}
@@ -571,7 +572,7 @@ fn is_skip(text string) bool {
 	lower_text := text.to_lower()
 	return lower_text in ['fixes', 'ok'] || lower_text.starts_with('fix #')
 		|| (lower_text.contains('example') && (lower_text.contains('fix')
-		|| lower_text.contains('update'))) || is_xxx(text, skip_strings)
+			|| lower_text.contains('update'))) || is_xxx(text, skip_strings)
 }
 
 const tools_strings = [
