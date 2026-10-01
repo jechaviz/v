@@ -92,7 +92,10 @@ fn test_launcher_finds_the_source_root() {
 fn test_windows_makev_keeps_the_v3_tcc_root_absolute() {
 	root := find_vroot(@FILE) or { panic(err) }
 	source := os.read_file(os.join_path(root, 'makev.bat'))!
-	assert source.contains('set V_FALLBACK_CC_ARGS=-cc "!tcc_exe!"')
+	// The compatibility compiler is now installed on demand. The absolute TCC
+	// path must remain on both real bootstrap stages, not a removed setting.
+	assert source.contains('"%V_STAGE%" %V_BOOTSTRAP_VFLAGS% -keepc -g -showcc -cc "!tcc_exe!" -o "%V_UPDATED%" cmd/v')
+	assert !source.contains('V_FALLBACK_CC_ARGS')
 	assert source.contains('"%V_BOOTSTRAP%" %V_BOOTSTRAP_VFLAGS% -keepc -g -showcc -cc "!tcc_exe!" -o "%V_STAGE%" cmd/v')
 	assert source.contains('if !ERRORLEVEL! EQU 0 set stage_vflags=-cc "!tcc_exe!"')
 	assert !source.contains('-cflags -Bthirdparty/tcc')
@@ -269,7 +272,9 @@ fn test_v1_fallback_cache_without_a_home_is_private() {
 		assert os.is_dir(second)
 		windows_source := os.read_file(os.join_path(find_vroot(@FILE)?, 'cmd', 'v', 'v1_fallback_cache_windows.c.v'))!
 		assert windows_source.contains('rand.bytes(16)')
-		assert windows_source.contains('os.mkdir(candidate, mode: 0o700)')
+		assert windows_source.contains('C.v1_fallback_create_private_directory')
+		assert tool_cache_root_can_stage(first)
+		assert tool_cache_root_can_stage(second)
 	} $else {
 		assert first == second
 		assert first == os.join_path(os.temp_dir(), 'v1-fallback-cache-${os.geteuid()}')

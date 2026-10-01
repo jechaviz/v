@@ -41,11 +41,21 @@ fn v1_fallback_private_windows_temp_cache_parent(temp_root string) !string {
 			return error('could not generate a private V1 fallback cache name: ${err}')
 		}
 		candidate := os.join_path(temp_root, 'v1-fallback-cache-${random_suffix.hex()}')
-		os.mkdir(candidate, mode: 0o700) or {
-			if os.exists(candidate) {
-				continue
-			}
-			return error('could not create a private V1 fallback cache at `${candidate}`: ${err}')
+		wide_path := candidate.replace('/', '\\').to_wide()
+		created := C.v1_fallback_create_private_directory(wide_path)
+		unsafe { free(voidptr(wide_path)) }
+		if created == 2 {
+			continue
+		}
+		if created == 0 {
+			return error('could not create a private V1 fallback cache at `${candidate}`')
+		}
+		entry := open_tool_cache_entry_dir(candidate) or {
+			return error('refusing unsafe V1 fallback cache path `${candidate}`: ${err}')
+		}
+		defer { entry.close() }
+		if !tool_cache_root_can_stage(candidate) {
+			return error('refusing unsafe V1 fallback cache path `${candidate}`: expected a private user-owned directory')
 		}
 		return candidate
 	}

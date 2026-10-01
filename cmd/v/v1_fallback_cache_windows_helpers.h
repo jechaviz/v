@@ -55,7 +55,7 @@ static int v1_fallback_create_private_directory(const unsigned short *path) {
     attributes.lpSecurityDescriptor = &descriptor;
     attributes.bInheritHandle = FALSE;
     result = CreateDirectoryW((LPCWSTR)path, &attributes) != 0;
-    if (!result && GetLastError() == ERROR_ALREADY_EXISTS) result = 1;
+    if (!result && GetLastError() == ERROR_ALREADY_EXISTS) result = 2;
 cleanup:
     free(acl);
     free(information);
