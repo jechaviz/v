@@ -944,6 +944,11 @@ fn v1_fallback_cache_parent() !string {
 	if home != '' {
 		return os.abs_path(os.join_path(home, '.cache', 'v', 'v1-fallback'))
 	}
+	$if windows {
+		if user_cache := v1_fallback_windows_user_cache_parent() {
+			return user_cache
+		}
+	}
 	return v1_fallback_private_temp_cache_parent(os.temp_dir())
 }
 

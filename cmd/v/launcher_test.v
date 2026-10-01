@@ -246,13 +246,16 @@ fn test_v1_fallback_cache_without_a_home_is_private() {
 	previous_cache := os.getenv_opt('V1_FALLBACK_CACHE_DIR')
 	previous_xdg := os.getenv_opt('XDG_CACHE_HOME')
 	previous_home := os.getenv_opt('HOME')
+	previous_local_app_data := os.getenv_opt('LOCALAPPDATA')
 	os.unsetenv('V1_FALLBACK_CACHE_DIR')
 	os.unsetenv('XDG_CACHE_HOME')
 	os.unsetenv('HOME')
+	os.unsetenv('LOCALAPPDATA')
 	defer {
 		restore_environment('V1_FALLBACK_CACHE_DIR', previous_cache)
 		restore_environment('XDG_CACHE_HOME', previous_xdg)
 		restore_environment('HOME', previous_home)
+		restore_environment('LOCALAPPDATA', previous_local_app_data)
 	}
 	first := v1_fallback_cache_parent()!
 	second := v1_fallback_cache_parent()!
@@ -264,7 +267,7 @@ fn test_v1_fallback_cache_without_a_home_is_private() {
 		assert first != second
 		assert os.is_dir(first)
 		assert os.is_dir(second)
-		windows_source := os.read_file(os.join_path(find_vroot(@FILE)!, 'cmd', 'v', 'v1_fallback_cache_windows.c.v'))!
+		windows_source := os.read_file(os.join_path(find_vroot(@FILE)?, 'cmd', 'v', 'v1_fallback_cache_windows.c.v'))!
 		assert windows_source.contains('rand.bytes(16)')
 		assert windows_source.contains('os.mkdir(candidate, mode: 0o700)')
 	} $else {
@@ -541,4 +544,36 @@ fn test_build_module_uses_the_compatibility_compilers_own_vlib() {
 		'build-module',
 		mymod,
 	]
+}
+
+fn test_windows_v1_fallback_user_cache_is_reused_without_home() {
+	$if windows {
+		keys := ['HOME', 'XDG_CACHE_HOME', 'V1_FALLBACK_CACHE_DIR', 'LOCALAPPDATA']
+		mut previous := map[string]string{}
+		mut present := []string{}
+		for key in keys {
+			if value := os.getenv_opt(key) {
+				previous[key] = value
+				present << key
+			}
+			os.unsetenv(key)
+		}
+		defer {
+			for key in keys {
+				if key in present { os.setenv(key, previous[key], true) } else { os.unsetenv(key) }
+			}
+		}
+		root := os.join_path(os.vtmp_dir(), 'v1_fallback_user_cache_${os.getpid()}')
+		os.mkdir_all(root)!
+		os.setenv('LOCALAPPDATA', root, true)
+		first := v1_fallback_cache_parent()!
+		second := v1_fallback_cache_parent()!
+		assert first == second
+		assert first == os.abs_path(os.join_path(root, 'v', 'v1-fallback-private'))
+		assert tool_cache_root_can_stage(first)
+		assert !os.is_link(first)
+		os.setenv('LOCALAPPDATA', os.join_path(root, 'not_a_directory'), true)
+		os.write_file(os.getenv('LOCALAPPDATA'), 'file')!
+		assert v1_fallback_windows_user_cache_parent() == none
+	}
 }
