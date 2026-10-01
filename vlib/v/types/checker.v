@@ -17267,7 +17267,14 @@ fn (mut tc TypeChecker) check_comptime_for_source_type(id flat.NodeId, node flat
 
 fn (mut tc TypeChecker) check_comptime_for_source_types_preflight() {
 	for index in tc.preflight_nodes(.comptime_for) {
-		tc.check_comptime_for_source_type(flat.NodeId(index), tc.a.nodes[index])
+		node := tc.a.nodes[index]
+		// Value sources need the enclosing function's scope and selected comptime
+		// branch. Validate them during check_comptime_for_members instead of
+		// parsing a parameter name as a type before those scopes exist.
+		if !tc.type_name_known(node.typ) {
+			continue
+		}
+		tc.check_comptime_for_source_type(flat.NodeId(index), node)
 	}
 }
 

@@ -1,0 +1,56 @@
+import factory
+import json2
+
+struct Item {
+	ask    f64
+	bid    f64
+	symbol string
+}
+
+struct Input {
+mut:
+	items    []Item
+	counts   map[string]int
+	mode     string = 'plan'
+	imported factory.Input
+}
+
+struct FixedInput {
+mut:
+	items    []Item
+	counts   map[string]int
+	fixed    [2]int
+	imported factory.FixedInput
+}
+
+fn main() {
+	mut val := factory.make[Input]()
+	val.items << Item{ ask: 5.0, bid: 4.99, symbol: 'ABC' }
+	assert val.items[0].ask == 5.0
+	assert val.items[0].bid == 4.99
+	assert val.items[0].symbol == 'ABC'
+	val.counts['ok'] = 7
+	assert val.counts['ok'] == 7
+	println('generic_value_ok')
+	mut ptr := factory.make_heap[Input]()
+	ptr.items << Item{ ask: 9.0, bid: 8.9, symbol: 'XYZ' }
+	assert ptr.items[0].ask == 9.0
+	assert ptr.items[0].symbol == 'XYZ'
+	println('generic_heap_ok')
+	mut fixed := factory.make_fixed[FixedInput]()
+	fixed.items << Item{ ask: 7.0, bid: 6.9, symbol: 'FIX' }
+	fixed.counts['yes'] = 3
+	assert fixed.items[0].ask == 7.0
+	assert fixed.items[0].symbol == 'FIX'
+	assert fixed.counts['yes'] == 3
+	assert fixed.fixed == [11, 22]!
+	println('generic_fixed_ok')
+	decoded := json2.decode[Input]('{"items":[{"ask":3.5,"bid":3.4,"symbol":"JSON"}],"counts":{"seen":4}}')!
+	assert decoded.items.len == 1
+	assert decoded.items[0].ask == 3.5
+	assert decoded.items[0].bid == 3.4
+	assert decoded.items[0].symbol == 'JSON'
+	assert decoded.counts['seen'] == 4
+	assert decoded.mode == 'plan'
+	println('generic_json_ok')
+}

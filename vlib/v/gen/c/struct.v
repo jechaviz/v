@@ -995,9 +995,11 @@ fn (mut g FlatGen) gen_struct_init(id flat.NodeId) {
 		has_field = g.gen_promoted_struct_defaults(promoted.root_type, c_field_name(promoted.root), mut promoted_set_fields, has_field)
 	}
 	has_field = g.gen_struct_default_fields(sname, mut set_fields, has_field)
-	defaults_key := if lookup_name in g.tc.structs { lookup_name } else { sname }
-	if defaults_key in g.tc.structs {
-		for f in g.tc.structs[defaults_key] {
+	defaults_key := lookup_name
+	// A main-qualified key is intentionally preserved even though its checked
+	// fields are bare-keyed. Resolve it through the declaration-aware lookup.
+	if fields := g.struct_fields_for_type(defaults_key) {
+		for f in fields {
 			if f.name in set_fields {
 				continue
 			}
@@ -1406,9 +1408,11 @@ fn (mut g FlatGen) gen_struct_init_with_fixed_array_fields_impl(node flat.Node, 
 	// produce `.id = (u64[4]){...}`, a compound literal that decays to a pointer.
 	mut deferred_fixed_defaults := []DeferredFixedArrayDefault{}
 	has_field = g.gen_struct_default_fields_deferring_fixed_arrays(sname, mut set_fields, has_field, true, mut deferred_fixed_defaults)
-	defaults_key := if lookup_name in g.tc.structs { lookup_name } else { sname }
-	if defaults_key in g.tc.structs {
-		for f in g.tc.structs[defaults_key] {
+	defaults_key := lookup_name
+	// A main-qualified key is intentionally preserved even though its checked
+	// fields are bare-keyed. Resolve it through the declaration-aware lookup.
+	if fields := g.struct_fields_for_type(defaults_key) {
+		for f in fields {
 			if f.name in set_fields {
 				continue
 			}
@@ -2010,14 +2014,12 @@ fn (mut g FlatGen) gen_heap_struct_init(node flat.Node) {
 		has_field = g.gen_promoted_struct_defaults(promoted.root_type, c_field_name(promoted.root), mut promoted_set_fields, has_field)
 	}
 	has_field = g.gen_struct_default_fields(sname, mut set_fields, has_field)
-	resolved_defaults_key := if info := g.find_struct_decl(sname) { info.full_name } else { sname }
-	defaults_key := if lookup_name in g.tc.structs {
-		lookup_name
-	} else {
-		resolved_defaults_key
-	}
-	if defaults_key in g.tc.structs {
-		for f in g.tc.structs[defaults_key] {
+	// Keep a main-module lock on the lookup key while resolving its checked fields.
+	defaults_key := lookup_name
+	// A main-qualified key is intentionally preserved even though its checked
+	// fields are bare-keyed. Resolve it through the declaration-aware lookup.
+	if fields := g.struct_fields_for_type(defaults_key) {
+		for f in fields {
 			if f.name in set_fields {
 				continue
 			}
