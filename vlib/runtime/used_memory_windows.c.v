@@ -6,7 +6,7 @@ module runtime
 // Windows 7+ exports K32GetProcessMemoryInfo from kernel32.dll, so avoid
 // depending on psapi.lib during bootstrap builds.
 @[typedef]
-struct C.PROCESS_MEMORY_COUNTERS {
+pub struct C.PROCESS_MEMORY_COUNTERS {
 	cb                         u32
 	PageFaultCount             u32
 	PeakWorkingSetSize         usize

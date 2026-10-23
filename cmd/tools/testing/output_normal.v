@@ -31,8 +31,8 @@ mut:
 	//
 	running   map[string]LogMessage
 	compiling map[string]LogMessage
-	rtimes    []TaskDuration
-	ctimes    []TaskDuration
+	rtimes    shared []TaskDuration
+	ctimes    shared []TaskDuration
 	active_mu &sync.RwMutex = sync.new_rwmutex()
 }
 
@@ -86,15 +86,23 @@ fn (r &NormalReporter) show_longest(label string, limit int, kind TaskKind) {
 	mut tasks := []TaskDuration{cap: r.nfiles}
 	match kind {
 		.comptime {
-			tasks << r.ctimes
+			rlock r.ctimes {
+				tasks << r.ctimes
+			}
 		}
 		.runtime {
-			tasks << r.rtimes
+			rlock r.rtimes {
+				tasks << r.rtimes
+			}
 		}
 		.totaltime {
 			mut tall := []TaskDuration{}
-			tall << r.rtimes
-			tall << r.ctimes
+			rlock r.rtimes {
+				tall << r.rtimes
+			}
+			rlock r.ctimes {
+				tall << r.ctimes
+			}
 			mut mall := map[string]TaskDuration{}
 			for task in tall {
 				if current := mall[task.path] {

@@ -10,6 +10,7 @@ import sync
 import sync.pool
 import v.pref
 import v.util
+import v.util.vflags
 import v.scanner
 import v.token
 import v.util.vtest

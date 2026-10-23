@@ -16,7 +16,7 @@ const job_object_limit_job_memory = 0x00000200
 const job_object_limit_kill_on_job_close = 0x00002000
 
 @[typedef]
-struct C.PROCESS_MEMORY_COUNTERS {
+pub struct C.PROCESS_MEMORY_COUNTERS {
 	cb                         u32
 	PageFaultCount             u32
 	PeakWorkingSetSize         usize

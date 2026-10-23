@@ -7,7 +7,7 @@ $if windows {
 	#include <psapi.h>
 
 	@[typedef]
-	struct C.PROCESS_MEMORY_COUNTERS {
+	pub struct C.PROCESS_MEMORY_COUNTERS {
 		cb                         u32
 		PageFaultCount             u32
 		PeakWorkingSetSize         usize
