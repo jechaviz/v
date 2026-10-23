@@ -26,18 +26,14 @@ fn testsuite_end() {
 }
 
 fn test_server_compiles() {
-	compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(serverexe)} vlib/veb/tests/memory_leak_test_server.v'
-	did_compile := os.execute(compile_cmd)
-	assert did_compile.exit_code == 0, did_compile.exit_code_diagnostics('0',
-		label:   @FN
-		command: compile_cmd
-	)
-
+	did_compile :=
+		os.system_args([vexe, '-o', serverexe, 'vlib/veb/tests/memory_leak_test_server.v'])
+	assert did_compile == 0
 	assert os.exists(serverexe)
 }
 
 fn test_server_runs_in_background() {
-	spawn os.system('${os.quoted_path(serverexe)} ${sport} ${exit_after_time}')
+	spawn os.system_args([serverexe, '${sport}', '${exit_after_time}'])
 	for _ in 0 .. 50 {
 		resp := http.get('http://${localserver}/heap') or {
 			time.sleep(100 * time.millisecond)

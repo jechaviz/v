@@ -20,13 +20,9 @@ fn test_fasthttp_example_compiles() {
 	vroot := os.dir(vexe)
 
 	// Build the fasthttp example
-	build_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(fasthttp_example_exe)} ${os.join_path(vroot,
-		'examples', 'fasthttp')}'
-	build_result := os.execute(build_cmd)
-	assert build_result.exit_code == 0, build_result.exit_code_diagnostics('0',
-		label:   @FN
-		command: build_cmd
-	)
+	build_result := os.system_args([vexe, '-o', fasthttp_example_exe,
+		os.join_path(vroot, 'examples', 'fasthttp')])
+	assert build_result == 0, 'fasthttp example failed to compile'
 	assert os.exists(fasthttp_example_exe), 'fasthttp example binary not found after build'
 }
 

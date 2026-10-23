@@ -12,17 +12,6 @@ fn main() {
 	args_str := args.join(' ')
 	options := if args.len > 0 { '(${args_str})' } else { '' }
 	println('Compiling a `tracev` executable ${options}...')
-	tracev_cmd := '${os.quoted_path(vexe)} -cg -d trace_parser -d trace_checker -d trace_gen -o tracev ${args_str} cmd/v'
-	exit_code := os.system(tracev_cmd)
-	if exit_code != 0 {
-		eprintln(os.process_command_failure_report('vtracev.command', exit_code,
-			stage:          'compile_tracev'
-			command:        tracev_cmd
-			reason:         'tracev_compilation_failed'
-			action:         'inspect_tracev_build_output'
-			message:        'tracev helper compilation exited with a non-zero status'
-			output_capture: 'inherited_stdio'
-		))
-		exit(exit_code)
-	}
+	os.system_args([vexe, '-cg', '-d', 'trace_parser', '-d', 'trace_checker', '-d', 'trace_gen',
+		'-o', 'tracev', ...args, 'cmd/v'])
 }

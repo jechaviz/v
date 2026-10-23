@@ -2,6 +2,7 @@ module driver
 
 import os
 import v.cmdexec
+import v.pref
 
 fn v3_parallel_cc_test_compiler() string {
 	// The V1-hosted CI test binary records v1_fallback as @VEXE; use the shared V3 compiler there.
@@ -32,9 +33,104 @@ fn test_split_v3_parallel_c_source_uses_safe_unit_markers() {
 	assert units[1].contains('void second(void) {}')
 }
 
+fn test_v3_parallel_c_cache_source_identity_tracks_generated_content() {
+	cache_root := os.join_path(os.vtmp_dir(), 'parallel_cc_identity_test')
+	body := 'void body(void) {}\n'
+	first := v3_parallel_c_cached_source_path(cache_root, body, false)
+	assert first == v3_parallel_c_cached_source_path(cache_root, body, false)
+	assert first != v3_parallel_c_cached_source_path(cache_root, body + '// changed\n', false)
+	assert first != v3_parallel_c_cached_source_path(cache_root, body, true)
+}
+
+fn test_v3_parallel_c_cached_unit_includes_stable_header_path() {
+	header_path := '/cache/headers/shared.h'
+	body := 'void body(void) {}\n'
+	unit := v3_parallel_c_unit_source(header_path, body, false, false)
+	assert unit.contains('#include "${header_path}"')
+	assert unit.ends_with(body)
+	owner := v3_parallel_c_unit_source(header_path, body, true, false)
+	assert owner.contains('#define V_PARALLEL_CC_OUT_0 1')
+	assert !owner.contains('#include "${header_path}"')
+	assert !v3_parallel_c_unit_source('', body, false, false).contains('#include')
+}
+
+fn test_publish_v3_parallel_c_cache_object_copies_before_replacing() {
+	root := os.join_path(os.vtmp_dir(), 'parallel_cc_publish_test_${os.getpid()}')
+	os.rmdir_all(root) or {}
+	build_dir := os.join_path_single(root, 'build')
+	cache_dir := os.join_path_single(root, 'cache')
+	os.mkdir_all(build_dir)!
+	os.mkdir_all(cache_dir)!
+	defer {
+		os.rmdir_all(root) or {}
+	}
+	local_object := os.join_path_single(build_dir, 'unit.o')
+	cache_object := os.join_path_single(cache_dir, 'cached.o')
+	os.write_file(local_object, 'complete object')!
+	os.write_file(cache_object, 'old object')!
+	publish_v3_parallel_c_cache_object(local_object, cache_object)!
+	assert os.read_file(cache_object)! == 'complete object'
+	assert os.read_file(local_object)! == 'complete object'
+	assert os.ls(cache_dir)! == ['cached.o']
+}
+
 fn test_v3_parallel_cc_compiles_and_runs_multiple_c_units() {
 	$if bsd || linux {
 		root := os.join_path(os.vtmp_dir(), 'v3_parallel_cc_${os.getpid()}')
+		os.rmdir_all(root) or {}
+		os.mkdir_all(root)!
+		defer {
+			os.rmdir_all(root) or {}
+		}
+		source := os.join_path_single(root, 'main.v')
+		output := os.join_path_single(root, 'main')
+		// The runtime headers shipped with V do not keep a program in one unit.
+		os.write_file(source, 'fn twice(value int) int { return value * 2 }\nfn main() { println(twice(21)) }\n')!
+		build := cmdexec.run(v3_parallel_cc_test_compiler(), ['-parallel-cc', '-cc', 'cc', '-nocache',
+			'-showcc', '-o', output, source])
+		assert build.exit_code == 0, build.output
+		assert build.output.contains('unit_0.c'), build.output
+		assert build.output.contains('unit_1.c'), build.output
+		run_result := cmdexec.run(output, [])
+		assert run_result.exit_code == 0, run_result.output
+		assert run_result.output.trim_space() == '42'
+	}
+}
+
+fn test_v3_parallel_cc_compiles_and_runs_a_split_c_fixture() {
+	$if bsd || linux {
+		root := os.join_path(os.vtmp_dir(), 'v3_parallel_cc_fixture_${os.getpid()}')
+		os.rmdir_all(root) or {}
+		os.mkdir_all(root)!
+		defer {
+			os.rmdir_all(root) or {}
+		}
+		source := os.join_path_single(root, 'main.c')
+		build_dir := os.join_path_single(root, 'build')
+		os.mkdir_all(build_dir)!
+		output := os.join_path_single(root, 'main')
+		// Keep this fixture independent of native includes in the V runtime.
+		os.write_file(source, '#include <stdio.h>\nint value(void);\nint twice(int value);\n/* V3CACHE_BODY_BEGIN */\n/* V3PARALLEL_CC_UNIT */\nint value(void) { return 21; }\n/* V3PARALLEL_CC_UNIT */\nint twice(int value) { return value * 2; }\nint main(void) { printf("%d\\n", twice(value())); return 0; }\n/* V3CACHE_BODY_END */\n')!
+		plan := V3CCompilerFlagPlan{
+			before_inputs: ['-std=gnu11', '-fPIC']
+		}
+		mut stats := CObjectCacheStats{}
+		build := compile_v3_parallel_c(source, 'cc', &plan, &plan, []string{}, []string{}, '',
+			false, build_dir, output, false, 2, 2, false, false, pref.host_target(), @VEXEROOT, mut
+			stats)
+		assert build.exit_code == 0, build.output
+		assert os.is_file(os.join_path(build_dir, 'unit_0.c'))
+		assert os.is_file(os.join_path(build_dir, 'unit_1.c'))
+		assert os.is_file(os.join_path(build_dir, 'unit_2.c'))
+		run_result := cmdexec.run(output, [])
+		assert run_result.exit_code == 0, run_result.output
+		assert run_result.output.trim_space() == '42'
+	}
+}
+
+fn test_v3_parallel_cc_falls_back_for_uninspected_insert() {
+	$if bsd || linux {
+		root := os.join_path(os.vtmp_dir(), 'v3_parallel_cc_insert_${os.getpid()}')
 		os.rmdir_all(root) or {}
 		os.mkdir_all(root)!
 		defer {
@@ -48,8 +144,8 @@ fn test_v3_parallel_cc_compiles_and_runs_multiple_c_units() {
 		build := cmdexec.run(v3_parallel_cc_test_compiler(), ['-parallel-cc', '-cc', 'cc', '-nocache',
 			'-showcc', '-o', output, source])
 		assert build.exit_code == 0, build.output
-		assert build.output.contains('unit_0.c')
-		assert build.output.contains('unit_1.c')
+		assert !build.output.contains('unit_0.c'), build.output
+		assert build.output.contains('src.c'), build.output
 		run_result := cmdexec.run(output, [])
 		assert run_result.exit_code == 0, run_result.output
 		assert run_result.output.trim_space() == '42'
@@ -95,7 +191,8 @@ fn test_v3_parallel_cc_does_not_shadow_user_parallel_header() {
 		build := cmdexec.run(v3_parallel_cc_test_compiler(), ['-parallel-cc', '-cc', 'cc', '-nocache',
 			'-showcc', '-o', output, source])
 		assert build.exit_code == 0, build.output
-		assert build.output.contains('unit_0.c')
+		assert !build.output.contains('unit_0.c'), build.output
+		assert build.output.contains('src.c'), build.output
 		run_result := cmdexec.run(output, [])
 		assert run_result.exit_code == 0, run_result.output
 		assert run_result.output.trim_space() == '42'

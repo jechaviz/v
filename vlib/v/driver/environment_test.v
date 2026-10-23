@@ -4,6 +4,7 @@ import os
 import crypto.sha256
 import v.ansi
 import v.flat
+import v.gen.c as cgen
 import v.parser
 import v.pref
 import v.types
@@ -49,6 +50,7 @@ fn test_self_build_current_hash_is_empty_without_git_metadata() {
 fn test_v3_parallel_c_job_count() {
 	// A developer may export V3_PARALLEL_CC_JOBS globally; the default-cap
 	// assertions below must not see it.
+	assert v3_parallel_cc_max_jobs == 8
 	name := 'V3_PARALLEL_CC_JOBS'
 	old_value := os.getenv(name)
 	was_set := name in os.environ()
@@ -57,8 +59,8 @@ fn test_v3_parallel_c_job_count() {
 	}
 	os.unsetenv(name)
 	assert v3_parallel_c_job_count(0, false, false, false) == 1
-	assert v3_parallel_c_job_count(8, false, false, false) == v3_parallel_cc_max_jobs
-	assert v3_parallel_c_job_count(8, true, false, false) == v3_parallel_cc_max_jobs
+	assert v3_parallel_c_job_count(24, false, false, false) == v3_parallel_cc_max_jobs
+	assert v3_parallel_c_job_count(24, true, false, false) == v3_parallel_cc_max_jobs
 	assert v3_parallel_c_job_count(16, true, true, false) == v3_parallel_cc_max_jobs
 	assert v3_parallel_c_job_count(1, true, true, true) == 1
 	assert v3_parallel_c_job_count(4, true, true, true) == 4
@@ -72,9 +74,10 @@ fn test_v3_parallel_c_job_count_env_override_only_raises_the_cap() {
 	defer {
 		restore_driver_environment(name, old_value, was_set)
 	}
-	os.setenv(name, '8', true)
-	assert v3_parallel_c_job_count(24, false, false, false) == 8
+	os.setenv(name, '16', true)
+	assert v3_parallel_c_job_count(24, false, false, false) == 16
 	// Still bounded by the jobs actually available.
+	assert v3_parallel_c_job_count(12, false, false, false) == 12
 	assert v3_parallel_c_job_count(3, false, false, false) == 3
 	// A value below the default cap does not lower it.
 	os.setenv(name, '1', true)
@@ -87,10 +90,15 @@ fn test_v3_parallel_c_job_count_env_override_only_raises_the_cap() {
 }
 
 fn test_v3_parallel_c_unit_count() {
-	assert v3_parallel_c_unit_count(2, false, false) == 2 * v3_parallel_cc_units_per_job
-	assert v3_parallel_c_unit_count(2, true, false) == 2 * v3_parallel_cc_units_per_job
-	assert v3_parallel_c_unit_count(2, true, true) == bsd_selfhost_parallel_cc_unit_count
-	assert v3_parallel_c_unit_count(8, true, true) == bsd_selfhost_parallel_cc_unit_count
+	assert v3_parallel_c_unit_count(2, false, false, false, false) == 2 * v3_parallel_cc_units_per_job
+	assert v3_parallel_c_unit_count(2, true, false, true, false) == 2 * v3_parallel_cc_units_per_job
+	assert v3_parallel_c_unit_count(2, true, true, false, false) == 2 * v3_parallel_cc_units_per_job
+	assert v3_parallel_c_unit_count(2, true, true, true, false) == 2
+	assert v3_parallel_c_unit_count(2, true, true, true, true) == bsd_selfhost_parallel_cc_unit_count
+	assert v3_parallel_c_unit_count(4, true, true, true, false) == 4
+	assert v3_parallel_c_unit_count(4, true, true, true, true) == bsd_selfhost_parallel_cc_unit_count
+	assert v3_parallel_c_unit_count(8, true, true, true, false) == 8
+	assert v3_parallel_c_unit_count(8, true, true, true, true) == bsd_selfhost_parallel_cc_unit_count
 }
 
 fn test_v3_large_prod_c_unit_uses_the_compiled_unit_size() {
@@ -200,6 +208,28 @@ fn test_single_moduleless_test_keeps_an_unresolvable_same_dir_fixture_module() {
 	prefs.vroot = os.join_path(root, 'toolchain')
 	mut a := flat.FlatAst.new()
 	assert same_dir_module_source_files(mut a, test_file, '', prefs) == [module_file]
+}
+
+fn test_single_moduleless_test_keeps_a_keyword_same_dir_fixture_module() {
+	root := os.join_path(os.temp_dir(), 'v3_same_dir_keyword_fixture_${os.getpid()}')
+	os.rmdir_all(root) or {}
+	os.mkdir_all(root)!
+	defer {
+		os.rmdir_all(root) or {}
+	}
+	test_file := os.join_path(root, 'fixture_test.v')
+	module_file := os.join_path(root, 'helper.v')
+	os.write_file(test_file, 'import type\n\nfn test_helper() {}\n')!
+	os.write_file(module_file, 'module type\n\npub fn value() int { return 1 }\n')!
+	mut prefs := pref.new_preferences()
+	prefs.vroot = os.join_path(root, 'toolchain')
+	mut a := flat.FlatAst.new()
+	assert same_dir_module_source_files(mut a, test_file, '', prefs) == [module_file]
+
+	mut imports := []string{}
+	append_declared_import(mut imports, 'outer.type')
+	append_declared_import(mut imports, 'outer.type { value }')
+	assert imports == ['outer.type']
 }
 
 fn test_main_module_test_includes_an_implicit_main_source() {
@@ -320,7 +350,7 @@ fn test_macos_v3_fallback_report_sources_keep_parser_digests() {
 		os.real_path(warmup_source): sha256.hexhash(warmup_source_text)
 	}, {
 		os.real_path(warmup_source): true
-	})
+	}, true)
 	real_path := os.real_path(path)
 	assert sources[real_path] == sha256.hexhash(parsed_source)
 	assert sources[real_path] != sha256.hexhash(os.read_file(path)!)
@@ -385,19 +415,6 @@ fn test_macos_v3_fallback_report_inputs_snapshot_native_dependencies() {
 	assert inputs['${v3_fallback_native_input_prefix}${header_path}'] == header_digest
 	assert inputs['${v3_fallback_native_input_prefix}${source_path}'] == source_digest
 	assert inputs['${v3_fallback_native_input_prefix}${header_path}'] != sha256.hexhash(os.read_file(header_path)!)
-}
-
-fn test_should_overlap_v3_native_inputs() {
-	// Large user builds without native typedefs can hide native-input discovery
-	// behind declaration collection.
-	assert should_overlap_v3_native_inputs('c', false, false, false, false, true)
-	// Self-hosting retains its existing overlap when native inputs are needed.
-	assert should_overlap_v3_native_inputs('c', false, false, true, true, false)
-	assert !should_overlap_v3_native_inputs('c', false, false, true, false, true)
-	assert !should_overlap_v3_native_inputs('c', false, false, false, false, false)
-	assert !should_overlap_v3_native_inputs('c', true, false, false, false, true)
-	assert !should_overlap_v3_native_inputs('c', false, true, false, false, true)
-	assert !should_overlap_v3_native_inputs('wasm', false, false, false, false, true)
 }
 
 fn test_v3_fallback_ignores_only_warmup_only_module_sources() {
@@ -471,11 +488,11 @@ fn test_wayland_gg_precheck_inspects_parsed_imports_in_every_user_file() {
 	prefs := pref.new_preferences()
 	mut p := parser.Parser.new(prefs)
 	mut a := p.parse_files([comment_file, string_file, gg_file, sapp_file])
-	assert !parsed_files_import_linux_gg(a, [comment_file, string_file])
+	assert !parsed_files_import_linux_gg(mut a, [comment_file, string_file])
 	directory_files := v3_directory_user_files(mut a, root, prefs, false, false)!
 	assert directory_files.len == 4
-	assert parsed_files_import_linux_gg(a, directory_files)
-	assert parsed_files_import_linux_gg(a, [sapp_file])
+	assert parsed_files_import_linux_gg(mut a, directory_files)
+	assert parsed_files_import_linux_gg(mut a, [sapp_file])
 }
 
 fn test_linux_wayland_only_session_matches_established_compiler_detection() {
@@ -538,6 +555,25 @@ fn test_v3_test_standard_dependency_probes_match_test_runner() {
 	assert go_probe.command == 'go'
 	assert go_probe.args == ['version']
 	assert go_probe.pkgconfig_name == ''
+}
+
+fn test_v3_test_started_redis_accepts_an_unrewritten_process_title() {
+	// `set-proc-title no` keeps the original command line, which does not show the port.
+	assert v3_test_process_line_is_server('started_redis', ' 1234 ?        Ssl    0:10 redis-server /tmp/redis.conf')
+	assert v3_test_process_line_is_server('started_redis', ' 1234 ?        Ssl    0:10 redis-server *:6379')
+}
+
+fn test_v3_test_started_redis_matches_the_whole_port() {
+	assert !v3_test_process_line_is_server('started_redis', ' 1234 ?        Ssl    0:10 redis-server *:63790')
+	assert !v3_test_process_line_is_server('started_redis', ' 1234 ?        Ssl    0:10 redis-server 127.0.0.1:54321')
+}
+
+fn test_v3_test_started_defines_match_their_process_names() {
+	assert v3_test_process_line_is_server('started_mysqld', ' 1234 ?        Ssl    0:10 /usr/sbin/mysqld')
+	assert v3_test_process_line_is_server('started_postgres', ' 1234 ?        Ss     0:10 postgres -D /var/lib/postgres')
+	assert v3_test_process_line_is_server('started_mssql', ' 1234 ?        Ssl    0:10 /opt/mssql/bin/sqlservr')
+	assert !v3_test_process_line_is_server('started_mysqld', ' 1234 ?        Ssl    0:10 redis-server *:6379')
+	assert !v3_test_process_line_is_server('started_unknown', ' 1234 ?        Ssl    0:10 redis-server *:6379')
 }
 
 fn test_v3_test_build_defines_populates_referenced_standard_dependencies() {
@@ -673,4 +709,85 @@ fn test_clone_after_transform_keeps_the_frozen_source_path_table() {
 	cloned := clone_flat_ast_after_transform(&a)
 	assert cloned.source_paths_frozen
 	assert cloned.real_source_path('written.v') == 'recorded.v'
+}
+
+fn test_clone_after_transform_keeps_cached_vlib_flag_ownership() {
+	header := os.join_path(os.vtmp_dir(), 'cache', 'builtin.vh')
+	source := os.join_path(@VEXEROOT, 'vlib', 'builtin', 'segfault_handler_nix.c.v')
+	mut a := flat.FlatAst.new()
+	a.cached_header_sources[header] = source
+	a.add_node(flat.Node{ kind: .file, value: header })
+	a.add_node(flat.Node{ kind: .module_decl, value: 'builtin' })
+	a.add_node(flat.Node{ kind: .directive, value: 'flag', typ: flat.source_type_id('@VEXEROOT/vlib/builtin/segfault_handler_nix.o') })
+	cloned := clone_flat_ast_after_transform(&a)
+	// Changing the original map must not reclassify the clone's vlib directive.
+	a.cached_header_sources[header] = os.join_path(os.vtmp_dir(), 'project', 'main.v')
+	assert cloned.cached_header_sources[header] == source
+	flags := cgen.cache_project_flag_groups(cloned, @VEXEROOT, pref.host_target(),
+		map[string]string{}, map[string]bool{})
+	assert flags == []
+}
+
+fn test_scoped_type_metadata_preserves_generic_interface_parameters() {
+	$if !prealloc {
+		return
+	}
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	tc.interface_names['Store'] = true
+	tc.fn_ret_types['Store[T].get'] = types.Type(types.int_)
+	scope := prealloc_scope_begin_for_v3()
+	tc.interface_generic_params['Store'.clone()] = ['T'.clone()]
+	prealloc_scope_leave_for_v3(scope)
+	promote_scoped_type_metadata(mut tc)
+	params := tc.interface_generic_params['Store']
+	assert !scoped_value_owned(scope, params.data)
+	assert !scoped_value_owned(scope, params[0].str)
+	prealloc_scope_free_for_v3(scope)
+	key := tc.interface_method_signature_key(flat.source_type_id('Store'), 'get') or { panic('missing interface method') }
+	assert key == 'Store[T].get'
+}
+
+fn test_translated_module_attributes_are_detected_for_prefix_regeneration() {
+	mut a := flat.FlatAst.new()
+	id := a.add_node(flat.Node{ kind: .module_decl, value: 'main' })
+	assert !program_has_translated_module_attributes(&a)
+	a.add_node(flat.Node{
+		kind:    .directive
+		value:   '@attributes:${int(id)}'
+		payload: flat.node_payload(['translated'])
+	})
+	assert program_has_translated_module_attributes(&a)
+}
+
+fn test_scoped_ast_storage_copy_preserves_persistent_text_and_promotes_retiring_payloads() {
+	$if !prealloc {
+		return
+	}
+	mut a := flat.FlatAst.new()
+	_, canonical := a.intern_text('persistent value')
+	a.add_node(flat.Node{ kind: .ident, value: canonical })
+	persistent_ptr := usize(voidptr(a.nodes[0].value.str))
+	constraints := ['persistent constraint'.clone()]
+	scope := prealloc_scope_begin_for_v3()
+	value := 'retiring value'.clone()
+	typ := 'retiring type'.clone()
+	param := 'retiring parameter'.clone()
+	mut generated := flat.Node{ kind: .fn_decl, value: value, typ: flat.source_type_id(typ) }
+	generated.set_generic_params_and_constraints([param], constraints)
+	a.nodes << generated
+	prealloc_scope_leave_for_v3(scope)
+	cloned := clone_flat_ast_after_transform_from_scope(&a, scope)
+	assert usize(voidptr(cloned.nodes[0].value.str)) == persistent_ptr
+	assert !scoped_value_owned(scope, cloned.nodes.data)
+	assert !scoped_value_owned(scope, cloned.nodes[1].value.str)
+	assert !scoped_value_owned(scope, cloned.nodes[1].typ_text().str)
+	assert !scoped_value_owned(scope, cloned.nodes[1].payload_ptr())
+	assert !scoped_value_owned(scope, cloned.nodes[1].generic_params().data)
+	assert !scoped_value_owned(scope, cloned.nodes[1].generic_params()[0].str)
+	prealloc_scope_free_for_v3(scope)
+	assert cloned.nodes[1].value == 'retiring value'
+	assert cloned.nodes[1].typ_text() == 'retiring type'
+	assert cloned.nodes[1].generic_params() == ['retiring parameter']
+	assert cloned.nodes[1].generic_constraints() == constraints
 }

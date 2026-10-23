@@ -57,6 +57,11 @@ the generator must implement the `PRNG` interface. See `get_current_rng()` and `
 There are only a few extra functions that are defined only in this top-level `rand` module.
 Otherwise, there is feature parity between the generator functions and the top-level functions.
 
+`uuid_v7()` and `UUIDSession.next()` encode Unix milliseconds in the 48-bit timestamp
+field required by [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html#section-5.7).
+Sessions use the 12-bit `rand_a` field for a 6-bit submillisecond fraction and
+a 6-bit counter that wraps after 64 calls; random bits come from the default PRNG.
+
 # General Background
 
 A PRNG is a Pseudo Random Number Generator.
@@ -116,3 +121,15 @@ notation is used throughout the function documentation to denote what numbers ra
 
 An example of `[0, max)` thus denotes a range with all possible values
 between `0` and `max` **including** 0 but **excluding** `max`.
+
+## Zipf distribution
+
+`rand.zipf(s: 1.5, v: 1.0, n: 1000)!` draws a rank from `0` through `n - 1`,
+with probability proportional to `(v + rank)^(-s)`. The exponent `s` must be finite
+and positive; the finite offset `v` must be at least one, and `n` must be positive.
+Invalid configurations return an error. Reseeding reproduces the sequence.
+
+For repeated draws, construct `mut z := rng.new_zipf(s: 1.5, v: 1.0, n: 1000)!`
+and call `z.next()`. Construction stores an O(n) cumulative distribution;
+each draw uses O(log n) binary search. The convenience `rand.zipf` call constructs
+a new distribution for every draw.

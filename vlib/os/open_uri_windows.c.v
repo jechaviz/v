@@ -8,21 +8,17 @@ type ShellExecuteWin = fn (voidptr, &u16, &u16, &u16, &u16, int)
 pub fn open_uri(uri string) ! {
 	mut vopen_uri_cmd := getenv('VOPEN_URI_CMD')
 	if vopen_uri_cmd != '' {
-		cmd := '${vopen_uri_cmd} "${uri}"'
-		result := execute(cmd)
+		result := exec([...(split_args(vopen_uri_cmd)!), uri])
 		if result.exit_code != 0 {
-			return error(result.command_failure_report('os.open_uri',
-				reason:  'open_uri_command_failed'
-				action:  'inspect_command_and_open_uri_provider'
-				message: 'unable to open url'
-				command: cmd
-			))
+			return error('unable to open url: ${result.output}')
 		}
 		return
 	}
 	handle := dl.open_opt('shell32', dl.rtld_now)!
 	// https://docs.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew
 	func := ShellExecuteWin(dl.sym_opt(handle, 'ShellExecuteW')!)
+	// ShellExecuteW starts the handler program through CreateProcessW.
+	windows_avoid_long_temp_env()
 	// 1 is SW_SHOWNORMAL, but it avoids including winuser.h, and in turn windows.h, which conflicts with raylib
 	func(unsafe { nil }, 'open'.to_wide(), uri.to_wide(), unsafe { nil }, unsafe { nil }, 1)
 	dl.close(handle)

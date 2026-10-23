@@ -60,6 +60,7 @@ mut:
 	pos        int
 }
 
+@[heap]
 pub struct Server {
 pub:
 	family                  net.AddrFamily = .ip6
@@ -858,6 +859,7 @@ pub fn (mut server Server) run() ! {
 		return error('CreateIoCompletionPort failed with error ${C.GetLastError()}')
 	}
 
+	server.mark_starting()
 	for i := 0; i < max_thread_pool_size; i++ {
 		server.threads[i] = spawn process_iocp_events(server)
 	}

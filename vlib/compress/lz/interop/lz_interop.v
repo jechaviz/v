@@ -88,20 +88,16 @@ fn compile_c_runner() !string {
 	bin_path := os.join_path(os.temp_dir(), 'lz77_ref_bench')
 	c_src := os.join_path(@DIR, 'lz77_ref.c')
 	compile_cmd := '${cc} -O3 -std=c99 ${os.quoted_path(c_src)} -o ${os.quoted_path(bin_path)}'
-	compile_res := os.execute(compile_cmd)
+	compile_res := os.exec([cc, '-O3', '-std=c99', '${c_src}', '-o', bin_path])
 	if compile_res.exit_code != 0 {
-		return error(compile_res.command_failure_report('lz_interop.command',
-			reason:  'c_runner_compile_failed'
-			action:  'inspect_c_compiler_output'
-			command: compile_cmd
-		))
+		return error('C compile failed: ${compile_res.output.trim_space()}')
 	}
 	return bin_path
 }
 
 fn choose_cc() string {
 	for cc in ['cc', 'gcc', 'clang'] {
-		if os.execute('${cc} --version').exit_code == 0 {
+		if os.exec([cc, '--version']).exit_code == 0 {
 			return cc
 		}
 	}
@@ -109,7 +105,7 @@ fn choose_cc() string {
 }
 
 fn has_python3() bool {
-	return os.execute('python3 --version').exit_code == 0
+	return os.exec(['python3', '--version']).exit_code == 0
 }
 
 fn cross_validate_v_c(c_bin string, original []u8, input_path string, tmp_dir string) ! {
@@ -120,25 +116,17 @@ fn cross_validate_v_c(c_bin string, original []u8, input_path string, tmp_dir st
 	v_stream := lz.compress_lz77(original)!
 	os.write_file_array(v_encoded, v_stream)!
 
-	mut cmd := '${os.quoted_path(c_bin)} decompress ${os.quoted_path(v_encoded)} ${os.quoted_path(c_decoded)}'
-	mut res := os.execute(cmd)
+	mut res :=
+		os.exec([c_bin, 'decompress', '${v_encoded}', '${c_decoded}'])
 	if res.exit_code != 0 {
-		return error(res.command_failure_report('lz_interop.command',
-			reason:  'c_decompress_failed'
-			action:  'inspect_c_runner_output'
-			command: cmd
-		))
+		return error('C decompress(V output) failed: ${res.output.trim_space()}')
 	}
 	validate_equal_files(input_path, c_decoded, 'V->C')!
 
-	cmd = '${os.quoted_path(c_bin)} compress ${os.quoted_path(input_path)} ${os.quoted_path(c_encoded)}'
-	res = os.execute(cmd)
+	res =
+		os.exec([c_bin, 'compress', input_path, '${c_encoded}'])
 	if res.exit_code != 0 {
-		return error(res.command_failure_report('lz_interop.command',
-			reason:  'c_compress_failed'
-			action:  'inspect_c_runner_output'
-			command: cmd
-		))
+		return error('C compress failed: ${res.output.trim_space()}')
 	}
 	c_encoded_data := os.read_bytes(c_encoded)!
 	v_decoded := lz.decompress_lz77(c_encoded_data)!
@@ -156,25 +144,17 @@ fn cross_validate_v_python(original []u8, input_path string, tmp_dir string) ! {
 	v_stream := lz.compress_lz77(original)!
 	os.write_file_array(v_encoded, v_stream)!
 
-	mut cmd := 'python3 ${os.quoted_path(py_script)} decompress ${os.quoted_path(v_encoded)} ${os.quoted_path(py_decoded)}'
-	mut res := os.execute(cmd)
+	mut res :=
+		os.exec(['python3', '${py_script}', 'decompress', '${v_encoded}', '${py_decoded}'])
 	if res.exit_code != 0 {
-		return error(res.command_failure_report('lz_interop.command',
-			reason:  'python_decompress_failed'
-			action:  'inspect_python_runner_output'
-			command: cmd
-		))
+		return error('Python decompress(V output) failed: ${res.output.trim_space()}')
 	}
 	validate_equal_files(input_path, py_decoded, 'V->Python')!
 
-	cmd = 'python3 ${os.quoted_path(py_script)} compress ${os.quoted_path(input_path)} ${os.quoted_path(py_encoded)}'
-	res = os.execute(cmd)
+	res =
+		os.exec(['python3', '${py_script}', 'compress', input_path, '${py_encoded}'])
 	if res.exit_code != 0 {
-		return error(res.command_failure_report('lz_interop.command',
-			reason:  'python_compress_failed'
-			action:  'inspect_python_runner_output'
-			command: cmd
-		))
+		return error('Python compress failed: ${res.output.trim_space()}')
 	}
 	py_encoded_data := os.read_bytes(py_encoded)!
 	v_decoded := lz.decompress_lz77(py_encoded_data)!

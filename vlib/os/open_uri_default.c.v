@@ -24,14 +24,8 @@ pub fn open_uri(uri string) ! {
 	if vopen_uri_cmd == '' {
 		return error('unsupported platform')
 	}
-	cmd := '${vopen_uri_cmd} "${uri}"'
-	result := execute(cmd)
+	result := exec([...(split_args(vopen_uri_cmd)!), uri])
 	if result.exit_code != 0 {
-		return error(result.command_failure_report('os.open_uri',
-			reason:  'open_uri_command_failed'
-			action:  'inspect_command_and_open_uri_provider'
-			message: 'unable to open url'
-			command: cmd
-		))
+		return error('unable to open url: ${result.output}')
 	}
 }

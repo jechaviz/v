@@ -17,6 +17,9 @@ fn panic_debug(line_no int, file string, mod string, fn_name string, s string) {
 	// module is less likely to change than function, etc...
 	// During edits, the line number will change most frequently,
 	// so it is last
+	if g_panic_state.top != unsafe { nil } || g_panic_state.len > 0 {
+		panic_unwind(s, PanicDebugInfo{ line_no: line_no, file: file, mod: mod, fn_name: fn_name })
+	}
 	$if freestanding {
 		bare_panic(s)
 	} $else $if v2_native_windows_pe_minimal ? {
@@ -92,15 +95,19 @@ pub fn panic_result_not_set(s string) {
 
 // panic prints a nice error message, then exits the process with exit code of 1.
 // It also shows a backtrace on most platforms.
+// In a program that calls `recover()`, a panic first runs the pending `defer`
+// blocks up the stack, and one of them can stop it (see `recover`).
 @[noreturn]
 pub fn panic(s string) {
 	$if !freestanding {
-		// recoverable-panic hook: if inside a recover_call() guard, unwind to it with the
-		// message instead of aborting the whole process.
+		// Keep the allocation-safe recover_call path ahead of defer-based unwinding.
 		if C.v_recover_is_active() != 0 {
 			g_recover_msg = s
 			C.v_recover_longjmp()
 		}
+	}
+	if g_panic_state.top != unsafe { nil } || g_panic_state.len > 0 {
+		panic_unwind(s, PanicDebugInfo{})
 	}
 	// Note: be careful to not use string interpolation here:
 	$if freestanding {

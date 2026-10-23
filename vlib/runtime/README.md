@@ -7,3 +7,7 @@
 - total/free virtual memory or commit headroom, when the platform exposes it
 - whether the platform is little endian or big endian
 - etc.
+
+On FreeBSD, `used_memory()` reads current resident memory through `kern.proc.rlimit_usage`.
+It does not require `libprocstat`. It reports peak resident memory through `getrusage` on
+kernels without that interface and when compiled with TinyCC.

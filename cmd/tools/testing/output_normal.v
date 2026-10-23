@@ -5,6 +5,7 @@ import time
 import term
 import strings
 import runtime
+import sync
 
 pub const empty = term.header(' ', ' ')
 
@@ -28,10 +29,11 @@ mut:
 	nfiles   int
 	njobs    int
 	//
-	running   shared map[string]LogMessage
-	compiling shared map[string]LogMessage
-	rtimes    shared []TaskDuration
-	ctimes    shared []TaskDuration
+	running   map[string]LogMessage
+	compiling map[string]LogMessage
+	rtimes    []TaskDuration
+	ctimes    []TaskDuration
+	active_mu &sync.RwMutex = sync.new_rwmutex()
 }
 
 pub fn (mut r NormalReporter) session_start(message string, mut ts TestSession) {
@@ -55,12 +57,10 @@ fn (r &NormalReporter) report_current_running_and_compiling_status_periodically(
 		pi++
 		time.sleep(report_running_period_ms)
 		t := time.now()
-		rlock r.compiling {
-			ccompiling = r.compiling.clone()
-		}
-		rlock r.running {
-			crunning = r.running.clone()
-		}
+		r.active_mu.rlock()
+		ccompiling = r.compiling.clone()
+		crunning = r.running.clone()
+		r.active_mu.runlock()
 		ckeys := ccompiling.keys()
 		rkeys := crunning.keys()
 		sb.writeln('')
@@ -86,23 +86,15 @@ fn (r &NormalReporter) show_longest(label string, limit int, kind TaskKind) {
 	mut tasks := []TaskDuration{cap: r.nfiles}
 	match kind {
 		.comptime {
-			rlock r.ctimes {
-				tasks << r.ctimes
-			}
+			tasks << r.ctimes
 		}
 		.runtime {
-			rlock r.rtimes {
-				tasks << r.rtimes
-			}
+			tasks << r.rtimes
 		}
 		.totaltime {
 			mut tall := []TaskDuration{}
-			rlock r.rtimes {
-				tall << r.rtimes
-			}
-			rlock r.ctimes {
-				tall << r.ctimes
-			}
+			tall << r.rtimes
+			tall << r.ctimes
 			mut mall := map[string]TaskDuration{}
 			for task in tall {
 				if current := mall[task.path] {
@@ -150,18 +142,18 @@ pub fn (r &NormalReporter) session_stop(message string, mut ts TestSession) {
 pub fn (mut r NormalReporter) report(index int, message LogMessage) {
 	// eprintln('> ${@METHOD} index: ${index} | message: ${message}')
 	if message.kind == .compile_begin {
-		lock r.compiling {
-			r.compiling[message.file] = message
-		}
+		r.active_mu.lock()
+		r.compiling[message.file] = message
+		r.active_mu.unlock()
 	}
 	if message.kind == .compile_end {
 		mut compile_cmd := ''
-		lock r.compiling {
-			if start_message := r.compiling[message.file] {
-				compile_cmd = start_message.message
-			}
-			r.compiling.delete(message.file)
+		r.active_mu.lock()
+		if start_message := r.compiling[message.file] {
+			compile_cmd = start_message.message
 		}
+		r.compiling.delete(message.file)
+		r.active_mu.unlock()
 		r.comptime += message.took
 		lock r.ctimes {
 			r.ctimes << TaskDuration{
@@ -174,12 +166,12 @@ pub fn (mut r NormalReporter) report(index int, message LogMessage) {
 	}
 	if message.kind == .cmd_end {
 		mut run_cmd := ''
-		lock r.running {
-			if start_message := r.running[message.file] {
-				run_cmd = start_message.message
-			}
-			r.running.delete(message.file)
+		r.active_mu.lock()
+		if start_message := r.running[message.file] {
+			run_cmd = start_message.message
 		}
+		r.running.delete(message.file)
+		r.active_mu.unlock()
 		lock r.rtimes {
 			r.rtimes << TaskDuration{
 				path:     message.file
@@ -191,9 +183,9 @@ pub fn (mut r NormalReporter) report(index int, message LogMessage) {
 		r.runtime += message.took
 	}
 	if message.kind == .cmd_begin {
-		lock r.running {
-			r.running[message.file] = message
-		}
+		r.active_mu.lock()
+		r.running[message.file] = message
+		r.active_mu.unlock()
 	}
 }
 

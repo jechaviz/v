@@ -40,11 +40,7 @@ fn test_repl_keeps_time_assignments_stable_across_reads() {
 	output_raw := repl.stdout_slurp() + repl.stderr_slurp()
 	exit_code := repl.code
 	repl.close()
-	assert exit_code == 0, os.process_exit_code_diagnostics(exit_code, '0',
-		label:  @FN
-		output: output_raw
-	)
-
+	assert exit_code == 0, output_raw
 	output := output_raw.replace_each(['\r', '', '>>> ', '', '>>>', '', '... ', '',
 		temp_dir + os.path_separator, '', os.dir(vexec) + os.path_separator, '']).trim_right('\n\r')
 	lines := output.split_into_lines()
@@ -69,8 +65,8 @@ fn test_repl_bypasses_local_cmd_exe_on_windows() {
 		panic(err)
 	}
 	build_fake_cmd :=
-		os.execute('${os.quoted_path(vexec)} -o ${os.quoted_path(fake_cmd_exe)} ${os.quoted_path(fake_cmd_source)}')
-	assert build_fake_cmd.exit_code == 0, build_fake_cmd.exit_code_diagnostics('0', label: @FN)
+		os.exec([vexec, '-o', fake_cmd_exe, fake_cmd_source])
+	assert build_fake_cmd.exit_code == 0, build_fake_cmd.output
 	original_vexe := os.getenv('VEXE')
 	os.setenv('VEXE', vexec, true)
 	original_vflags := os.getenv('VFLAGS')
@@ -88,11 +84,7 @@ fn test_repl_bypasses_local_cmd_exe_on_windows() {
 	repl.wait()
 	output := repl.stdout_slurp() + repl.stderr_slurp()
 	repl.close()
-	assert repl.code == 0, os.process_exit_code_diagnostics(repl.code, '0',
-		label:  @FN
-		output: output
-	)
-
+	assert repl.code == 0, output
 	assert !output.contains('fake cmd invoked'), output
 	assert output.trim_space() == '2', output
 }

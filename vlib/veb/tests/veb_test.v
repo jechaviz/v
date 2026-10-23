@@ -28,36 +28,28 @@ fn testsuite_begin() {
 
 fn test_simple_veb_app_can_be_compiled() {
 	// did_server_compile := os.system('${os.quoted_path(vexe)} -g -o ${os.quoted_path(serverexe)} vlib/veb/tests/veb_test_server.v')
-	compile_cmd := '${os.quoted_path(vexe)} -o ${os.quoted_path(serverexe)} vlib/veb/tests/veb_test_server.v'
-	did_server_compile := os.execute(compile_cmd)
-	assert did_server_compile.exit_code == 0, did_server_compile.exit_code_diagnostics('0',
-		label:   @FN
-		command: compile_cmd
-	)
-
+	did_server_compile :=
+		os.system_args([vexe, '-o', serverexe, 'vlib/veb/tests/veb_test_server.v'])
+	assert did_server_compile == 0
 	assert os.exists(serverexe)
 }
 
 fn test_a_simple_veb_app_runs_in_the_background() {
-	mut suffix := ''
-	$if !windows {
-		suffix = ' > /dev/null &'
-	}
-	if veb_logfile != '' {
-		suffix = ' 2>> ${os.quoted_path(veb_logfile)} >> ${os.quoted_path(veb_logfile)} &'
-	}
-	server_exec_cmd := '${os.quoted_path(serverexe)} ${sport} ${exit_after_time} ${suffix}'
+	server_args := [serverexe, '${sport}', '${exit_after_time}']
 	$if debug_net_socket_client ? {
-		eprintln('running:\n${server_exec_cmd}')
+		eprintln('running:\n${server_args}')
 	}
 	$if windows {
-		spawn os.system(server_exec_cmd)
+		spawn os.system_args(server_args)
 	} $else {
-		res := os.system(server_exec_cmd)
-		assert res == 0, os.process_exit_code_diagnostics(res, '0',
-			label:   @FN
-			command: server_exec_cmd
-		)
+		// The shell starts the server in the background and returns at once.
+		script := if veb_logfile != '' {
+			'"\${1}" "\${2}" "\${3}" 2>> "\${4}" >> "\${4}" &'
+		} else {
+			'"\${1}" "\${2}" "\${3}" > /dev/null &'
+		}
+		res := os.system_args(['sh', '-c', script, 'v', ...server_args, veb_logfile])
+		assert res == 0
 	}
 	$if macos {
 		time.sleep(1000 * time.millisecond)

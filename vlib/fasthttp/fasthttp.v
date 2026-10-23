@@ -8,7 +8,7 @@ import net
 import time
 
 const max_thread_pool_size = runtime.nr_cpus()
-const max_connection_size = 65536 // Max events per epoll_wait
+const max_connection_size = 65536 // Listening backlog and connection capacity.
 const default_max_request_body_size = 64 * 1024 * 1024
 
 const tiny_bad_request_response = 'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'.bytes()
@@ -379,6 +379,15 @@ $if linux || bsd || windows {
 	fn (s &Server) is_stopped() bool {
 		mut stopped := s.stopped
 		return stopped.load()
+	}
+
+	// mark_starting marks the server live before its first worker starts. Workers
+	// serve requests as soon as they run, so a shutdown can arrive before run()
+	// reaches mark_running; it must not mistake that server for a stopped one and
+	// return without stopping it.
+	fn (mut s Server) mark_starting() {
+		mut stopped := s.stopped
+		stopped.store(false)
 	}
 
 	fn (mut s Server) mark_running() {

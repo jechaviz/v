@@ -25,6 +25,58 @@ fn span_text(src string, node flat.Node) string {
 	return src[node.pos.offset..node.pos.end]
 }
 
+fn test_enum_backing_storage_is_separate_from_attribute_metadata() {
+	ast, _ := parse_span_source('enum_backing_storage', 'enum Bare { one }
+@[json_as_number]
+enum Number as u64 { one }
+@[json_as_number]
+enum Marked { one }
+')
+	enums := ast.nodes.filter(it.kind == .enum_decl)
+	assert enums.len == 3
+	assert enums[0].enum_backing_type_id() == 0
+	assert enums[0].generic_params().len == 0
+	assert enums[1].enum_backing_type_id() == flat.source_type_u64
+	assert enums[1].generic_params() == ['json_as_number']
+	assert enums[2].enum_backing_type_id() == 0
+	assert enums[2].generic_params() == ['json_as_number']
+}
+
+fn test_keyword_module_import_keeps_source_alias() {
+	ast, _ := parse_span_source('keyword_module_imports', 'import type\nimport pkg.type\nimport type.bar\nimport foo as renamed\n')
+	imports := ast.nodes.filter(it.kind == .import_decl)
+	assert imports.len == 4
+	assert imports[0].value == 'type'
+	assert imports[0].typ_text() == 'type'
+	assert imports[1].value == 'pkg.type'
+	assert imports[1].typ_text() == 'type'
+	assert imports[2].value == 'type.bar'
+	assert imports[2].typ_text() == 'bar'
+	assert imports[3].value == 'foo'
+	assert imports[3].typ_text() == 'renamed'
+}
+
+fn test_keyword_top_level_module_declaration_uses_name() {
+	ast, _ := parse_span_source('keyword_module_declaration', 'module type\npub fn value() int { return 1 }\n')
+	modules := ast.nodes.filter(it.kind == .module_decl)
+	assert modules.len == 1
+	assert modules[0].value == 'type'
+}
+
+fn test_module_paths_reject_at_escapes() {
+	path := os.join_path(os.temp_dir(), 'v3_module_escapes_${os.getpid()}.v')
+	defer {
+		os.rm(path) or {}
+	}
+	for source in ['module @foo\n', 'module @type\n', 'module main\nimport @foo as foo\n',
+		'module main\nimport pkg.@FN\n'] {
+		os.write_file(path, source)!
+		mut p := Parser.new(pref.new_preferences())
+		_ := p.parse_file(path)
+		assert p.diagnostics.str().contains('module names cannot use `@` escapes'), p.diagnostics.str()
+	}
+}
+
 fn test_parenthesized_match_statement_accepts_newline_before_block() {
 	path := os.join_path(os.temp_dir(), 'v3_parenthesized_match_${os.getpid()}.v')
 	os.write_file(path, 'fn main() {\n\tmatch (2)\n\t{\n\t\t2 {}\n\t\telse {}\n\t}\n}\n') or {
@@ -318,7 +370,7 @@ fn consume(chs []chan mut Item) {}
 	for node in ast.nodes {
 		if node.kind == .param && node.value == 'chs' {
 			found = true
-			assert node.typ == '[]chan mut Item'
+			assert node.typ_text() == '[]chan mut Item'
 		}
 	}
 	assert found
@@ -390,7 +442,7 @@ fn main() {
 	mut saw_loop := false
 	mut type_ident_count := 0
 	for node in ast.nodes {
-		if node.kind == .param && node.value == 'type' && node.typ == 'int' {
+		if node.kind == .param && node.value == 'type' && node.typ_text() == 'int' {
 			saw_param = true
 		}
 		if node.kind == .ident && node.value == 'type' {
@@ -474,13 +526,28 @@ fn test_shared_keyword_identifier_as_parameter_name() {
 	return shared
 }
 ')
-	assert ast.nodes.any(it.kind == .param && it.value == 'shared' && it.typ == 'int' && !it.is_mut)
+	assert ast.nodes.any(it.kind == .param && it.value == 'shared' && it.typ_text() == 'int' && !it.is_mut)
 	grouped_ast, _ := parse_span_source('grouped_shared_parameter_name', 'fn pair(shared, other int) int {
 	return shared + other
 }
 ')
-	assert grouped_ast.nodes.any(it.kind == .param && it.value == 'shared' && it.typ == 'int' && !it.is_mut)
-	assert grouped_ast.nodes.any(it.kind == .param && it.value == 'other' && it.typ == 'int' && !it.is_mut)
+	assert grouped_ast.nodes.any(it.kind == .param && it.value == 'shared' && it.typ_text() == 'int' && !it.is_mut)
+	assert grouped_ast.nodes.any(it.kind == .param && it.value == 'other' && it.typ_text() == 'int' && !it.is_mut)
+}
+
+fn test_grouped_struct_fields_start_at_their_own_names() {
+	ast, src := parse_span_source('grouped_struct_fields', 'struct Pair {
+	first, second, byte u8
+	inner struct {
+		x, y int
+	}
+}
+')
+	for name in ['first', 'second', 'byte', 'x', 'y'] {
+		fields := ast.nodes.filter(it.kind == .field_decl && it.value == name)
+		assert fields.len == 1, name
+		assert src[fields[0].pos.offset..].starts_with(name), '${name}: ${span_text(src, fields[0])}'
+	}
 }
 
 fn test_multiline_shared_call_argument_stays_a_modifier() {
@@ -593,7 +660,7 @@ fn test_inferred_fixed_array_spans_from_opening_bracket() {
 	mut saw_b := false
 	mut saw_row := false
 	for node in ast.nodes {
-		if node.kind != .postfix || !node.typ.starts_with('[') {
+		if node.kind != .postfix || !node.typ_text().starts_with('[') {
 			continue
 		}
 		t := span_text(src, node)
@@ -622,7 +689,7 @@ fn test_explicit_fixed_array_value_literal_spans_from_type_prefix() {
 ')
 	mut saw := false
 	for node in ast.nodes {
-		if node.kind == .array_literal && node.typ == '[3]int' {
+		if node.kind == .array_literal && node.typ_text() == '[3]int' {
 			saw = true
 			assert span_text(src, node) == '[3]int[1, 2, 3]'
 		}
@@ -896,4 +963,69 @@ fn test_local_binding_scopes_track_shadowing_and_nesting() {
 	p.end_local_binding_scope()
 	assert !p.is_local_binding('render')
 	assert !p.is_local_binding('row')
+}
+
+fn test_inline_struct_access_modifiers_preserve_field_metadata() {
+	ast, src := parse_span_source('inline_struct_access', 'struct Record {
+	private_value int
+	mut mutable_value int
+	pub public_value int
+	pub mut public_mutable_value int
+	private_again int
+pub:
+	section_value int
+	mut override_value int
+	section_again int
+	pub mut left, right int
+	mut u8
+}
+')
+	fields := ast.nodes.filter(it.kind == .field_decl)
+	assert fields.map(it.value) == ['private_value', 'mutable_value', 'public_value',
+		'public_mutable_value', 'private_again', 'section_value', 'override_value', 'section_again',
+		'left', 'right', 'mut']
+	for i, expected in ['', 'mi', 'pi', 'mpi', '', 'p', 'mi', 'p', 'mpi', 'mpi', 'p'] {
+		meta := fields[i].generic_params()
+		assert (if meta.len > 0 { meta[0] } else { '' }) == expected, fields[i].value
+		assert src[fields[i].pos.offset..].starts_with(fields[i].value)
+	}
+}
+
+fn test_struct_access_keyword_fields_keep_composite_types() {
+	ast, _ := parse_span_source('access_keyword_types', 'struct ArrayField { pub []int }
+struct MapField { pub map[string]int }
+struct PointerField { pub &int = unsafe { nil } }
+struct FunctionField { pub fn () int }
+struct GenericField { pub Box[int] }
+struct QualifiedField { pub other.Value }
+struct MutableArrayField { mut []int }
+struct ChannelField { pub chan int }
+struct ThreadField { pub thread int }
+struct InlineComposite {
+	pub items []int
+	pub values [3]int
+}
+')
+	fields := ast.nodes.filter(it.kind == .field_decl)
+	assert fields.map(it.value) == ['pub', 'pub', 'pub', 'pub', 'pub', 'pub', 'mut', 'pub', 'pub',
+		'items', 'values']
+	assert fields.map(it.typ_text()) == ['[]int', 'map[string]int', '&int', 'fn() int', 'Box[int]',
+		'other.Value', '[]int', 'chan int', 'thread int', '[]int', '[3]int']
+	for field in fields[..9] {
+		assert field.generic_params().len == 0 || field.generic_params()[0] == ''
+	}
+	assert fields[9].generic_params()[0] == 'pi'
+	assert fields[10].generic_params()[0] == 'pi'
+}
+
+fn test_inline_struct_access_preserves_attributes_after_modifier() {
+	ast, _ := parse_span_source('inline_access_attributes', 'struct Record {
+	pub @[required] value int
+	pub mut @[required] other int
+}
+')
+	fields := ast.nodes.filter(it.kind == .field_decl)
+	assert fields.map(it.value) == ['value', 'other']
+	assert fields[0].generic_params() == ['pi', 'required']
+	assert fields[1].generic_params() == ['mpi', 'required']
 }

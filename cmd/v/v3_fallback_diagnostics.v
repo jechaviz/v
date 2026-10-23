@@ -57,9 +57,11 @@ fn v3_fixture_requires_legacy_json_cgen(args []string) bool {
 	return expected.contains(': cgen error: json:')
 }
 
+// Legacy check-mode fixtures run against the compatibility compiler's own vlib:
+// V 0.5.2 cannot parse the current vlib (e.g. `strconv` uses type constraints),
+// which every program imports through `builtin`.
 fn v3_fixture_uses_current_vlib_compatibility(args []string) bool {
-	return v3_fixture_requires_legacy_check_mode(args)
-		|| v3_fixture_requires_legacy_json_cgen(args)
+	return v3_fixture_requires_legacy_json_cgen(args)
 }
 
 fn v3_fixture_requires_compatibility_compiler(args []string) bool {
@@ -154,6 +156,9 @@ fn v3_diagnostics_output(vexe string, args []string) string {
 	mut environment := os.environ()
 	environment.delete(v3_fallback_file_env)
 	environment.delete(v3_c_error_dir_env)
+	// In a child of a diagnostics server, the replay is a compilation too, not
+	// a server that waits for requests from no one.
+	environment.delete('V_DIAGNOSTICS_SERVER')
 	environment[v3_no_fallback_env] = '1'
 	environment[v3_retry_env] = '1'
 	environment['VFLAGS'] = ''

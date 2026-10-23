@@ -1,7 +1,7 @@
 module c
 
 import v.flat
-import v.types
+import v.types { unalias_type }
 
 struct LoopBodyNodeResult {
 	emitted_continue_label bool
@@ -207,7 +207,8 @@ fn (mut g FlatGen) gen_for(node flat.Node) {
 	g.indent--
 	g.writeln('}')
 	if wrap_init {
-		if !node.skip_ownership_drops() {
+		// A lowered for-in has a synthetic initializer, with no checker scope-drop slot.
+		if !node.skip_ownership_drops() && node.value != skip_scope_drops_block_value {
 			g.gen_scope_ownership_drops()
 		}
 		g.indent--
@@ -292,22 +293,23 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 			mut map_copyback_dirty_var := ''
 			mut map_copyback_guard := MapLoopCopybackGuard{}
 			if clean_container_type is types.Map {
-				c_key := g.map_key_temp_c_type(clean_container_type.key_type)
-				c_val := g.value_c_type(clean_container_type.value_type)
+				map_type := clean_container_type as types.Map
+				c_key := g.map_key_temp_c_type(map_type.key_type)
+				c_val := g.value_c_type(map_type.value_type)
 				container_str := g.expr_to_string(g.a.child(&node, 2))
 				storage_container_type := g.usable_expr_type(g.a.child(&node, 2))
-				container_storage_is_pointer := storage_container_type is types.Pointer
-				container_node := g.a.child_node(&node, 2)
-				container_is_mut_param_storage := container_node.kind == .ident
-					&& g.current_param_is_mut_pointer(container_node.value)
-				mut clean_value_type := clean_container_type.value_type
+				container_storage_is_pointer := unalias_type(storage_container_type) is types.Pointer
+				container_is_mutable_value_storage := g.for_in_mutable_value_storage(container_id)
+				mut clean_value_type := *map_type.value_type
 				for clean_value_type is types.Alias {
 					clean_value_type = clean_value_type.base_type
 				}
 				ref_container_keeps_value := clean_value_type is types.Pointer
 					|| clean_value_type is types.OptionType
-				map_value_by_ref := node.op == .amp
-					|| (container_storage_is_pointer && !container_is_mut_param_storage
+				map_value_by_ref := (node.op == .amp
+					&& !(container_storage_is_pointer && !container_is_mutable_value_storage
+						&& ref_container_keeps_value))
+					|| (container_storage_is_pointer && !container_is_mutable_value_storage
 						&& !ref_container_keeps_value)
 				original_map_ref := if container_storage_is_pointer {
 					container_str
@@ -341,7 +343,7 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				g.gen_labelled_continue_skip_drops_var(label_state.label)
 				g.writeln('if (${key_values}.all_deleted && ${key_values}.all_deleted[${iter_var}]) continue;')
 				key_slot := '${key_values}.keys + ${iter_var} * ${key_values}.key_bytes'
-				if key_fixed := array_fixed_type(clean_container_type.key_type) {
+				if key_fixed := array_fixed_type(map_type.key_type) {
 					c_elem, dims := g.fixed_array_decl_parts(key_fixed)
 					g.writeln('${c_elem} ${key_var}${dims};')
 					g.writeln('memmove(${key_var}, ${key_slot}, sizeof(${key_var}));')
@@ -349,7 +351,9 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				} else {
 					g.writeln('${c_key} ${key_var} = *(${c_key}*)(${key_slot});')
 					if has_index && idx_binding_name != '_'
-						&& clean_container_type.key_type is types.String {
+						&& map_type.key_type is types.String && !node.borrows_map_key() {
+						// Authored keys may escape or survive map mutation. Equality
+						// keys only serve read-only lookups while both maps are alive.
 						g.writeln('${key_var} = string__clone(${key_var});')
 					}
 				}
@@ -363,36 +367,43 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 					g.writeln('if (${val_slot_var} == 0) ${val_slot_var} = (void*)(${snapshot_val_slot});')
 					val_slot = val_slot_var
 				}
-				if val_fixed := array_fixed_type(clean_container_type.value_type) {
+				if val_fixed := array_fixed_type(map_type.value_type) {
 					c_elem, dims := g.fixed_array_decl_parts(val_fixed)
-					g.writeln('${c_elem} ${val_var_}${dims};')
-					g.writeln('memmove(${val_var_}, ${val_slot}, sizeof(${val_var_}));')
-					val_is_fixed_copy = true
+					if map_value_by_ref {
+						g.writeln('${c_elem} (*${val_var_})${dims} = (${c_elem} (*)${dims})(${val_slot});')
+					} else {
+						g.writeln('${c_elem} ${val_var_}${dims};')
+						g.writeln('memmove(${val_var_}, ${val_slot}, sizeof(${val_var_}));')
+						val_is_fixed_copy = true
+					}
 				} else if map_value_by_ref {
 					g.writeln('${c_val}* ${val_var_} = (${c_val}*)(${val_slot});')
 				} else {
 					g.writeln('${c_val} ${val_var_} = *(${c_val}*)(${val_slot});')
 				}
 				if has_index {
-					key_owner := g.tc.cur_scope.insert_with_owner(idx_binding_name, clean_container_type.key_type)
+					key_owner := g.tc.cur_scope.insert_with_owner(idx_binding_name, map_type.key_type)
 					g.track_shadowed_global_local(idx_binding_name, key_owner)
-					g.declare_local_pointer_storage(key_owner, clean_container_type.key_type is types.Pointer
+					g.declare_local_pointer_storage(key_owner, map_type.key_type is types.Pointer
 						|| c_type_is_pointer_storage(c_key))
 				}
 				val_scope_type := if map_value_by_ref && !val_is_fixed_copy {
 					types.Type(types.Pointer{
-						base_type: clean_container_type.value_type
+						base_type: map_type.value_type
 					})
 				} else {
-					clean_container_type.value_type
+					*map_type.value_type
 				}
 				val_owner := g.tc.cur_scope.insert_with_owner(elem_binding_name, val_scope_type)
 				g.track_shadowed_global_local(elem_binding_name, val_owner)
+				g.declare_local_mutability(val_owner, node.op == .amp
+					&& !(container_storage_is_pointer && !container_is_mutable_value_storage
+						&& !ref_container_keeps_value))
 				if map_value_by_ref && !val_is_fixed_copy {
-					g.declare_local_indirect_value_type(val_owner, clean_container_type.value_type)
+					g.declare_local_indirect_value_type(val_owner, map_type.value_type)
 				}
 				g.declare_local_pointer_storage(val_owner, val_scope_type is types.Pointer
-					|| (!val_is_fixed_copy && clean_container_type.value_type is types.Pointer)
+					|| (!val_is_fixed_copy && map_type.value_type is types.Pointer)
 					|| c_type_is_pointer_storage(c_val))
 				if node.op == .amp && val_is_fixed_copy {
 					map_writeback_target = if container_storage_is_pointer {
@@ -418,10 +429,13 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				}
 			} else if container_type is types.Array {
 				c_elem := g.value_c_type(container_type.elem_type)
+				container_is_mutable_value_storage := g.for_in_mutable_value_storage(container_id)
 				container_node := g.a.nodes[int(container_id)]
 				mut container_str := g.expr_to_string(container_id)
 				if container_node.kind == .ident {
-					if raw := g.local_storage_raw_type(container_node.value) {
+					if raw_source_id := g.local_storage_raw_type(container_node.value) {
+						raw := flat.source_type_name(raw_source_id)
+
 						clean_raw := raw.trim_space()
 						if clean_raw.starts_with('?')
 							&& clean_raw[1..].trim_space().starts_with('[]') {
@@ -453,10 +467,13 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 						base_type: container_type.elem_type
 					})
 				} else {
-					container_type.elem_type
+					*container_type.elem_type
 				}
 				elem_owner := g.tc.cur_scope.insert_with_owner(elem_binding_name, elem_scope_type)
 				g.track_shadowed_global_local(elem_binding_name, elem_owner)
+				g.declare_local_mutability(elem_owner, node.op == .amp
+					&& (unalias_type(g.usable_expr_type(container_id)) !is types.Pointer
+						|| container_is_mutable_value_storage))
 				if node.op == .amp {
 					g.declare_local_indirect_value_type(elem_owner, container_type.elem_type)
 				}
@@ -473,6 +490,7 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 				g.declare_local_pointer_storage(elem_owner, false)
 			} else if container_type is types.ArrayFixed {
 				af := container_type
+				container_is_mutable_value_storage := g.for_in_mutable_value_storage(container_id)
 				c_elem := g.value_c_type(af.elem_type)
 				arr_len := g.fixed_array_len_value(af)
 				g.writeln('for (int ${idx_var} = 0; ${idx_var} < ${arr_len}; ${idx_var}++) {')
@@ -489,10 +507,13 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 						base_type: af.elem_type
 					})
 				} else {
-					af.elem_type
+					*af.elem_type
 				}
 				elem_owner := g.tc.cur_scope.insert_with_owner(elem_binding_name, elem_scope_type)
 				g.track_shadowed_global_local(elem_binding_name, elem_owner)
+				g.declare_local_mutability(elem_owner, node.op == .amp
+					&& (unalias_type(g.usable_expr_type(container_id)) !is types.Pointer
+						|| container_is_mutable_value_storage))
 				if node.op == .amp {
 					g.declare_local_indirect_value_type(elem_owner, af.elem_type)
 				}
@@ -588,13 +609,13 @@ fn (mut g FlatGen) gen_for_in(node flat.Node) {
 }
 
 fn (g &FlatGen) for_in_container_type(node flat.Node, container_id flat.NodeId) types.Type {
-	if node.typ.starts_with('map[') {
+	if flat.source_type_shape(node.typ).has(.map_type) {
 		typ := g.parse_node_type(&node)
 		if typ is types.Map {
 			return typ
 		}
 	}
-	return g.usable_expr_type(container_id)
+	return *g.usable_expr_type(container_id)
 }
 
 fn (g &FlatGen) for_in_array_literal_element_needs_ierror_copy(container flat.Node) bool {
@@ -625,7 +646,7 @@ fn (mut g FlatGen) gen_range_for_in(node flat.Node, key_id flat.NodeId, low_id f
 		|| low_type is types.USize {
 		low_type
 	} else {
-		types.Type(types.int_)
+		g.tc.parse_type(flat.source_type_id('int'))
 	}
 	ct := g.value_c_type(range_type)
 	low_name := '__range_low_${g.tmp_count}'
@@ -733,6 +754,42 @@ fn (g &FlatGen) for_in_map_storage_key(id flat.NodeId) string {
 		return g.for_in_map_storage_key(g.a.child(&node, 0))
 	}
 	return g.expr_key(id)
+}
+
+fn (g &FlatGen) for_in_mutable_value_storage(container_id flat.NodeId) bool {
+	mut id := container_id
+	for int(id) >= 0 && int(id) < g.a.nodes.len {
+		node := g.a.nodes[int(id)]
+		if node.kind == .paren && node.children_count == 1 {
+			id = g.a.child(&node, 0)
+			continue
+		}
+		if node.kind == .prefix && node.op == .mul && node.children_count == 1
+			&& node.value != source_mut_pointer_deref_marker {
+			mut child := g.a.child_node(&node, 0)
+			for child.kind == .paren && child.children_count == 1 {
+				child = g.a.child_node(child, 0)
+			}
+			// Lowering reads a mutable pointer parameter through its ABI slot.
+			// The resulting map still has the parameter's value-iteration semantics.
+			if child.kind == .ident && g.current_param_is_mut(child.value) {
+				return true
+			}
+		}
+		if node.kind != .ident {
+			return false
+		}
+		if g.current_param_is_mut(node.value) {
+			return true
+		}
+		if g.local_storage_is_mutable(node.value) {
+			if _ := g.local_indirect_value_type(node.value) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 fn (g &FlatGen) c_loop_local_name(name string) string {

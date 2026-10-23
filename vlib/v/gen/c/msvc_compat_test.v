@@ -111,6 +111,24 @@ fn test_static_initializers_drop_compound_literals() {
 	assert out.contains('P* r = &(P){1, 2};')
 }
 
+fn test_static_local_initializers_drop_compound_literals() {
+	src := 'typedef struct P P;\ntypedef P Alias;\ntypedef struct Outer Outer;\ntypedef P Pair[2];\nvoid f(void) {\nstatic P zero = (P){};\nstatic Alias value = (Alias){1, 2};\nstatic Outer nested = (Outer){.point = (P){3, 4}};\nstatic Pair pair = (Pair){(P){5, 6}, (P){7, 8}};\nstatic int number = (int)9;\nP local = (P){10, 11};\nP* pointer = &(P){12, 13};\n}\n'
+	out := msvc_norm(msvc_compat_c_source(src))
+	assert out.contains('static P zero = {0};')
+	assert out.contains('static Alias value = {1, 2};')
+	assert out.contains('static Outer nested = {.point = {3, 4}};')
+	assert out.contains('static Pair pair = {{5, 6}, {7, 8}};')
+	assert out.contains('static int number = (int)9;')
+	assert out.contains('P local = (P){10, 11};')
+	assert out.contains('P* pointer = &(P){12, 13};')
+}
+
+fn test_nonempty_static_local_initializer_is_lowered_without_other_extensions() {
+	src := 'typedef struct P P;\nint f(void) { static P p = (P){42}; return p.x++; }\n'
+	out := msvc_norm(msvc_compat_c_source(src))
+	assert out.contains('static P p = {42};')
+}
+
 fn test_strings_comments_and_directives_are_kept() {
 	src := 'static const char* s = "({ x; })";\nint f(void) {\n#line 3 "a.v"\n\t// ({ comment })\n\treturn ({ int t = 1; t; });\n}\n'
 	out := msvc_compat_c_source(src)
@@ -133,4 +151,93 @@ fn test_extern_declarations_and_prototypes_keep_their_names() {
 fn test_statement_expressions_in_macro_loop_bodies_stay_in_the_loop() {
 	out := msvc_lower_fn('int n = 0; each(item, list) { n += ({ int t = g(item); t; }); } h(n);')
 	assert out.contains('int n = 0; each(item, list) { int t__vmsvc1 = g(item); n += (t__vmsvc1); } h(n);')
+}
+
+// directive_lines returns the preprocessor directive lines of `src`, without their indentation.
+fn directive_lines(src string) []string {
+	mut dirs := []string{}
+	for line in src.split_into_lines() {
+		if line.trim_space().starts_with('#') {
+			dirs << line.trim_space()
+		}
+	}
+	return dirs
+}
+
+// assert_lowered_directives lowers `src` and checks what MSVC needs from the result. MSVC only
+// accepts a preprocessor directive as the first non-blank thing on its line (error C2014), so
+// every output line that holds a `#` has to be exactly one directive of the input. A directive
+// listed in `kept` must survive, so dropping it fails too, and every text in `statements` must
+// still be there, so dropping or swallowing a statement fails.
+fn assert_lowered_directives(src string, kept []string, statements []string) {
+	out := msvc_compat_c_source(src)
+	assert !out.contains('({'), 'a statement expression is left in: ${out}'
+	input_dirs := directive_lines(src)
+	for line in out.split_into_lines() {
+		if line.contains('#') {
+			assert line.trim_space() in input_dirs, 'a line with a # is not exactly one directive of the input: ${line}'
+		}
+	}
+	got := directive_lines(out)
+	for d in kept {
+		assert d in got, 'the directive ${d} was dropped from: ${out}'
+	}
+	for s in statements {
+		assert out.contains(s), '${s} is missing from: ${out}'
+	}
+}
+
+fn test_line_directives_inside_statement_expressions_start_their_line() {
+	src := 'int f(int a) {\nint x = ({ int t = g(a);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; });\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_inside_guarded_statement_expressions_start_their_line() {
+	src := 'int f(int a, int b) {\nif (a && ({ int t = g(b);\n#line 7 "x.v"\n{ h(t); }\n#line 8 "x.v"\nt > 0; })) { k(); }\n}\n'
+	assert_lowered_directives(src, ['#line 7 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_a_ternary_then_branch_start_their_line() {
+	src := 'int f(int a, int b) {\nint x = a ? ({ int t = g(b);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; }) : 0;\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_a_ternary_else_branch_start_their_line() {
+	src := 'int f(int a, int b) {\nint x = a ? 0 : ({ int t = g(b);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; });\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_a_while_condition_start_their_line() {
+	src := 'int f(int a) {\nwhile (({ int t = g(a);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; })) { a--; }\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_a_do_while_condition_start_their_line() {
+	src := 'int f(int a) {\ndo { a--; } while (({ int t = g(a);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; }));\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_a_for_condition_start_their_line() {
+	src := 'int f(int a) {\nfor (int i = 0; ({ int t = g(i);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; }); i++) { k(); }\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_a_for_post_expression_start_their_line() {
+	src := 'int f(int a) {\nfor (int i = 0; i < a; i = ({ int t = i;\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt + 1; })) { k(i); }\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_line_directives_in_an_else_if_condition_start_their_line() {
+	src := 'int f(int a, int b) {\nif (a) { h(1); } else if (({ int t = g(b);\n#line 5 "x.v"\n{ h(t); }\n#line 6 "x.v"\nt; })) { h(2); } else { h(3); }\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"'], ['h(t__vmsvc'])
+}
+
+fn test_other_directives_inside_statement_expressions_start_their_line() {
+	src := 'int f(int a) {\nint x = ({ int t = g(a);\n#ifdef X\nh(t);\n#endif\nk(t);\nt; });\n}\n'
+	assert_lowered_directives(src, ['#ifdef X', '#endif'], ['h(t__vmsvc', 'k(t__vmsvc'])
+}
+
+fn test_line_directives_in_nested_statement_expressions_start_their_line() {
+	src := 'int f(int a) {\nint x = ({ int t = g(a);\n#line 5 "x.v"\n{ h(({ int u = t;\n#line 9 "x.v"\n{ m(u); }\nu; })); }\nt; });\n}\n'
+	assert_lowered_directives(src, ['#line 5 "x.v"', '#line 9 "x.v"'], ['h(', 'm(u__vmsvc'])
 }

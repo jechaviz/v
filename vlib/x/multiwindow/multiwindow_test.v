@@ -1957,14 +1957,15 @@ pub fn appkit_sharedlive_probe() {
 '
 		os.write_file(source_path, source)!
 		cmd := '${os.quoted_path(@VEXE)} -nocolor -cc clang -d gg_multiwindow -d sokol_metal -sharedlive -shared -o ${os.quoted_path(dylib_path)} ${os.quoted_path(source_path)}'
-		build_res := os.execute(cmd)
+		build_res := os.exec([@VEXE, '-nocolor', '-cc', 'clang', '-d', 'gg_multiwindow', '-d',
+			'sokol_metal', '-sharedlive', '-shared', '-o', dylib_path, source_path])
 		assert build_res.exit_code == 0, 'appkit sharedlive build failed
 command: ${cmd}
 exit_code: ${build_res.exit_code}
 output:
 ${build_res.output}'
 
-		nm_res := os.execute('${os.quoted_path(nm_path)} -gjU ${os.quoted_path(dylib_path)}')
+		nm_res := os.exec([nm_path, '-gjU', dylib_path])
 		assert nm_res.exit_code == 0, nm_res.output
 		assert !nm_res.output.contains(r'_OBJC_CLASS_$_VMultiwindowAppKitWindowState')
 		assert !nm_res.output.contains(r'_OBJC_METACLASS_$_VMultiwindowAppKitWindowState')
@@ -2178,12 +2179,13 @@ fn test_appkit_macos_cgen_emits_record_and_literal_input_mapping() {
 	assert !c_source.contains(leaked_display_field)
 	assert !c_source.contains('Optional_${leaked_probe_type}')
 	assert !c_source.contains('_option_C__${leaked_probe_type}')
+	assert !c_source.contains('__v_option_${leaked_probe_type}')
 	v1_typedef := 'typedef struct x__multiwindow__AppKitWindowRecord x__multiwindow__AppKitWindowRecord;'
 	v1_struct := 'struct x__multiwindow__AppKitWindowRecord {'
 	v1_mapping := 'VV_LOC _option_x__multiwindow__QueuedEvent x__multiwindow__appkit_queued_event_from_native('
 	v3_typedef := 'typedef struct multiwindow__AppKitWindowRecord multiwindow__AppKitWindowRecord;'
 	v3_struct := 'struct multiwindow__AppKitWindowRecord {'
-	v3_mapping := 'Optional_multiwindow__QueuedEvent multiwindow__appkit_queued_event_from_native('
+	v3_mapping := '__v_option_multiwindow__QueuedEvent multiwindow__appkit_queued_event_from_native('
 	c_lines := c_source.split_into_lines()
 	mut v1_typedef_indices := []int{}
 	mut v1_struct_indices := []int{}
@@ -4421,7 +4423,7 @@ fn multiwindow_c_header_available(header string) bool {
 		os.rm(source_path) or {}
 	}
 	cc := if os.getenv('CC') == '' { 'cc' } else { os.getenv('CC') }
-	result := os.execute('${cc} -fsyntax-only ${os.quoted_path(source_path)}')
+	result := os.exec([cc, '-fsyntax-only', source_path])
 	return result.exit_code == 0
 }
 
@@ -4573,7 +4575,8 @@ fn main() {
 	}
 
 	cmd := '${os.quoted_path(@VEXE)} -dump-c-flags - ${flags} -path "${vlib_dir}|@vlib|@vmodules" -o ${os.quoted_path(bin_path)} ${os.quoted_path(source_path)}'
-	result := os.execute(cmd)
+	result := os.exec([@VEXE, '-dump-c-flags', '-', ...(os.split_args(flags) or { panic(err) }),
+		'-path', '${vlib_dir}' + '|@vlib|@vmodules', '-o', bin_path, source_path])
 	assert result.exit_code == 0, 'dump-c-flags ${label} failed
 command: ${cmd}
 exit_code: ${result.exit_code}
@@ -4601,7 +4604,8 @@ fn main() {
 	}
 
 	cmd := '${os.quoted_path(@VEXE)} -os windows -d gg_multiwindow -d sokol_d3d11 -path "${vlib_dir}|@vlib|@vmodules" -o ${os.quoted_path(c_path)} ${os.quoted_path(source_path)}'
-	result := os.execute(cmd)
+	result := os.exec([@VEXE, '-os', 'windows', '-d', 'gg_multiwindow', '-d', 'sokol_d3d11', '-path',
+		'${vlib_dir}' + '|@vlib|@vmodules', '-o', c_path, source_path])
 	assert result.exit_code == 0, 'emit Windows gg import C failed
 command: ${cmd}
 exit_code: ${result.exit_code}
@@ -4621,7 +4625,8 @@ fn multiwindow_emit_macos_multiwindow_test_c() string {
 	}
 
 	cmd := '${os.quoted_path(@VEXE)} -os macos -d gg_multiwindow -d sokol_metal -path "${vlib_dir}|@vlib|@vmodules" -o ${os.quoted_path(c_path)} ${os.quoted_path(target_path)}'
-	result := os.execute(cmd)
+	result := os.exec([@VEXE, '-os', 'macos', '-d', 'gg_multiwindow', '-d', 'sokol_metal', '-path',
+		'${vlib_dir}' + '|@vlib|@vmodules', '-o', c_path, target_path])
 	assert result.exit_code == 0, 'emit macOS multiwindow C failed
 command: ${cmd}
 exit_code: ${result.exit_code}

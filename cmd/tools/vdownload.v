@@ -33,7 +33,6 @@ fn main() {
 	fp.version('0.0.1')
 	fp.description('Download files from http/https servers, given their URLs.')
 	fp.arguments_description('URL1 URL2 ...')
-	fp.skip_executable()
 	fp.limit_free_args_to_at_least(1)!
 	ctx.show_help = fp.bool('help', `h`, false, 'Show this help screen.')
 	ctx.target_folder = fp.string('target-folder', `t`, '.',
@@ -121,21 +120,7 @@ fn main() {
 		if ctx.should_run {
 			run_cmd := '${os.quoted_path(vexe)} run ${os.quoted_path(fpath)}'
 			log.info(' Executing: ${run_cmd}')
-			run_exit_code := os.system(run_cmd)
-			if run_exit_code != 0 {
-				eprintln(os.process_command_failure_report('vdownload.command', run_exit_code,
-					stage:          'run_downloaded_file'
-					command:        run_cmd
-					reason:         'downloaded_file_run_failed'
-					action:         'inspect_downloaded_file_output_or_rerun_command'
-					message:        'downloaded V file exited with a non-zero status'
-					output_capture: 'inherited_stdio'
-				))
-				errors++
-				if !ctx.continue_on_failure {
-					break
-				}
-			}
+			os.system_args([vexe, 'run', fpath])
 		}
 		if ctx.delete_after_run {
 			log.info(' Removing: ${fpath}')

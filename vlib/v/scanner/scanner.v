@@ -45,6 +45,12 @@ pub mut:
 	str_parent_quotes   []u8
 	str_parent_depths   []int
 	diagnostics         []Diagnostic
+	// line_directives makes the scanner record valid `#line` directives in its file.
+	// Only the scanner that reads a whole source file for the parser turns it on.
+	line_directives bool
+	// line_directive_offsets lists the offsets of the `#line` directives scanned, valid
+	// or not, so the parser can report the ones that are not between statements.
+	line_directive_offsets []int
 }
 
 // peek_byte supports peek byte handling for Scanner.
@@ -80,10 +86,11 @@ pub fn (mut s Scanner) skip_block_to(offset int) {
 	s.after_dot = false
 }
 
-// init supports init handling for Scanner.
+// init resets the scanner for src, ignoring a leading UTF-8 byte order mark.
 pub fn (mut s Scanner) init(file &token.File, src string) {
-	s.offset = 0
-	s.pos = 0
+	// Keep the original buffer and byte positions for source spans and diagnostics.
+	s.offset = if src.starts_with('\xef\xbb\xbf') { 3 } else { 0 }
+	s.pos = s.offset
 	s.lit = ''
 	s.insert_semi = false
 	s.after_dot = false
@@ -95,6 +102,8 @@ pub fn (mut s Scanner) init(file &token.File, src string) {
 	s.str_parent_quotes = []u8{}
 	s.str_parent_depths = []int{}
 	s.diagnostics = []Diagnostic{}
+	s.line_directives = false
+	s.line_directive_offsets = []int{}
 	s.file = unsafe { file }
 	s.src = src
 }
@@ -341,6 +350,21 @@ fn (s &Scanner) char_literal_utf8_escapes_end(lead u8, offset int, content_end i
 	return end
 }
 
+// record_line_directive notes the offset of the `#line` directive just scanned, and
+// records it in the file when it is valid, so the lines after it report their logical
+// location. A malformed directive is reported by the parser instead.
+fn (mut s Scanner) record_line_directive() {
+	if s.lit.len > 4 && s.lit[4] !in [` `, `\t`] {
+		return
+	}
+	s.line_directive_offsets << s.pos
+	if isnil(s.file) || s.lit.len < 5 {
+		return
+	}
+	line, file := token.parse_line_directive(s.lit[5..]) or { return }
+	unsafe { s.file.add_line_directive(s.pos, line, file) }
+}
+
 // current_file returns current file data for Scanner.
 pub fn (s &Scanner) current_file() &token.File {
 	return unsafe { s.file }
@@ -411,15 +435,20 @@ pub fn (mut s Scanner) scan() token.Token {
 			s.offset++
 			return .attribute
 		}
-		for s.offset < s.src.len {
-			c3 := s.src[s.offset]
+		// Scan the name in locals: a store to the offset field per byte cannot
+		// be kept out of the loop, since the source bytes could alias it.
+		src := s.src
+		mut off := s.offset
+		for off < src.len {
+			c3 := src[off]
 			if (c3 >= `a` && c3 <= `z`) || (c3 >= `A` && c3 <= `Z`)
 				|| (c3 >= `0` && c3 <= `9`) || c3 == `_` {
-				s.offset++
+				off++
 				continue
 			}
 			break
 		}
+		s.offset = off
 		s.lit = s.source_lit(s.pos, s.offset)
 		if s.lit == 'c' && s.offset < s.src.len
 			&& (s.src[s.offset] == `'` || s.src[s.offset] == `"`) {
@@ -460,6 +489,13 @@ pub fn (mut s Scanner) scan() token.Token {
 			return .string
 		}
 		tok := token.Token.from_string_tinyv(s.lit)
+		// FastC reads tokens without a parser, so it receives an escaped keyword
+		// (`@type`, `@none`) as the plain identifier it names; `@FILE` and the other
+		// compile-time values are not keywords and keep their `@`.
+		if c == `@` && tok == .name && s.lit.len > 1 && !isnil(s.pref) && s.pref.backend == 'fastc'
+			&& token.Token.from_string_tinyv(s.lit[1..]).is_keyword() {
+			s.lit = s.lit[1..]
+		}
 		if tok in [.key_break, .key_continue, .key_nil, .key_none, .key_return, .key_false, .key_true,
 			.name]
 			|| (follows_dot && tok.is_keyword()) {
@@ -673,6 +709,9 @@ pub fn (mut s Scanner) scan() token.Token {
 			}
 			s.lit = s.source_lit(start, s.offset).trim_space()
 			s.insert_semi = true
+			if s.line_directives && s.lit.starts_with('line') {
+				s.record_line_directive()
+			}
 			return .hash
 		}
 		`~` {
@@ -743,16 +782,18 @@ pub fn (mut s Scanner) scan() token.Token {
 
 @[direct_array_access]
 fn (mut s Scanner) whitespace() {
-	for s.offset < s.src.len {
-		c := s.src[s.offset]
+	src := s.src
+	mut off := s.offset
+	for off < src.len {
+		c := src[off]
 		if c == ` ` || c == `\t` || c == `\r` {
-			s.offset++
+			off++
 			continue
 		} else if c == `\n` {
 			if s.insert_semi {
-				return
+				break
 			}
-			s.offset++
+			off++
 			continue
 		} else if c == 0xef && s.offset + 2 < s.src.len && s.src[s.offset + 1] == 0xbb
 			&& s.src[s.offset + 2] == 0xbf {
@@ -761,16 +802,20 @@ fn (mut s Scanner) whitespace() {
 		}
 		break
 	}
+	s.offset = off
 }
 
 @[direct_array_access]
 fn (mut s Scanner) line() {
-	for s.offset < s.src.len {
-		if s.src[s.offset] == `\n` {
+	src := s.src
+	mut off := s.offset
+	for off < src.len {
+		if src[off] == `\n` {
 			break
 		}
-		s.offset++
+		off++
 	}
+	s.offset = off
 }
 
 @[direct_array_access]
@@ -837,6 +882,23 @@ fn (mut s Scanner) string_literal(scan_as_raw bool, c_quote u8) {
 		return
 	}
 	for s.offset < s.src.len {
+		if !s.skip_interpolation || !s.in_str_inter {
+			// Only escapes, interpolations and the closing quote end a run of
+			// literal bytes here; skip such a run in locals.
+			src := s.src
+			mut off := s.offset
+			for off < src.len {
+				b := src[off]
+				if b == `\\` || b == `$` || b == c_quote {
+					break
+				}
+				off++
+			}
+			s.offset = off
+			if off >= src.len {
+				break
+			}
+		}
 		c := s.src[s.offset]
 		if c == `\\` {
 			if s.offset + 1 >= s.src.len {
@@ -1176,4 +1238,9 @@ fn digit_value(c u8) int {
 		return int(c - `A`) + 10
 	}
 	return 256
+}
+
+// compile_value is the value given with `-d name=value`, if any.
+pub fn (s &Scanner) compile_value(name string) ?string {
+	return s.pref.compile_values[name] or { return none }
 }

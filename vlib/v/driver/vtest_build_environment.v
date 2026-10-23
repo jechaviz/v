@@ -14,7 +14,7 @@ pub:
 
 // vtest_build_environment resolves the facts and defines of the compilation
 // that the compiler options `args` describe (`-os`, `-arch`, `-cc`, `-prod`,
-// `-d`, ...), the way `run` resolves them for `v <args> file_test.v`. A test
+// `-race`, `-d`, ...), the way `run` resolves them for `v <args> file_test.v`. A test
 // runner started with those options exports the result through
 // pref.set_build_flags_and_defines, so that its `// vtest build:` decisions
 // match the compiler's own.
@@ -27,9 +27,11 @@ pub fn vtest_build_environment(vroot string, args []string) TestBuildEnvironment
 	mut c_compiler_explicit := false
 	mut is_prod := false
 	mut is_c_debug := false
+	mut race := false
 	mut parallel_cc := false
 	mut dump_c_flags := false
 	mut libc_mode := ''
+	mut gc_mode := ''
 	mut user_defines := []string{}
 	mut compile_values := map[string]string{}
 	mut i := 0
@@ -48,6 +50,9 @@ pub fn vtest_build_environment(vroot string, args []string) TestBuildEnvironment
 		} else if arg == '-arch' && has_value {
 			target_arch = args[i + 1]
 			i += 2
+		} else if arg == '-gc' && has_value {
+			gc_mode = args[i + 1]
+			i += 2
 		} else if arg == '-cc' && has_value {
 			c_compiler = args[i + 1]
 			c_compiler_explicit = true
@@ -60,6 +65,10 @@ pub fn vtest_build_environment(vroot string, args []string) TestBuildEnvironment
 			i++
 		} else if arg == '-parallel-cc' {
 			parallel_cc = true
+			i++
+		} else if arg == '-race' {
+			race = true
+			record_user_define(mut user_defines, mut compile_values, 'race')
 			i++
 		} else if arg == '-musl' {
 			libc_mode = 'musl'
@@ -83,16 +92,25 @@ pub fn vtest_build_environment(vroot string, args []string) TestBuildEnvironment
 			i++
 		}
 	}
+	if race && !c_compiler_explicit {
+		c_compiler = v3_race_default_c_compiler(c_compiler)
+	}
 	if pref.normalized_os(target_os.trim_space().to_lower()) == 'cross' {
 		cross_output = true
 		target_os = os.user_os()
 	}
 	target := pref.target_from(target_os, target_arch) or { pref.host_target() }
 	host_target := pref.host_target()
+	mut compiler_defines := user_defines.clone()
+	disable_gc := 'freestanding' in user_defines
+		|| v3_gc_is_disabled(false, cross_output, target.os, target.arch, backend, gc_mode)
+	apply_v3_gc_mode(gc_mode, disable_gc, mut compiler_defines, mut compile_values) or {}
 	selection := v3_select_c_compiler(vroot, V3BundledTccProbeOptions{
+		prefer_platform_cc:  v3_gc_prefers_platform_cc(compiler_defines)
 		backend:             backend
 		is_prod:             is_prod
 		is_c_debug:          is_c_debug
+		race:                race
 		c_compiler:          c_compiler
 		c_compiler_explicit: c_compiler_explicit
 		dump_c_flags:        dump_c_flags
@@ -101,6 +119,7 @@ pub fn vtest_build_environment(vroot string, args []string) TestBuildEnvironment
 		host_target:         host_target
 		target:              target
 		bundled_tcc:         os.join_path(vroot, 'thirdparty', 'tcc', 'tcc.exe')
+		host_rejects_tcc:    pref.host_rejects_tcc_executables()
 	})
 	v3_apply_libc_define(mut user_defines, mut compile_values, libc_mode, selection.c_compiler,
 		v3_should_infer_host_libc(false, false, '', cross_output, target, host_target))

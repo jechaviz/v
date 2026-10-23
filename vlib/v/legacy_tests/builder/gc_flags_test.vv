@@ -7,7 +7,7 @@ fn execute_without_vflags(cmd string) os.Result {
 	// These assertions cover flags emitted by the established C builder. Linux
 	// now defaults to V3, so select V1 explicitly after isolating ambient flags.
 	os.setenv('VFLAGS', '-old-compiler', true)
-	res := os.execute(cmd)
+	res := os.exec(os.split_args(cmd) or { panic(err) })
 	if vflags := old_vflags {
 		os.setenv('VFLAGS', vflags, true)
 	} else {
@@ -214,13 +214,10 @@ fn test_macos_amd64_tcc_boehm_uses_bundled_libgc_dylib() {
 	defer {
 		os.rmdir_all(test_root) or {}
 	}
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
+	assert res.exit_code == 0, res.output
 	validate_showcc_output(res.output, expected) or { assert false, '${err.msg()}\n${res.output}' }
-	run_res := os.execute(os.quoted_path(exe_path))
-	assert run_res.exit_code == 0, run_res.exit_code_diagnostics('0',
-		label:   @FN
-		command: os.quoted_path(exe_path)
-	)
+	run_res := os.exec([exe_path])
+	assert run_res.exit_code == 0, run_res.output
 }
 
 fn test_macos_system_cc_boehm_uses_bundled_static_libgc() {
@@ -250,7 +247,7 @@ fn test_macos_system_cc_boehm_uses_bundled_static_libgc() {
 		assert !token.contains('rpath'), res.output
 		assert token != '-lgc', res.output
 	}
-	run_res := os.execute(os.quoted_path(exe_path))
+	run_res := os.exec([exe_path])
 	assert run_res.exit_code == 0, run_res.output
 }
 
@@ -270,11 +267,7 @@ fn test_linux_musl_tcc_boehm_uses_system_libgc() {
 	os.chmod(fake_tcc, 0o700) or { panic(err) }
 	cmd := '${os.quoted_path(@VEXE)} -dump-c-flags - -cc ${os.quoted_path(fake_tcc)} -no-retry-compilation -musl -o ${os.quoted_path(exe_path)} ${os.quoted_path(source_path)}'
 	res := execute_without_vflags(cmd)
-	assert res.exit_code == 0, res.exit_code_diagnostics('0',
-		label:   @FN
-		command: cmd
-	)
-
+	assert res.exit_code == 0, res.output
 	// The optional musl system libgc may not be installed. The flags are dumped
 	// before linker discovery, so verify the selection without requiring it here.
 	assert res.output.contains('-lgc')
@@ -297,7 +290,7 @@ fn test_linux_musl_gcc_boehm_uses_system_libgc() {
 
 fn test_no_gc_thread_local_alloc_uses_source_libgc_without_tla_define() {
 	source_path := os.join_path(@VEXEROOT, 'examples', 'hello_world.v')
-	cmd := '${os.quoted_path(@VEXE)} -dump-c-flags - -gc boehm -d no_gc_thread_local_alloc ${os.quoted_path(source_path)}'
+	cmd := '${os.quoted_path(@VEXE)} -dump-c-flags - -d no_gc_thread_local_alloc ${os.quoted_path(source_path)}'
 	res := execute_without_vflags(cmd)
 	assert res.exit_code == 0, res.output
 	normalized := res.output.replace('\\', '/')
@@ -323,7 +316,7 @@ fn tcc_compiler_is_usable(tcc_path string) bool {
 	if tcc_path == '' || !os.is_file(tcc_path) || !os.is_executable(tcc_path) {
 		return false
 	}
-	probe := os.execute('${os.quoted_path(tcc_path)} -v')
+	probe := os.exec([tcc_path, '-v'])
 	return probe.exit_code == 0
 }
 

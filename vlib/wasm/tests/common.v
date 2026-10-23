@@ -31,7 +31,7 @@ pub fn validate(code []u8) ! {
 	outfile := os.join_path(os.temp_dir(), 'code_${pid}.wasm')
 	os.write_file(outfile, code.bytestr())!
 	validation_cmd := '${os.quoted_path(wasm_validate_exe)} ${os.quoted_path(outfile)}'
-	res := os.execute(validation_cmd)
+	res := os.exec([wasm_validate_exe, outfile])
 	if res.exit_code != 0 {
 		return error(res.exit_code_diagnostics('0', label: @FN, command: validation_cmd))
 	}

@@ -6,10 +6,9 @@ module builtin
 
 #include <io.h>
 #include <fcntl.h>
+#include "@VEXEROOT/vlib/builtin/core_windows.h"
 
-// Cast the V callback to the Windows SDK callback type. Clang 20 treats the
-// otherwise-compatible struct pointer mismatch as a hard error for v_win.c.
-#define v_set_unhandled_exception_filter(handler) SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)(handler))
+#flag @VEXEROOT/vlib/builtin/core_windows.o
 
 // See https://learn.microsoft.com/en-us/windows/win32/winprog/windows-data-types
 // See https://www.codeproject.com/KB/string/cppstringguide1.aspx
@@ -48,12 +47,20 @@ pub type C.LPCTSTR = &C.TCHAR
 
 type C.DWORD = u32
 
+@[typedef]
+pub struct C.ULARGE_INTEGER {
+pub mut:
+	QuadPart u64
+}
+
 fn C.WriteConsoleW(voidptr, &u16, C.DWORD, &C.DWORD, voidptr) bool
 fn C.WriteFile(voidptr, &u8, C.DWORD, &C.DWORD, voidptr) bool
 fn C.ExitProcess(u32)
 fn C.GetProcessHeap() voidptr
 fn C.HeapAlloc(voidptr, u32, usize) voidptr
 fn C.HeapFree(voidptr, u32, voidptr) bool
+fn C.CreateThread(attributes voidptr, stack_size usize, start_routine voidptr, arg voidptr, flags u32, thread_id &u32) voidptr
+fn C.v_builtin_windows_stream(index u32) voidptr
 
 fn C._setmode(int, int) int
 
@@ -100,7 +107,7 @@ const std_output_handle = u32(0xfffffff5)
 const std_error_handle = u32(0xfffffff4)
 const enable_processed_output = 1
 const enable_wrap_at_eol_output = 2
-const evable_virtual_terminal_processing = 4
+const enable_virtual_terminal_processing = 4
 
 // Write UTF-8 directly as UTF-16 for console hosts instead of changing the console code page.
 @[manualfree]
@@ -211,6 +218,13 @@ fn write_buf_to_fd_kernel32_status(fd int, buf &u8, buf_len int) int {
 	if write_buf_to_console_kernel32(fd, buf, buf_len) {
 		return 0
 	}
+	return write_buf_to_std_handle_kernel32(fd, buf, buf_len)
+}
+
+// write_buf_to_std_handle_kernel32 writes the bytes to the handle of stdout (fd 1) or
+// stderr (fd 2) with `WriteFile`. Unlike `write_buf_to_console_kernel32`, it does not
+// convert them to UTF-16 for a console, so it does not allocate.
+fn write_buf_to_std_handle_kernel32(fd int, buf &u8, buf_len int) int {
 	handle_id := if fd == 2 { std_error_handle } else { std_output_handle }
 	handle := C.GetStdHandle(handle_id)
 	if isnil(handle) || handle == voidptr(-1) {
@@ -279,6 +293,7 @@ fn builtin_init() {
 	$if v2_native_windows_pe_minimal ? {
 		return
 	} $else {
+		install_windows_stack_overflow_handler()
 		auto_process_memory_guard_init()
 		$if gcboehm ? {
 			$if !gc_warn_on_stderr ? {
@@ -289,9 +304,9 @@ fn builtin_init() {
 		set_stream_binary_mode(C.stderr)
 		if is_terminal(1) > 0 {
 			C.SetConsoleMode(C.GetStdHandle(std_output_handle),
-				enable_processed_output | enable_wrap_at_eol_output | evable_virtual_terminal_processing)
+				enable_processed_output | enable_wrap_at_eol_output | enable_virtual_terminal_processing)
 			C.SetConsoleMode(C.GetStdHandle(std_error_handle),
-				enable_processed_output | enable_wrap_at_eol_output | evable_virtual_terminal_processing)
+				enable_processed_output | enable_wrap_at_eol_output | enable_virtual_terminal_processing)
 			unsafe {
 				set_stream_unbuffered(C.stdout)
 				set_stream_unbuffered(C.stderr)
@@ -343,6 +358,11 @@ fn unhandled_exception_handler(e &ExceptionPointers) C.LONG {
 		0x4001000A, 0x40010006, 0x406D1388, 0xE06D7363 {
 			return 0
 		}
+		0xC00000FD {
+			// The overflow-only vectored handler reports this before unwinding. If
+			// disabled, leave the depleted stack to Windows' default handling.
+			return 0
+		}
 		else {
 			eprintln('Unhandled Exception 0x' + ptr_str(e.exception_record.code) + ' at ' +
 				ptr_str(e.exception_record.address))
@@ -366,7 +386,27 @@ fn add_unhandled_exception_handler() {
 
 fn C.IsDebuggerPresent() bool
 
+@[typedef]
+struct C.MEMORY_BASIC_INFORMATION {
+	AllocationBase voidptr
+}
+
+fn C.VirtualQuery(address voidptr, buffer &C.MEMORY_BASIC_INFORMATION, length usize) usize
+
+fn C.GetModuleHandleW(name &u16) voidptr
+
+// is_address_in_executable reports whether `address` is inside of the executable
+// image of the process, rather than inside of a DLL, which can be unloaded.
+fn is_address_in_executable(address voidptr) bool {
+	mut info := C.MEMORY_BASIC_INFORMATION{}
+	if C.VirtualQuery(address, &info, sizeof(info)) == 0 {
+		return false
+	}
+	return info.AllocationBase == C.GetModuleHandleW(unsafe { nil })
+}
+
 fn C.__debugbreak()
+fn C.v_builtin_windows_debugbreak()
 
 fn break_if_debugger_attached() {
 	$if tinyc {
@@ -377,7 +417,7 @@ fn break_if_debugger_attached() {
 		}
 	} $else {
 		if C.IsDebuggerPresent() {
-			C.__debugbreak()
+			C.v_builtin_windows_debugbreak()
 		}
 	}
 }

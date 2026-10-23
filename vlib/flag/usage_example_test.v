@@ -8,10 +8,9 @@ fn testsuite_begin() {
 	os.chdir(@VMODROOT) or {}
 	os.rm(the_executable) or {}
 	res :=
-		os.execute('${os.quoted_path(@VEXE)} -o ${os.quoted_path(the_executable)} ${os.quoted_path(the_source)}')
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
-	run_res := os.execute(os.quoted_path(the_executable))
-	assert run_res.exit_code == 0, run_res.exit_code_diagnostics('0', label: @FN)
+		os.exec([@VEXE, '-o', the_executable, the_source])
+	assert res.exit_code == 0
+	assert os.exec([the_executable]).exit_code == 0
 }
 
 fn testsuite_end() {
@@ -24,8 +23,8 @@ fn normalise_lines(lines []string) string {
 
 fn check_program(opts string, extension string) {
 	result := the_source.replace('.v', extension)
-	res := os.execute('${os.quoted_path(the_executable)} ${opts}')
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	res := os.exec([the_executable, ...(os.split_args(opts) or { panic(err) })])
+	assert res.exit_code == 0
 	assert normalise_lines(res.output.split_into_lines()) == normalise_lines(os.read_lines(result) or {
 		panic(err)
 	})

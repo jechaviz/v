@@ -15,22 +15,9 @@ os.chdir(os.dir(@VEXE))!
 vcmd := 'v ${flags} cmd/tools/bench/map_clear.v'
 
 println('>> start: ${start} | end: ${end} | step: ${step} | workdir: "${os.getwd()}" | flags: "${flags}" | vcmd: "${vcmd}"')
-build_res := os.execute(vcmd)
-assert build_res.exit_code == 0, build_res.exit_code_diagnostics('0',
-	label:   'map_clear_runner_build'
-	command: vcmd
-)
+assert os.system_args(['v', ...(os.split_args(flags) or { panic(err) }), 'cmd/tools/bench/map_clear.v']) == 0
 
 println('running...')
 for i := start; i <= end; i += step {
-	run_cmd := '/usr/bin/time -f ${time_fmt} cmd/tools/bench/map_clear ${i}'
-	run_code := os.system(run_cmd)
-	if run_code != 0 {
-		eprintln(os.process_command_failure_report('map_clear_runner.command', run_code,
-			reason:         'benchmark_command_failed'
-			action:         'inspect_benchmark_command'
-			command:        run_cmd
-			output_capture: 'inherited_stdio'
-		))
-	}
+	os.system_args(['/usr/bin/time', '-f', '${time_fmt}', 'cmd/tools/bench/map_clear', '${i}']) == 0
 }

@@ -7,6 +7,15 @@ import encoding.binary
 
 #flag -I @VMODROOT/thirdparty/zstd
 #flag linux -D_GNU_SOURCE
+
+// tcc advertises `__GNUC__ 4`, but does not provide `__builtin_prefetch`,
+// so disable the prefetch hints in the bundled zstd/xxHash sources for it.
+// NO_PREFETCH is defined empty, to match the ARM define in zstd.c.
+$if tinyc {
+	#flag -DNO_PREFETCH=
+	#flag -DXXH_NO_PREFETCH
+}
+
 #include "zstd.c"	// msvc can't compile multiple source files, so included
 
 const frame_header_size_max = 18
@@ -468,7 +477,7 @@ pub fn new_cctx(params CompressParams) !&CCtx {
 	}
 	mut cctx := &CCtx{ctx}
 	cctx.set(.compression_level, params.compression_level)!
-	$if !( tinyc && windows ) {
+	$if !(tinyc && windows) {
 		// TODO: tinyc on windows doesn't support multiple thread
 		cctx.set(.nb_workers, params.nb_threads)!
 	}

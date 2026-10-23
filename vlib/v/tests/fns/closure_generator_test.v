@@ -197,7 +197,7 @@ fn test_closure_return_${styp}_${i}() ! {
 	os.write_file(full_path_to_target, code)!
 	vexe := os.getenv('VEXE')
 	cmd := '${os.quoted_path(vexe)} -keepc -cg -showcc ${full_path_to_target}'
-	res := os.execute(cmd)
+	res := os.exec([vexe, '-keepc', '-cg', '-showcc', full_path_to_target])
 	if res.exit_code != 0 {
 		assert false, res.exit_code_diagnostics('0', label: @FN, command: cmd)
 	}

@@ -52,12 +52,30 @@ unsigned char func_name(int * p, index int);
 fn C.func_name(p &int, index i32) u8
 ```
 
+For a C output parameter, pass the address of the variable or struct field that C should update.
+A cast such as `voidptr(&handle)` preserves that address when passed to a C `void **`
+parameter declared as `&voidptr` in V. Writes by C update the original caller storage,
+including fields in heap allocated structs.
+
 
 ## Representing compound types in C and V:
 A V struct is the same as a C struct, with the same field names and
 types, but the order of declaring field names and their types in C structs
 and V structs is different - in C you use: `short field_name;`, but in V,
 that would be: `field_name i16`.
+
+V does not scan C headers to discover declarations. Redeclare the fields you use
+in a `.c.v` file, and mark a C typedef with `@[typedef]`. For example,
+`typedef struct { int x; } Foo;` needs this V binding:
+
+```v ignore
+@[typedef]
+struct C.Foo {
+	x int
+}
+```
+
+The attribute is required with both `#include` and `#insert`.
 
 ## Passing V strings to C functions:
 The V string type, is currently defined like this:
@@ -97,6 +115,10 @@ use `a.data`. NOTE: do *not* use `&a` for that purpose. That will result in the 
 of the `array` itself, getting passed to the C function, and *not* the address of the
 elements of the V array.
 
+Passing `a.data` to a V pointer parameter also passes the element buffer directly.
+Parenthesizing the argument, such as `(a.data)`, preserves that behavior.
+This holds when `a` is a pointer to an array or a mutable array parameter.
+
 
 ## Passing V fixed array elements to C functions:
 Unlike dynamic arrays, fixed arrays are the same in both V and C.
@@ -109,6 +131,12 @@ C functions, that accept `int * p` or `int arr[]` parameters.
 The type of a V function, with no receiver, is equivalent to a C function, 
 given that the types of the parameters are equivalent.
 
+Ordinary V functions named `sync` or `syncfs` can coexist with the system C functions.
+Their generated C names also remain distinct from V functions named `main__sync` or `main__syncfs`.
+Use the `C.` prefix to refer to the C function.
+For Linux bindings that declare `fn C.syncfs`, V enables GNU header declarations before
+including C headers, so `<unistd.h>` supplies the `syncfs` prototype.
+
 When a V function returns more than one value, the C function returns a struct.
 For example, these functions have equivalent types:
 ```v ignore
@@ -120,6 +148,10 @@ struct { int i; float f; } c_function(unsigned long a, signed char b);
 
 A pointer to a V function is equivalent to a pointer to a C function, when the
 functions have equivalent types.
+
+For V functions taking `...voidptr`, non-pointer scalar arguments are stored in temporaries.
+Integers and enum values narrower than the target's V `int` are widened to `int`, and `f32`
+is widened to `f64`. The callee must read each slot using its corresponding storage type.
 
 
 ## Other V types, that are currently not supported/documented for use with C:

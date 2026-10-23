@@ -103,20 +103,25 @@ pub fn new() Bench {
 	}
 }
 
+// changes the compiler memory safety limit.
+pub fn (mut b Bench) set_memory_limit(new_limit i64) {
+	b.memory_limit_kb = new_limit
+}
+
 // disable_memory_limit disables the compiler memory safety limit.
 pub fn (mut b Bench) disable_memory_limit() {
-	b.memory_limit_kb = 0
+	b.set_memory_limit(0)
 }
 
 // use_self_host_memory_limit sets the safety limit for compiler self-host builds.
 pub fn (mut b Bench) use_self_host_memory_limit() {
-	b.memory_limit_kb = self_host_memory_limit_kb
+	b.set_memory_limit(self_host_memory_limit_kb)
 }
 
 // use_compiler_tree_memory_limit sets the safety limit for tests that compile
 // the complete V3 compiler module without disabling the OOM guard.
 pub fn (mut b Bench) use_compiler_tree_memory_limit() {
-	b.memory_limit_kb = compiler_tree_memory_limit_kb
+	b.set_memory_limit(compiler_tree_memory_limit_kb)
 }
 
 // set_quiet suppresses benchmark output while retaining timing and memory checks.
@@ -217,7 +222,7 @@ fn monitor_stage_memory(state &StageMemoryMonitor, limit_kb i64, interval i64) {
 				monitor.exiting = true
 				monitor.mutex.unlock()
 				eprintln(message)
-				exit(1)
+				exit_memory_limit()
 			}
 		}
 	}
@@ -240,7 +245,7 @@ fn monitor_memory_limit(limit_kb i64) {
 		message := memory_limit_error(memory.kb, limit_kb, 'during compilation', memory.metric)
 		if message.len > 0 {
 			eprintln(message)
-			exit(1)
+			exit_memory_limit()
 		}
 	}
 }
@@ -339,7 +344,7 @@ fn (mut b Bench) report_step(name string, parallel bool, elapsed_us i64, allocat
 		message := memory_limit_error(memory.kb, b.memory_limit_kb, 'after ${label}', memory.metric)
 		if message.len > 0 {
 			eprintln(message)
-			exit(1)
+			exit_memory_limit()
 		}
 	}
 	ram_mb := f64(ram_kb) / 1024.0
@@ -400,7 +405,7 @@ fn memory_limit_error(memory_kb i64, limit_kb i64, context string, metric string
 		'${limit_mb} MiB'
 	}
 	return 'error: v3 compiler memory usage reached ${memory_mb} MiB ${metric} ${context} ' +
-		'(limit: ${limit_label}); use `-no-memory-limit` to disable this limit'
+		'(limit: ${limit_label}); use `-no-memory-limit` to disable this limit or `-memory-limit` to set your own limit'
 }
 
 // metric records a structural compiler counter for the final benchmark report.

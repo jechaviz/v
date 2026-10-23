@@ -51,7 +51,7 @@ const exclude_dirs = ['test', 'slow_test', 'testdata']
 
 fn main() {
 	vet_options := cmdline.options_after(os.args, ['vet'])
-	mut vt := Vet{
+	mut vt := &Vet{
 		opt: Options{
 			is_werror:           '-W' in vet_options
 			is_verbose:          '-verbose' in vet_options || '-v' in vet_options
@@ -304,7 +304,7 @@ fn (mut vt Vet) visit(id flat.NodeId) {
 		vt.string_vars = map[string]bool{}
 		for child in vt.a.children_of(node) {
 			parameter := vt.a.node(child)
-			if parameter.kind == .param && parameter.typ == 'string' {
+			if parameter.kind == .param && parameter.typ_text() == 'string' {
 				vt.string_vars[parameter.value] = true
 			}
 		}

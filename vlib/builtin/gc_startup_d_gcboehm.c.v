@@ -1,11 +1,28 @@
+@[has_globals]
 module builtin
 
+@[c: 'v_gc_init'; c_extern]
 fn C.GC_INIT()
+
+@[c_extern; markused]
+fn C.GC_allow_register_threads()
+
+@[c_extern]
 fn C.GC_is_init_called() int
+
+@[c_extern]
 fn C.GC_set_find_leak(int)
+
+@[c_extern]
 fn C.GC_set_all_interior_pointers(int)
+
+@[c_extern]
 fn C.GC_set_pages_executable(int)
+
+@[c_extern]
 fn C.GC_set_free_space_divisor(usize)
+
+@[c_extern]
 fn C.GC_enable_incremental()
 
 // v3_gcboehm_runtime_init mirrors the Boehm startup sequence emitted by the V1 C backend.
@@ -42,9 +59,11 @@ fn v3_gcboehm_runtime_init() {
 	// registers the offset that header adds.
 	C.GC_REGISTER_DISPLACEMENT(sizeof(voidptr))
 	$if windows {
-		// Leave a host collector's abort handler alone. Installed after GC_INIT,
-		// because the setter takes Boehm's allocator lock.
-		if !host_initialized_gc {
+		// Leave a host collector's abort handler alone, and never install a callback
+		// from a DLL that can be unloaded. The setter takes Boehm's allocator lock,
+		// so call it only after GC_INIT.
+		if !host_initialized_gc
+			&& is_address_in_executable(voidptr(&gc_boehm_default_abort_func)) {
 			gc_report_fatal_errors_on_stderr()
 		}
 	}

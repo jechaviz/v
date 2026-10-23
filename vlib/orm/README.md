@@ -3,8 +3,12 @@
 V has a powerful, concise ORM baked in! Create tables, insert records, manage relationships, all
 regardless of the DB driver you decide to use.
 
-Driver authors using the shared SQL generators can target SQLite, PostgreSQL, MySQL, and
-H2-backed connections with the built-in ORM dialect helpers.
+Driver authors using the shared SQL generators can target SQLite, PostgreSQL, MySQL, H2 and
+[vsql](https://github.com/elliotchance/vsql) connections with the built-in ORM dialect helpers.
+For `.vsql`, use `orm.orm_select_gen_with_dialect`, which spells a limit and an offset as
+`OFFSET n ROWS FETCH FIRST n ROWS ONLY`, and number the placeholders (`num: true`).
+`orm.orm_table_gen` then leaves out `IF NOT EXISTS` and indexes, which vsql does not have,
+and returns an error for `UNIQUE`, `DEFAULT` and `REFERENCES`, which it cannot declare.
 
 ## Deprecation notice: orm_fn
 
@@ -16,6 +20,41 @@ H2-backed connections with the built-in ORM dialect helpers.
 > Compiler deprecation warnings begin on **2027-02-18**, six months before
 > the removal date; until then the compiler emits a migration notice.
 > See https://github.com/vlang/v/issues/27001 for details.
+
+## Constructing infix expressions
+
+`orm.InfixType.right` has type `&orm.Primitive`. When constructing an expression directly,
+store the operand as an `orm.Primitive` and pass its address:
+
+```v ignore
+import orm
+
+operand := orm.Primitive(2)
+expression := orm.InfixType{
+    name: 'stock'
+    operator: .add
+    right: &operand
+}
+```
+
+Code that previously assigned a `Primitive` value to `right` should use `&operand`.
+Read the operand with `*expression.right`. The reference gives recursive expressions
+a finite layout; SQL arithmetic and parameter binding keep their existing behavior.
+
+## Inserting records
+
+Bind a struct literal to a variable before inserting it:
+
+```v ignore
+product := Product{name: 'b'}
+sql db {
+    insert product into Product
+}!
+```
+
+An inline struct literal after `insert` is rejected during compilation, including a
+qualified literal imported from another module. A qualified table type also supports
+module names that coincide with SQL keywords, such as `into.Product`.
 
 ## Nullable
 
@@ -66,6 +105,24 @@ struct Foo {
 - `[references]` or `[references: 'tablename']` or `[references: 'tablename(field_id)']`
 - `[comment: 'field_comment']` set comment
 - `[index]` creates index
+
+## Queries in array callbacks
+
+`sql` expressions inside array callbacks can use the current `it`, including fields
+such as `it.id`. Nested callbacks use their own `it` binding.
+
+Static `where` values can use function calls, member access and indexing. Structs and
+containers can be intermediate receivers, but the final value must be a primitive type,
+an enum or `time.Time`. For example, `make_holders()[0].name` can bind a string field,
+while `make_holders()[0]` cannot bind the whole struct. Option and Result receivers must
+be unwrapped with an `or` fallback before accessing their members or elements.
+Methods declared on collection aliases, including inherited alias methods, use their
+declared return types when checking the final value. Private alias methods remain
+accessible only within their declaring module, following ordinary method visibility rules.
+Alias conversions also follow type visibility. These checks apply during `-check` and compilation.
+Alias methods follow the same visibility and return type rules through pointer receivers.
+Mutable alias methods also require a receiver eligible under ordinary V mutability rules.
+Shared alias receivers require the same read or write locks as ordinary method calls.
 
 ## Usage
 > [!NOTE]
@@ -197,6 +254,8 @@ sql db {
 ### Create & Drop Tables
 
 You can create and drop tables by passing the struct to `create table` and `drop table`.
+Table structs from imported modules can use the module name or its import alias as a qualifier.
+These references count as uses of the import, even when it is used only inside the SQL block.
 
 ```v ignore
 import models.Foo
@@ -323,9 +382,18 @@ result := sql db {
 }!
 ```
 
+Modules referenced in SQL table names or value expressions count as used imports.
+For example, `time.now()` inside an ORM `update` statement uses `import time`.
+Names inside ordinary or raw string literals and comments do not count as import usage.
+String interpolation expressions still count, such as `${time.now()}`.
+
 Dynamic ORM blocks can build `WHERE` and `SET` data conditionally. Commas between
 emitted dynamic `where` items are joined with `AND`; use `&&` and `||` inside an
-item for explicit boolean conditions.
+item for explicit boolean conditions. Values may use indexed struct fields, such as
+`name == members[0].name` or `id == members_by_name['Alice'].id`.
+
+The formatter preserves conditions, commas and comments in query-data blocks,
+including standalone `sql { ... }` declaration assignments while editing.
 
 ```v ignore
 where_filter := {
@@ -689,3 +757,34 @@ Named arrays can also be passed directly for `IN` clauses:
 	user_ids := ['1', '2']
 	users := qb.where('id IN ?', user_ids)!.query()!
 ```
+
+## Explicit relationships in the Function Call API
+
+`orm.new_query[T]` loads scalar fields only. Use `include` to load a direct
+relationship and `then_include` to continue from the last included relationship:
+
+```v ignore
+mut parents := orm.new_query[Parent](db)
+rows := parents.include('children')!.then_include('grandkids')!.query()!
+```
+
+A new `include` starts an independent path. Every segment is validated before it
+changes the builder. An invalid include leaves the previous path intact. `query`
+and `reset` clear all include paths and the current path cursor. Duplicate paths
+are loaded once. Arrays need an `@[fkey]` attribute; singular and optional struct
+relationships use the existing ORM lookup-column mapping.
+
+This changes the Function Call API's previous implicit relationship loading:
+relationships are now populated only when requested. SQL-like `sql db { ... }`
+queries retain their existing implicit loading, including selects without an
+explicit field list. `where` continues to filter the root entity; includes do not
+add joins or related-entity predicates.
+
+When an explicit selection omits a lookup key, the query fetches it for hydration
+without populating that unselected scalar field in the result. With `distinct`,
+the lookup key must be selected explicitly to avoid changing distinctness. Errors
+from explicitly requested relationship queries are returned to the caller.
+
+Loading is currently per parent row: one included collection across N parents
+can execute N additional queries. This API controls which relationships load;
+future batching can reduce the number of database round trips.

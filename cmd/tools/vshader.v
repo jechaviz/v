@@ -198,7 +198,8 @@ fn compile_shader(opt CompileOptions, shader_file string) ! {
 	if opt.verbose {
 		eprintln('${tool_name} executing:\n${cmd}')
 	}
-	res := os.execute(cmd)
+	res := os.exec([shdc_exe, '--input', shader_file, '--output', out_file, '--slang',
+		slangs.join(':')])
 	if res.exit_code != 0 {
 		eprintln(res.command_failure_report('vshader.command',
 			reason:  'shader_include_generation_failed'

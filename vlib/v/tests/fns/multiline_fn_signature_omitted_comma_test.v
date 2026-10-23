@@ -8,6 +8,6 @@ fn test_multiline_fn_signature_can_omit_commas() {
 	defer {
 		os.rm(source_path) or {}
 	}
-	res := os.execute('${os.quoted_path(@VEXE)} run ${os.quoted_path(source_path)}')
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	res := os.exec([@VEXE, 'run', source_path])
+	assert res.exit_code == 0, res.output
 }

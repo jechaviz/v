@@ -12,14 +12,8 @@ fn assert_program_panics(source string, expected string) {
 	defer {
 		os.rm(source_path) or {}
 	}
-	cmd := '${os.quoted_path(@VEXE)} run ${os.quoted_path(source_path)}'
-	res := os.execute(cmd)
-	assert res.exit_code != 0, res.exit_code_diagnostics('!= 0',
-		label:   @FN
-		command: cmd
-		reason:  'expected_test_program_to_fail'
-	)
-
+	res := os.exec([@VEXE, 'run', source_path])
+	assert res.exit_code != 0, 'expected the test program to fail'
 	assert res.output.contains(expected), 'expected `${expected}` in `${res.output}`'
 }
 

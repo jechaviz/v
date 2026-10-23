@@ -229,13 +229,5 @@ fn open_in_editor(app &App) {
 
 	// Try to open in VS Code with line number
 	cmd := 'code -g "${alloc.file}:${alloc.line}"'
-	res := os.execute(cmd)
-	if res.exit_code != 0 {
-		eprintln(res.command_failure_report('v2.guiprof.command',
-			reason:  'open_editor_failed'
-			action:  'open_file_manually_or_check_code_command'
-			message: 'failed to open allocation location in VS Code'
-			command: cmd
-		))
-	}
+	os.exec(['code', '-g', '${alloc.file}' + ':' + '${alloc.line}'])
 }

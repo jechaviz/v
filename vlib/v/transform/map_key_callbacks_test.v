@@ -35,7 +35,7 @@ fn test_map_callbacks_preserve_fixed_width_and_string_keys() {
 	for bits in [32, 64] {
 		types.set_platform_int_bits(bits)
 		for size, keys in {
-			'1': ['u8', 'i8', 'byte', 'bool', 'char']
+			'1': ['u8', 'i8', 'bool', 'char']
 			'2': ['u16', 'i16']
 			'4': ['u32', 'i32', 'f32', 'rune']
 			'8': ['u64', 'i64', 'f64']
@@ -70,7 +70,7 @@ fn test_map_callbacks_resolve_aliases_and_keep_fixed_array_helpers() {
 			'BlockKey':  '[2]u64'
 		}
 		for name, base in aliases {
-			tc.type_aliases[name] = base
+			tc.type_aliases.set_id(name, flat.source_type_id(base))
 			tc.type_alias_modules[name] = 'main'
 		}
 		t := Transformer{
@@ -79,10 +79,10 @@ fn test_map_callbacks_resolve_aliases_and_keep_fixed_array_helpers() {
 			cur_module: 'main'
 		}
 		for name, base in aliases {
-			hash_fn, eq_fn, clone_fn, free_fn := t.map_callback_names_for_type(name)
+			hash_fn, eq_fn, clone_fn, free_fn := t.map_callback_names_for_type(flat.source_type_id(name))
 			actual := [hash_fn, eq_fn, clone_fn, free_fn]
 			if name == 'BlockKey' {
-				prefix := '${tc.c_type(tc.parse_type(base))}_map_key'
+				prefix := '${tc.c_type(tc.parse_type(flat.source_type_id(base)))}_map_key'
 				assert actual == ['${prefix}_hash', '${prefix}_eq', '${prefix}_clone',
 					'${prefix}_free']
 			} else {

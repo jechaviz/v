@@ -251,7 +251,7 @@ struct VmlExpr {
 
 struct VmlProperty {
 	name          string
-	declared_type string
+	declared_type u32
 	expr          &VmlExpr
 }
 
@@ -296,7 +296,7 @@ fn (mut p VmlSourceParser) parse_node() !&VmlNode {
 			typ := p.take(.name)!
 			name := p.take(.name)!
 			p.take(.colon)!
-			node.properties << VmlProperty{ name: name.text, declared_type: typ.text, expr: p.parse_expression()! }
+			node.properties << VmlProperty{ name: name.text, declared_type: flat.source_type_id(typ.text), expr: p.parse_expression()! }
 		} else if p.pos + 1 < p.tokens.len && p.tokens[p.pos + 1].kind == .lbrace {
 			node.children << p.parse_node()!
 		} else if p.pos + 1 < p.tokens.len && p.tokens[p.pos + 1].kind == .colon {
@@ -782,8 +782,8 @@ enum VmlExprUse {
 }
 
 fn vml_property_use(property VmlProperty) VmlExprUse {
-	if property.declared_type.len > 0 {
-		return match property.declared_type {
+	if property.declared_type_text().len > 0 {
+		return match property.declared_type_text() {
 			'f64', 'f32', 'int' { .number }
 			'bool' { .bool_ }
 			'string' { .string_ }
@@ -1021,7 +1021,7 @@ fn (mut c VmlCompiler) compile_node(node &VmlNode, path string, input string, in
 	// bindings are added after they are emitted below, so self-geometry can use an
 	// earlier computed binding while declared properties can still read the input.
 	for property in node.properties {
-		if property.declared_type.len > 0 {
+		if property.declared_type_text().len > 0 {
 			named_props[property.name] = 'vml_property_${suffix}_${vml_var(property.name)}'
 		}
 	}
@@ -1029,10 +1029,10 @@ fn (mut c VmlCompiler) compile_node(node &VmlNode, path string, input string, in
 		scope.ids[node.id] = VmlNamedValue{ frame: input, props: named_props.clone() }
 	}
 	mut properties := map[string]string{}
-	mut ordered_properties := vml_order_properties_by_dependencies(node.properties.filter(it.declared_type.len > 0), node.id)
-	ordered_properties << vml_order_properties_by_dependencies(node.properties.filter(it.declared_type.len == 0
+	mut ordered_properties := vml_order_properties_by_dependencies(node.properties.filter(it.declared_type_text().len > 0), node.id)
+	ordered_properties << vml_order_properties_by_dependencies(node.properties.filter(it.declared_type_text().len == 0
 		&& vml_property_is_geometry(it)), node.id)
-	ordered_properties << node.properties.filter(it.declared_type.len == 0
+	ordered_properties << node.properties.filter(it.declared_type_text().len == 0
 		&& !vml_property_is_geometry(it))
 	for property in ordered_properties {
 		if property.name == 'id'
@@ -1041,16 +1041,16 @@ fn (mut c VmlCompiler) compile_node(node &VmlNode, path string, input string, in
 		}
 		name := 'vml_property_${suffix}_${vml_var(property.name)}'
 		property_use := vml_property_use(property)
-		value := if property.declared_type == 'int' {
+		value := if property.declared_type_text() == 'int' {
 			numeric_value := c.expr(property.expr, scope, .raw)
-			vml_numeric_cast(property.declared_type, numeric_value)
-		} else if property.declared_type == 'f32' {
+			vml_numeric_cast(property.declared_type_text(), numeric_value)
+		} else if property.declared_type_text() == 'f32' {
 			numeric_value := c.expr(property.expr, scope, .number)
-			vml_numeric_cast(property.declared_type, numeric_value)
+			vml_numeric_cast(property.declared_type_text(), numeric_value)
 		} else {
 			c.expr(property.expr, scope, property_use)
 		}
-		if property.declared_type.len == 0 && property_use == .color
+		if property.declared_type_text().len == 0 && property_use == .color
 			&& property.expr.kind in [.literal, .path]
 			&& property.expr.value.starts_with('#') && property.expr.value.len == 7 {
 			// Static colors can be used directly without a generated local.
@@ -1059,7 +1059,7 @@ fn (mut c VmlCompiler) compile_node(node &VmlNode, path string, input string, in
 		}
 		c.out.writeln('\t${name} := ${value}')
 		properties[property.name] = name
-		if property.declared_type.len == 0 && vml_property_is_geometry(property) {
+		if property.declared_type_text().len == 0 && vml_property_is_geometry(property) {
 			named_props[property.name] = name
 			if node.id.len > 0 {
 				scope.ids[node.id] = VmlNamedValue{ frame: input, props: named_props.clone() }
@@ -1320,7 +1320,7 @@ fn (c &VmlCompiler) menu_value(node &VmlNode, scope VmlScope) string {
 			}
 			entries << 'ui2.MenuEntry{id: if ${id}.len > 0 { ${id} } else { ${fallback_id} }, title: ${text}}'
 		}
-		return '[]ui2.MenuEntry{${entries.join(', ')}}'
+		return vml_array_literal('ui2.MenuEntry', entries)
 	}
 	if node.tag in ['Dropdown', 'Spinner'] {
 		mut entries := []string{}
@@ -1335,7 +1335,7 @@ fn (c &VmlCompiler) menu_value(node &VmlNode, scope VmlScope) string {
 			}
 			entries << 'ui2.MenuEntry{id: ${text}, title: ${text}}'
 		}
-		return '[]ui2.MenuEntry{${entries.join(', ')}}'
+		return vml_array_literal('ui2.MenuEntry', entries)
 	}
 	return '[]ui2.MenuEntry{}'
 }
@@ -1353,7 +1353,11 @@ fn (c &VmlCompiler) option_values(node &VmlNode, scope VmlScope) string {
 		}
 		values << value
 	}
-	return '[]string{${values.join(', ')}}'
+	return vml_array_literal('string', values)
+}
+
+fn vml_array_literal(elem_type string, values []string) string {
+	return if values.len == 0 { '[]${elem_type}{}' } else { '[${values.join(', ')}]' }
 }
 
 fn (mut c VmlCompiler) compile_element(node &VmlNode, suffix string, frame string, children string, properties map[string]string, scope VmlScope, default_key string) {
@@ -1623,7 +1627,7 @@ fn (mut c VmlCompiler) compile_message_box(node &VmlNode, suffix string, frame s
 	c.out.writeln('\t\thidden: ${vml_prop(properties, 'hidden', 'false')}')
 	c.out.writeln('\t\twidth: ${vml_prop(properties, 'dialog_width', 'f64(300)')}')
 	c.out.writeln('\t\theight: ${vml_prop(properties, 'dialog_height', 'f64(150)')}')
-	c.out.writeln('\t\tactions: []ui2.MessageBoxAction{${actions.join(', ')}}')
+	c.out.writeln('\t\tactions: ${vml_array_literal('ui2.MessageBoxAction', actions)}')
 	c.out.writeln('\t)')
 	c.out.writeln('\tvml_element_${suffix} := ui2.Element{')
 	c.out.writeln('\t\t...vml_message_box_${suffix}')
@@ -1631,4 +1635,10 @@ fn (mut c VmlCompiler) compile_message_box(node &VmlNode, suffix string, frame s
 	c.out.writeln('\t\tkey: ${key}')
 	c.write_common_fields(node, properties, scope, "''", "''", "''")
 	c.out.writeln('\t}')
+}
+
+// declared_type_text resolves the indexed source type spelling.
+@[inline]
+fn (value &VmlProperty) declared_type_text() string {
+	return flat.source_type_name(value.declared_type)
 }

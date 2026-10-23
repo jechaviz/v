@@ -91,7 +91,7 @@ fn check_assert_continues_works() ! {
 
 fn check_ok(cmd string) MyResult {
 	println('>   check_ok cmd: ${cmd}')
-	res := os.execute(cmd)
+	res := os.exec(os.split_args(cmd) or { panic(err) })
 	if res.exit_code != 0 {
 		eprintln(res.command_failure_report('vtest_system_check.command',
 			reason:  'check_ok_failed'
@@ -105,7 +105,7 @@ fn check_ok(cmd string) MyResult {
 
 fn check_fail(cmd string) MyResult {
 	println('> check_fail cmd: ${cmd}')
-	res := os.execute(cmd)
+	res := os.exec(os.split_args(cmd) or { panic(err) })
 	if res.exit_code == 0 {
 		eprintln(res.command_failure_report('vtest_system_check.command',
 			reason:  'check_fail_unexpected_success'

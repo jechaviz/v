@@ -5,14 +5,165 @@ import v.flat
 import v.pref
 import v.types
 
+fn test_used_function_lookup_preserves_source_and_c_spelling() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	mut used := {
+		'dep.read': true
+		'dep__run': true
+		'v_malloc': true
+	}
+	g.used_fns = &used
+	assert g.used_fn_contains_in_module('read', 'dep')
+	assert g.used_fn_contains_in_module('run', 'dep')
+	assert g.used_fn_contains_in_module('malloc', 'main')
+	assert !g.used_fn_contains_in_module('absent', 'dep')
+}
+
+fn test_ierror_method_lookup_preserves_source_and_c_spelling() {
+	mut g := FlatGen.new()
+	assert !g.should_emit_ierror_method('Box.message', 'dep.Box.message')
+	g.ierror_method_emit_names['Box.message'] = true
+	assert g.should_emit_ierror_method('Box.message', 'dep.Box.message')
+	g.ierror_method_emit_names.clear()
+	g.ierror_method_emit_names['dep__Box__message'] = true
+	assert g.should_emit_ierror_method('Box.message', 'dep.Box.message')
+	assert !g.should_emit_ierror_method('Box.code', 'dep.Box.code')
+}
+
+fn test_program_specialization_preserves_generated_functions_without_generic_names() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	node := flat.Node{
+		kind:  .fn_decl
+		value: 'Box.read'
+	}
+	assert !g.is_program_specialization_fn_node_with_qfn(node, 0, 'Box__read', 'program.v')
+	a.specialized_fn_nodes[0] = true
+	assert g.is_program_specialization_fn_node_with_qfn(node, 0, 'Box__read', 'program.v')
+	a.specialized_fn_nodes.clear()
+	g.cache_program_files['program.v'] = true
+	for name in ['__v3_sum_eq_Box', '__v3_autostr_Box', '__v3_default_clone_Box'] {
+		generated := flat.Node{
+			kind:  .fn_decl
+			value: name
+		}
+		assert g.is_program_specialization_fn_node_with_qfn(generated, 1, name, 'program.v')
+		assert !g.is_program_specialization_fn_node_with_qfn(generated, 1, name, 'library.v')
+	}
+	tc.specialized_generic_fns['Box__read'] = true
+	assert g.is_program_specialization_fn_node_with_qfn(node, 0, 'Box__read', 'program.v')
+}
+
 // test_c_name_sanitize_operator_overloads validates this v3 regression case.
 fn test_c_name_sanitize_operator_overloads() {
-	assert c_name('Point.<') == 'Point__lt'
-	assert c_name('Point.<=') == 'Point__le'
-	assert c_name('Point.>') == 'Point__gt'
-	assert c_name('Point.>=') == 'Point__ge'
-	assert c_name('Point.[]') == 'Point__op_index'
-	assert c_name('Point.[]=') == 'Point__op_index_set'
+	assert c_name('Point.<') == '__v3_internal_symbol_op_Point__lt'
+	assert c_name('Point.<=') == '__v3_internal_symbol_op_Point__le'
+	assert c_name('Point.>') == '__v3_internal_symbol_op_Point__gt'
+	assert c_name('Point.>=') == '__v3_internal_symbol_op_Point__ge'
+	assert c_name('Point.[]') == '__v3_internal_symbol_op_Point__op_index'
+	assert c_name('Point.[]=') == '__v3_internal_symbol_op_Point__op_index_set'
+	assert c_name('Point.**') == '__v3_internal_symbol_op_Point__pow'
+}
+
+// An operator's C name never equals the C name of an ordinary method, whether or
+// not the receiver has a method named after the operator's C spelling.
+fn test_operator_c_names_differ_from_method_c_names() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	for op, word in {
+		'+':   'plus'
+		'-':   'minus'
+		'*':   'mul'
+		'**':  'mul_'
+		'/':   'div'
+		'%':   'mod'
+		'==':  'eq'
+		'!=':  'ne'
+		'<':   'lt'
+		'>':   'gt'
+		'<=':  'le'
+		'>=':  'ge'
+		'|':   'or'
+		'^':   'xor'
+		'[]':  'op_index'
+		'[]=': 'op_index_set'
+	} {
+		name := 'Box.${op}'
+		ordinary := 'Box.${word}'
+		assert g.direct_call_name(name) == g.cname(name)
+		assert g.direct_call_name(name) != g.cname(ordinary)
+		tc.fn_param_types[ordinary] = []types.Type{}
+		assert g.direct_call_name(name) == g.cname(name)
+		assert g.direct_call_name(ordinary) == g.cname(ordinary)
+		assert g.cname(name) != g.cname(ordinary)
+	}
+	assert g.cname('Box.**') != g.cname('Box.pow')
+	for method in ['get', 'value', 'operator', 'operator[]=', '[]suffix'] {
+		name := 'Box.${method}'
+		assert g.direct_call_name(name) == g.cname(name)
+	}
+}
+
+// The builtin `string` operators keep the C names the runtime calls them by.
+fn test_builtin_string_operators_keep_runtime_c_names() {
+	assert c_name('string.==') == 'string__eq'
+	assert c_name('string.<') == 'string__lt'
+	assert c_name('string.+') == 'string__plus'
+}
+
+fn test_direct_builtin_map_set_aliases_use_the_runtime_symbol() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	for name in ['builtin.map__set', 'builtin_map__set', 'builtin__map__set',
+		fn_decl_module_key('builtin', 'map.set')] {
+		assert g.direct_call_name(name) == 'map__set'
+	}
+}
+
+fn test_direct_call_abi_overrides_work_after_an_initial_empty_table() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	assert g.direct_call_name('dep.call') == 'dep__call'
+	g.c_decl_abi_names['dep.call'] = 'custom_call'
+	assert g.direct_call_name('dep.call') == 'custom_call'
+	g.c_decl_abi_names['dep__other'] = 'custom_other'
+	assert g.direct_call_name('dep.other') == 'custom_other'
+}
+
+fn test_runtime_shadow_names_keep_declarations_and_uses_consistent() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	for name in ['argc', 'argv', 'array_get', 'array_slice', 'int_str', 'new_map', 'string__eq',
+		'string__lt', 'string__plus'] {
+		declaration := g.local_decl_cname(name)
+		assert declaration != g.cname(name)
+		assert g.local_cname(name) == declaration
+		assert g.debugger_var_expr(name) == declaration
+	}
+	for name in ['', 'arg', 'args', 'argc2', 'array_set', 'array_get_more', 'new_maps', 'string__ne',
+		'string__long'] {
+		assert g.local_decl_cname(name) == g.cname(name)
+		assert g.local_cname(name) == g.cname(name)
+	}
 }
 
 fn test_c_name_sanitize_escaped_keywords() {
@@ -32,11 +183,50 @@ fn test_c_name_pre_sanitized_classifier() {
 
 fn test_cached_cname_fast_paths_match_canonical_naming() {
 	mut g := FlatGen.new()
-	for name in ['run', 'int', 'send', 'malloc', 'int_str', 'exit', '_str_42', '_str_value', 'main.run',
-		'foo.Bar.method', 'C.printf', 'C.SSL_CTX.str', 'Point.<=', 'pkg.Box[int].value',
-		'int@static@tag', '__v3_internal_symbol_source'] {
+	for name in ['run', 'int', 'bool', 'C.bool', 'send', 'malloc', 'int_str', 'exit', '_str_42',
+		'_str_value', 'main.run', 'foo.Bar.method', 'C.printf', 'C.SSL_CTX.str', 'Point.<=',
+		'pkg.Box[int].value', 'int@static@tag', '__v3_internal_symbol_source'] {
 		assert g.cname(name) == c_name(name)
 	}
+}
+
+fn test_cached_cname_classifier_preserves_special_names_and_bytes() {
+	mut g := FlatGen.new()
+	for name in ['', '.', '9name', 'a..b', 'a__b.c', '__v3_internal_symbol_x',
+		'__v3_internal_symbol_x.y', 'x@static@y', 'x.[]=', 'x.+', '_str_123', 'C.name', 'C.SSL_CTX.str',
+		'complex', 'int_str', 'malloc'] {
+		for _ in 0 .. 2 {
+			assert g.cname(name) == c_name(name), name
+		}
+	}
+	for byte in 0 .. 256 {
+		name := 'prefix' + u8(byte).ascii_str() + 'suffix'
+		assert g.cname(name) == c_name(name), byte.str()
+		assert g.cname(name.clone()) == c_name(name), byte.str()
+	}
+}
+
+fn test_cname_recent_cache_checks_content_and_reuses_equal_allocations() {
+	mut cache := CNameCache{}
+	name := 'pkg.first'
+	cache.remember(name, 'pkg__first')
+	assert cache.recent(name.clone())? == 'pkg__first'
+	// Search for a real slot collision; a collision must never supply another name's value.
+	mut collision := ''
+	for i in 0 .. 100000 {
+		candidate := 'pkg.name_${i}'
+		if candidate != name && c_name_recent_slot(candidate) == c_name_recent_slot(name) {
+			collision = candidate
+			break
+		}
+	}
+	assert collision != ''
+	assert cache.recent(collision) == none
+	cache.remember(collision, 'pkg__farst')
+	assert cache.recent(name) == none
+	assert cache.recent(collision.clone())? == 'pkg__farst'
+	cache.remember('', '')
+	assert cache.recent('')? == ''
 }
 
 fn test_c_name_sanitizes_compound_generic_type_arguments() {
@@ -82,14 +272,14 @@ fn test_struct_init_main_alias_target_keeps_declaration_scope() {
 	tc.struct_modules['Context'] = 'main'
 	tc.structs['veb.Context'] = []types.StructField{}
 	tc.struct_modules['veb.Context'] = 'veb'
-	tc.type_aliases['AliasContext'] = 'Context'
+	tc.type_aliases.set_id('AliasContext', flat.source_type_id('Context'))
 	tc.type_alias_modules['AliasContext'] = 'main'
 	tc.cur_module = 'veb'
 	mut g := FlatGen.new()
 	g.a = &a
 	g.tc = &tc
 
-	assert g.struct_type_alias_target('main.AliasContext') or { '' } == 'main.Context'
+	assert flat.source_type_name(g.struct_type_alias_target(flat.source_type_id('main.AliasContext')) or { u32(0) }) == 'main.Context'
 }
 
 fn test_c_name_generated_string_symbol_collision() {
@@ -122,12 +312,17 @@ fn test_direct_call_does_not_prefix_synthetic_helper_with_owner_module() {
 	g.tc = &tc
 	g.non_generic_fn_names_by_module['ast\x01__v3_autostr_ast__Comment'] = true
 	g.non_generic_fn_names_by_module['ast\x01__v3_default_clone_json2__Any'] = true
+	g.non_generic_fn_names_by_module['ast\x01__v3_struct_eq_ast__Comment'] = true
 
 	assert g.direct_call_name_for_call(flat.empty_node, '__v3_autostr_ast__Comment') == '__v3_autostr_ast__Comment'
 	assert g.direct_call_name_for_call(flat.empty_node, 'ast.__v3_autostr_ast__Comment') == '__v3_autostr_ast__Comment'
 	assert g.direct_call_name_for_call(flat.empty_node, '__v3_default_clone_json2__Any') == '__v3_default_clone_json2__Any'
 	assert g.direct_call_name_for_call(flat.empty_node, 'ast.__v3_default_clone_json2__Any') == '__v3_default_clone_json2__Any'
 	assert g.fn_c_name_in_module('main', '__v3_default_clone_json2__Any') == '__v3_default_clone_json2__Any'
+	assert g.direct_call_name_for_call(flat.empty_node, '__v3_struct_eq_ast__Comment') == '__v3_struct_eq_ast__Comment'
+	assert g.direct_call_name_for_call(flat.empty_node, 'ast.__v3_struct_eq_ast__Comment') == '__v3_struct_eq_ast__Comment'
+	assert g.fn_c_name_in_module('ast', '__v3_struct_eq_ast__Comment') == '__v3_struct_eq_ast__Comment'
+	assert qualified_fn_name_in_module('ast', '__v3_struct_eq_ast__Comment') == '__v3_struct_eq_ast__Comment'
 }
 
 fn test_main_function_is_prefixed_when_preserved_c_header_owns_typedef_name() {
@@ -163,7 +358,7 @@ fn test_main_function_is_prefixed_when_declared_c_function_owns_name() {
 	g.a = &a
 	g.tc = &tc
 	tc.fn_ret_types['C.get_value'] = types.Type(types.int_)
-	g.fn_decl_ret_types[fn_decl_module_key('main', 'get_value')] = types.Type(types.int_)
+	g.fn_decl_ret_types[fn_decl_module_key('main', 'get_value')] = tc.parse_type(flat.source_type_id('int'))
 
 	assert g.fn_c_name_in_module('main', 'get_value') == 'main__get_value'
 	assert g.main_runtime_shadow_fn_c_name('main', 'get_value') or { '' } == 'main__get_value'
@@ -180,6 +375,31 @@ fn test_main_function_is_prefixed_when_objective_c_owns_id_name() {
 	assert g.fn_c_name_in_module('main', 'id') == 'main__id'
 	assert g.main_runtime_shadow_fn_c_name('main', 'id') or { '' } == 'main__id'
 	assert g.fn_c_name_in_module('database', 'id') == 'database__id'
+}
+
+fn test_main_sync_function_names_use_the_reserved_namespace() {
+	mut a := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&a)
+	mut g := FlatGen.new()
+	g.a = &a
+	g.tc = &tc
+	for name in ['sync', 'syncfs'] {
+		internal := '__v3_internal_symbol_libc_${name}'
+		assert g.fn_c_name_in_module('main', name) == internal
+		assert g.fn_c_name_in_module('', name) == internal
+		assert g.direct_call_name(name) == internal
+		assert g.direct_call_name('main.${name}') == internal
+		assert g.callback_c_fn_name(name) == internal
+		assert g.callback_c_fn_name('main.${name}') == internal
+		assert g.fn_c_name_in_module('main', 'main__${name}') == 'main__${name}'
+		assert g.fn_c_name_in_module('main', internal) == '__v3_internal_symbol_source_${internal}'
+		assert g.fn_c_name_in_module('worker', name) == 'worker__${name}'
+		assert g.direct_call_name('C.${name}') == name
+		assert g.callback_c_fn_name('C.${name}') == name
+	}
+	tc.cur_module = 'worker'
+	assert g.direct_call_name('main.sync') == '__v3_internal_symbol_libc_sync'
+	assert g.direct_call_name('main.syncfs') == '__v3_internal_symbol_libc_syncfs'
 }
 
 fn test_target_libc_opaque_packed_struct_restores_packing() {
@@ -213,7 +433,7 @@ fn aligned_struct_decl_c(ccompiler string, attrs string, union_decl bool) string
 	node_id := a.add_node(flat.Node{
 		kind:  .struct_decl
 		value: name
-		typ:   attrs
+		typ:   flat.source_type_id(attrs)
 	})
 	mut g := FlatGen.new()
 	g.a = &a
@@ -290,9 +510,9 @@ fn test_voidptr_method_value_arg_does_not_panic_for_alias_to_voidptr() {
 	g.a = &a
 	g.tc = &tc
 	alias_to_voidptr := types.Type(types.Alias{
-		name:      'Data'
-		base_type: types.Type(types.Pointer{
-			base_type: types.Type(types.void_)
+		name_id:   flat.source_type_id('Data')
+		base_type: &types.Type(types.Pointer{
+			base_type: &types.Type(types.void_)
 		})
 	})
 	assert !g.voidptr_method_value_arg(flat.empty_node, alias_to_voidptr)
@@ -309,17 +529,17 @@ fn test_same_named_user_context_does_not_route_to_embedded_framework_context() {
 		types.StructField{
 			name:     'veb.Context'
 			typ:      types.Type(types.Struct{
-				name: 'veb.Context'
+				name_id: flat.source_type_id('veb.Context')
 			})
 			is_embed: true
 		},
 	]
 
 	base := types.Type(types.Struct{
-		name: 'main.Context'
+		name_id: flat.source_type_id('main.Context')
 	})
 	expected := types.Type(types.Struct{
-		name: 'Context'
+		name_id: flat.source_type_id('Context')
 	})
 	assert g.embedded_receiver_path_for_expected(base, expected) == none
 	assert g.emitted_method_belongs_to_receiver(base, 'before_request', 'Context__before_request')
@@ -354,10 +574,10 @@ fn test_context_lookup_cache_tracks_source_file_imports() {
 	g.tc = &tc
 	tc.cur_file = 'one.v'
 	assert g.import_alias_module('kind')? == 'first.token'
-	assert g.enum_selector_base_name('kind.Kind')? == 'first.token.Kind'
+	assert g.enum_selector_base_name(flat.source_type_id('kind.Kind'))? == flat.source_type_id('first.token.Kind')
 	tc.cur_file = 'two.v'
 	assert g.import_alias_module('kind')? == 'second.token'
-	assert g.enum_selector_base_name('kind.Kind')? == 'second.token.Kind'
+	assert g.enum_selector_base_name(flat.source_type_id('kind.Kind'))? == flat.source_type_id('second.token.Kind')
 }
 
 fn test_transformed_module_call_namespace_arguments() {
@@ -396,9 +616,9 @@ fn test_cgen_typeof_display_canonicalizes_fixed_array_generic_args() {
 	assert typeof_display_type_name('Pair[int[3], Box[string[2]]]') == 'Pair[[3]int, Box[[2]string]]'
 	assert typeof_display_type_name('Box[int][3]') == '[3]Box[int]'
 	fixed_maps := types.Type(types.ArrayFixed{
-		elem_type: types.Type(types.Map{
-			key_type:   types.Type(types.String{})
-			value_type: types.Type(types.int_)
+		elem_type: &types.Type(types.Map{
+			key_type:   &types.Type(types.String{})
+			value_type: &types.Type(types.int_)
 		})
 		len:       3
 	})
@@ -411,22 +631,45 @@ fn test_fixed_array_typedef_allows_opaque_pointer_elements() {
 	mut g := FlatGen.new()
 	g.tc = &tc
 	opaque := types.Type(types.Struct{
-		name: 'C.Foo'
+		name_id: flat.source_type_id('C.Foo')
 	})
 	assert g.fixed_array_type_has_unknown_struct(opaque)
 	assert !g.fixed_array_type_has_unknown_struct(types.Type(types.Pointer{
-		base_type: opaque
+		base_type: &types.Type(opaque)
 	}))
 }
 
 fn test_sum_type_index_rejects_ambiguous_qualified_suffix() {
 	mut a := flat.FlatAst.new()
 	mut tc := types.TypeChecker.new(&a)
-	tc.sum_types['a.tast.Value'] = ['a.tast.First', 'a.tast.Target']
-	tc.sum_types['b.tast.Value'] = ['b.tast.Target', 'b.tast.Second']
+	tc.sum_types.set('a.tast.Value', ['a.tast.First', 'a.tast.Target'])
+	tc.sum_types.set('b.tast.Value', ['b.tast.Target', 'b.tast.Second'])
 	mut g := FlatGen.new()
 	g.tc = &tc
-	assert g.sum_type_index('tast.Value', 'b.tast.Target') == 0
+	assert g.sum_type_index(flat.source_type_id('tast.Value'), flat.source_type_id('b.tast.Target')) == 0
+}
+
+fn test_sum_name_lookup_preserves_qualified_type_identity() {
+	mut ast := flat.FlatAst.new()
+	mut tc := types.TypeChecker.new(&ast)
+	tc.sum_types.set('left.Value', ['left.Item', 'right.Item'])
+	tc.sum_types.set('right.Value', ['int', 'string'])
+	mut g := FlatGen.new()
+	g.tc = &tc
+	g.precompute_sum_name_lookup()
+	assert g.resolve_sum_name(flat.source_type_id('Value')) == flat.source_type_id('Value')
+	assert g.resolve_sum_name(flat.source_type_id('left.Value')) == flat.source_type_id('left.Value')
+	assert g.resolve_sum_name(flat.source_type_id('right.Value')) == flat.source_type_id('right.Value')
+	assert g.resolve_variant(flat.source_type_id('left.Value'), flat.source_type_id('Item')) == flat.source_type_id('Item')
+	assert g.sum_type_index(flat.source_type_id('left.Value'), flat.source_type_id('Item')) == 0
+	assert g.sum_type_index(flat.source_type_id('left.Value'), flat.source_type_id('left.Item')) == 1
+	assert g.sum_type_index(flat.source_type_id('left.Value'), flat.source_type_id('right.Item')) == 2
+	assert g.resolve_variant(flat.source_type_id('left.Value'), flat.source_type_id('left.Item')) == flat.source_type_id('left.Item')
+	assert g.resolve_variant(flat.source_type_id('left.Value'), flat.source_type_id('right.Item')) == flat.source_type_id('right.Item')
+	tc.sum_types.set('extra.left__Value', ['Raw__Name', 'Raw.Name'])
+	g.precompute_sum_name_lookup()
+	assert g.resolve_sum_name(flat.source_type_id('left__Value')) == flat.source_type_id('left.Value')
+	assert g.resolve_variant(flat.source_type_id('extra.left__Value'), flat.source_type_id('Raw__Name')) == flat.source_type_id('Raw__Name')
 }
 
 fn test_sum_type_index_emission_override_is_limited_to_flatgen() {
@@ -449,17 +692,22 @@ fn test_sum_type_index_emission_override_is_limited_to_flatgen() {
 	}, -1, 'transform', 'sum.v', 'transform__Transformer__sum_type_index', false)
 }
 
-fn test_typeof_type_index_fallback_uses_matching_sum_variant() {
+fn test_typeof_type_index_is_independent_of_sum_variant_order() {
 	mut a := flat.FlatAst.new()
 	mut tc := types.TypeChecker.new(&a)
-	tc.sum_types['main.Value'] = ['main.Foo', 'main.Bar']
-	tc.sum_types['main.Other'] = ['main.Baz', 'main.Qux']
+	tc.cur_module = 'main'
+	tc.sum_types.set('main.Value', ['main.Foo', 'main.Bar'])
+	tc.sum_types.set('main.Other', ['main.Baz', 'main.Qux'])
+	names := ['main.Foo', 'main.Bar', 'main.Baz', 'main.Qux']
+	tc.runtime_type_indexes = types.stable_type_indexes(names.map(flat.source_type_id(it)))
 	mut g := FlatGen.new()
 	g.tc = &tc
-	assert g.type_index_for_type_name('Foo') == 1
-	assert g.type_index_for_type_name('Bar') == 2
-	assert g.type_index_for_type_name('Qux') == 2
-	assert g.type_index_for_type_name('NotVariant') == 0
+	for name in names {
+		short := name.all_after_last('.')
+		assert g.type_index_for_type_name(flat.source_type_id(short)) == tc.runtime_type_indexes[flat.source_type_id(name)]
+	}
+	assert g.type_index_for_type_name(flat.source_type_id('int')) == 8
+	assert g.type_index_for_type_name(flat.source_type_id('&int')) == 8 | (1 << 16)
 }
 
 fn test_fn_decl_variadic_resolves_alias_before_short_fallback() {
@@ -535,10 +783,20 @@ fn test_header_backed_c_declarations_skip_generated_prototypes() {
 	lib_only.note_c_include_directive('bindings', '/project/other.c.v')
 	assert !lib_only.should_emit_c_extern_decl_from_file('foo_open', source, 'bindings')
 
-	// Nothing links and nothing includes: the symbol has to come from somewhere else,
-	// so V3 stays out of the way, exactly like the V1 backend.
+	// Nothing links and nothing includes: with system headers the symbol has to come
+	// from somewhere else, so V3 stays out of the way, exactly like the V1 backend.
+	mut with_system_headers := FlatGen.new()
+	with_system_headers.c_directives << CDirective{
+		text: '#include <stdio.h>'
+	}
+	assert with_system_headers.c_directives_use_system_libc()
+	assert !with_system_headers.should_emit_c_extern_decl_from_file('unrelated_api', source, 'main')
+
+	// A unit without system headers has no other declaration of the binding, so it gets
+	// the prototype even for a program's own `fn C.` (#30781).
 	mut bare := FlatGen.new()
-	assert !bare.should_emit_c_extern_decl_from_file('unrelated_api', source, 'main')
+	assert !bare.c_directives_use_system_libc()
+	assert bare.should_emit_c_extern_decl_from_file('unrelated_api', source, 'main')
 }
 
 fn test_apple_framework_include_does_not_match_x11() {
@@ -713,10 +971,10 @@ fn test_scratch_lookup_caches_keep_batch_entries_out_of_the_generator() {
 	assert voidptr(g.generic_app_cache.base) == voidptr(own_generic_app_cache)
 	g.unique_struct_ct_cache.put('Batch', 'main__Batch')
 	g.param_types_cache['batch'] = [types.Type(types.void_)]
-	g.import_type_cache.unqualified_texts['Batch'] = 'main.Batch'
+	g.import_type_cache.unqualified_texts.put('Batch', 'main.Batch')
 	mut batch_file := g.import_type_cache.for_file('batch.v')
-	batch_file.texts['Batch'] = 'main.Batch'
-	batch_file.parsed['Batch'] = types.Type(types.void_)
+	batch_file.texts.put('Batch', 'main.Batch')
+	batch_file.parsed[flat.source_type_id('Batch')] = types.Type(types.void_)
 	g.restore_scratch_lookup_caches(saved)
 	assert voidptr(g.unique_struct_ct_cache) == voidptr(own_unique_struct_ct_cache)
 	assert voidptr(g.struct_cname_cache) == voidptr(own_struct_cname_cache)
@@ -725,7 +983,7 @@ fn test_scratch_lookup_caches_keep_batch_entries_out_of_the_generator() {
 	assert g.unique_struct_ct_cache.get('Batch') == none
 	assert 'batch' !in g.param_types_cache
 	// The per-file child cache the batch created is dropped with it.
-	assert g.import_type_cache.unqualified_texts.len == 0
+	assert g.import_type_cache.unqualified_texts.entries.len == 0
 	assert g.import_type_cache.by_file.len == 0
 	assert isnil(g.import_type_cache.last)
 }
@@ -877,4 +1135,141 @@ fn test_embed_blob_split_keeps_every_object_within_the_c_limit() {
 	// it cannot describe.
 	parts := embed_blob_part_count(4 * 1024 * 1024 * 1024 - 1)
 	assert embed_blob_table_count(parts) * per_table >= parts
+}
+
+fn test_path_linked_libraries_keep_headerless_c_prototypes() {
+	source := '/project/bindings.c.v'
+	for flag in ['@DIR/libext.a', '/opt/libext.so', '/opt/libext.dylib', 'C:/lib/ext.lib',
+		'"/opt/library dir/libext.a"', 'linux @DIR/libext.a -lm'] {
+		mut g := FlatGen.new()
+		g.note_c_flag_directive('bindings', source, flag)
+		assert g.should_emit_c_extern_decl_from_file('my_ext_fn', source, 'bindings'), flag
+		// A sibling binding file can share the module's library linkage.
+		assert g.should_emit_c_extern_decl_from_file('my_ext_fn', '/project/other.c.v',
+			'bindings'), flag
+		g.note_c_include_directive('bindings', '/project/header.c.v')
+		assert !g.should_emit_c_extern_decl_from_file('my_ext_fn', source, 'bindings'), flag
+		g.note_c_include_directive('bindings', source)
+		assert !g.should_emit_c_extern_decl_from_file('my_ext_fn', source, 'bindings'), flag
+	}
+}
+
+fn test_library_path_detection_ignores_non_linker_operands() {
+	for flag in ['-I/opt/headers.a', '-I "/opt/headers.a"', '-L /opt/libraries.a',
+		'-include /opt/header.so', '-isystem /opt/headers.lib', '-DNAME=libext.a',
+		'-I /opt/include ## /opt/libext.a'] {
+		assert !c_flag_links_c_library(flag), flag
+	}
+}
+
+fn test_native_source_paths_keep_headerless_c_prototypes() {
+	for flag in ['helper.c', 'helper.cpp', 'helper.cc', 'helper.m', 'helper.mm', 'helper.o',
+		'helper.obj', '"/project/native sources/helper.m"'] {
+		mut g := FlatGen.new()
+		g.note_c_flag_directive('bindings', '/project/bindings.c.v', flag)
+		assert g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+	}
+	for flag in ['-I /project/include.o', '-L /project/library.o', '-include api.c',
+		'-isystem /project/include.m', '-DNAME=helper.cpp', 'helper.cpp.h',
+		'-I /project/include ## ignored.o'] {
+		assert !c_flag_links_c_source(flag), flag
+	}
+}
+
+fn test_forced_native_source_language_keeps_headerless_prototypes() {
+	root := os.join_path(os.vtmp_dir(), 'forced_native_source_${os.getpid()}')
+	os.mkdir_all(root) or { panic(err) }
+	defer {
+		os.rmdir_all(root) or {}
+	}
+	input := os.join_path(root, 'helper')
+	os.write_file(input, 'int native_api(void) { return 73; }\n') or { panic(err) }
+	quoted_input := os.quoted_path(input)
+	for flag in ['-x c ${quoted_input} -x none', '-xc ${quoted_input} -xnone'] {
+		mut g := FlatGen.new()
+		g.note_c_flag_directive('bindings', '/project/bindings.c.v', flag)
+		assert g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+		g.note_c_include_directive('bindings', '/project/bindings.c.v')
+		assert !g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+	}
+	for flag in ['${quoted_input}', '-x c -x none ${quoted_input}',
+		'-x c -include ${quoted_input} -x none', '-x c -D ${quoted_input} -x none',
+		'-x c -I ${quoted_input} -x none'] {
+		assert !c_flag_links_c_source(flag), flag
+	}
+}
+
+fn test_force_loaded_archives_keep_headerless_prototypes() {
+	for flag in ['-Wl,-force_load,/project/libnative.a',
+		'"-Wl,-force_load,/project/native files/libnative.a"'] {
+		mut g := FlatGen.new()
+		g.note_c_flag_directive('bindings', '/project/bindings.c.v', flag)
+		assert g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+		g.note_c_include_directive('bindings', '/project/header.c.v')
+		assert !g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+	}
+	for flag in ['-Wl,-rpath,/project/libnative.a', '-Wl,-force_load',
+		'-D -Wl,-force_load,/project/libnative.a', '-include /project/libnative.a'] {
+		assert !c_flag_links_c_library(flag), flag
+	}
+}
+
+fn test_linker_object_inputs_keep_headerless_prototypes() {
+	for flag in ['-Wl,/project/helper.o', '-Wl,/project/helper.obj',
+		'"-Wl,/project/native files/helper.o"', '-Wl,-rpath,/project/lib,/project/helper.o'] {
+		mut g := FlatGen.new()
+		g.note_c_flag_directive('bindings', '/project/bindings.c.v', flag)
+		assert g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+		g.note_c_include_directive('bindings', '/project/bindings.c.v')
+		assert !g.should_emit_c_extern_decl_from_file('native_api', '/project/bindings.c.v',
+			'bindings'), flag
+	}
+	for flag in ['-Wl,-rpath,/project/helper.o', '-Wl,-o,/project/helper.o',
+		'-Wl,-Map,/project/helper.o', '-Wl,-T,/project/helper.o', '-Wl,-install_name,/project/helper.o',
+		'-D -Wl,/project/helper.o'] {
+		assert !c_flag_links_c_source(flag), flag
+	}
+}
+
+fn test_fixed_storage_candidate_short_name_uses_last_dot_before_c_separator() {
+	g := FlatGen{}
+	cases := {
+		'':                  ''
+		'plain':             'plain'
+		'mod.name':          'name'
+		'mod__name':         'name'
+		'mod__deep__name':   'name'
+		'mod__x.name__tail': 'name__tail'
+		'mod.name__tail':    'name__tail'
+		'a___b':             'b'
+		'a.':                ''
+		'a__':               ''
+		'a_b':               'a_b'
+	}
+	for name, expected in cases {
+		assert g.fixed_storage_candidate_short_name(name) == expected
+	}
+}
+
+fn test_cname_caches_unchanged_names_in_private_overlay() {
+	mut base := &CNameCache{}
+	mut g := FlatGen{ c_name_cache: base }
+	for name in ['ordinary_identifier', 'pkg__already_sanitized'] {
+		assert g.cname(name) == name
+		assert base.entries[name]! == name
+	}
+	g.c_name_cache = &CNameCache{ base: base }
+	for name in ['ordinary_identifier', 'pkg__already_sanitized'] {
+		assert g.cname(name.clone()) == name
+		assert name !in g.c_name_cache.entries
+	}
+	assert g.cname('other_identifier') == 'other_identifier'
+	assert 'other_identifier' !in base.entries
+	assert g.c_name_cache.entries['other_identifier']! == 'other_identifier'
 }

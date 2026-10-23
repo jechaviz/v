@@ -54,6 +54,46 @@ fn process_singleton_execute(cmd string) os.Result {
 	return os.execute(cmd)
 }
 
+fn process_singleton_exec_args(args []string, cmd string) os.Result {
+	if args.len == 0 {
+		return os.Result{
+			exit_code: -1
+			output:    os.process_command_failure_report('vtest.process.exec', -1,
+				stage:          'validate_command_arguments'
+				command:        cmd
+				reason:         'empty_command_arguments'
+				action:         'provide_executable_and_arguments'
+				message:        'cannot execute an empty argument list'
+				output_capture: 'not_started'
+			)
+		}
+	}
+	if !process_singleton_enabled() || process_singleton_held() {
+		return os.exec(args)
+	}
+	mut gate := process_singleton_acquire_for_command(cmd) or {
+		return os.Result{
+			exit_code: -1
+			output:    os.process_command_failure_report('vtest.process.exec', -1,
+				stage:          'acquire_process_singleton'
+				command:        cmd
+				reason:         'process_singleton_acquire_failed'
+				action:         'inspect_process_singleton_lock_or_disable_singleton'
+				message:        'could not acquire process singleton before running command'
+				stderr:         err.msg()
+				output_capture: 'not_started'
+			)
+		}
+	}
+	old_held := os.getenv(process_singleton_held_env)
+	os.setenv(process_singleton_held_env, '1', true)
+	defer {
+		gate.release()
+		process_singleton_restore_env(process_singleton_held_env, old_held)
+	}
+	return os.exec(args)
+}
+
 fn process_singleton_system(cmd string) int {
 	if !process_singleton_enabled() || process_singleton_held() {
 		return os.system(cmd)
@@ -77,6 +117,42 @@ fn process_singleton_system(cmd string) int {
 		process_singleton_restore_env(process_singleton_held_env, old_held)
 	}
 	return os.system(cmd)
+}
+
+fn process_singleton_system_args(args []string, cmd string) int {
+	if args.len == 0 {
+		eprintln(os.process_command_failure_report('vtest.process.system', -1,
+			stage:          'validate_command_arguments'
+			command:        cmd
+			reason:         'empty_command_arguments'
+			action:         'provide_executable_and_arguments'
+			message:        'cannot execute an empty argument list'
+			output_capture: 'not_started'
+		))
+		return -1
+	}
+	if !process_singleton_enabled() || process_singleton_held() {
+		return os.system_args(args)
+	}
+	mut gate := process_singleton_acquire_for_command(cmd) or {
+		eprintln(os.process_command_failure_report('vtest.process.system', -1,
+			stage:          'acquire_process_singleton'
+			command:        cmd
+			reason:         'process_singleton_acquire_failed'
+			action:         'inspect_process_singleton_lock_or_disable_singleton'
+			message:        'could not acquire process singleton before running command'
+			stderr:         err.msg()
+			output_capture: 'not_started'
+		))
+		return -1
+	}
+	old_held := os.getenv(process_singleton_held_env)
+	os.setenv(process_singleton_held_env, '1', true)
+	defer {
+		gate.release()
+		process_singleton_restore_env(process_singleton_held_env, old_held)
+	}
+	return os.system_args(args)
 }
 
 fn process_singleton_held() bool {

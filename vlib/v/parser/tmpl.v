@@ -15,6 +15,7 @@ import strings
 import v.flat
 import v.scanner
 import v.token
+import v.util
 
 enum TmplState {
 	simple // no special interpretation of tags
@@ -1217,7 +1218,7 @@ fn (mut p Parser) parse_veb_template_expr(is_html bool) flat.NodeId {
 	return p.add_node(flat.Node{
 		kind:  .veb_template
 		value: path
-		typ:   if is_html { 'html' } else { 'tmpl' }
+		typ:   (if is_html { flat.source_type_id('html') } else { flat.source_type_id('tmpl') })
 		pos:   p.span_to(call_start)
 	})
 }
@@ -1257,7 +1258,7 @@ fn (p &Parser) resolve_tmpl_path_arg(id flat.NodeId) string {
 // resolves `controller/get/all/task.html` in addition to the flat filename.
 fn (p &Parser) resolve_veb_template_path(is_html bool, arg string) string {
 	dir := os.dir(os.real_path(p.cur_file))
-	vmod_dir := nearest_vmod_dir(dir)
+	vmod_dir := util.nearest_vmod_root(dir)
 	if is_html && arg.len == 0 {
 		fn_name := p.cur_fn.all_after_last('.')
 		split_name := fn_name.split('_').join(os.path_separator)
@@ -1311,23 +1312,6 @@ fn (p &Parser) resolve_veb_template_path(is_html bool, arg string) string {
 	return direct
 }
 
-// nearest_vmod_dir walks up from `start_dir` to the closest directory that contains a
-// `v.mod` file (the module root), or returns none when there is none.
-fn nearest_vmod_dir(start_dir string) ?string {
-	mut d := start_dir
-	for d.len > 0 {
-		if os.exists(os.join_path_single(d, 'v.mod')) {
-			return d
-		}
-		parent := os.dir(d)
-		if parent == d {
-			break
-		}
-		d = parent
-	}
-	return none
-}
-
 // parse_stmts_from_source parses `src` as a statement sequence using a temporary
 // sub-scanner, returning the parsed statement node ids. The parser's scanner and
 // token state are saved and restored around the call.
@@ -1340,8 +1324,13 @@ fn (mut p Parser) parse_stmts_from_source(src string, template_path string, call
 	mut file_set := token.FileSet.new()
 	mut file := file_set.add_file('<veb-template>', stable_src.len)
 	file.index_lines(stable_src)
+	generated_file_id := p.next_file_id
+	p.next_file_id++
+	p.a.source_files[generated_file_id] = file
+	p.a.template_call_sites[generated_file_id] = token.new_pos(call_pos.id, call_pos.offset)
 
 	saved_s := p.s
+	saved_file_id := p.cur_file_id
 	saved_tok := p.tok
 	saved_lit := p.lit
 	saved_tok_pos := p.tok_pos
@@ -1355,6 +1344,7 @@ fn (mut p Parser) parse_stmts_from_source(src string, template_path string, call
 
 	p.s = scanner.new_scanner(p.prefs, .normal)
 	p.s.init(file, stable_src)
+	p.cur_file_id = generated_file_id
 	p.has_peek = false
 	p.next()
 	// Isolate any bindings the re-parsed builder declares (e.g. its `mut <builder> := ''`)
@@ -1375,6 +1365,7 @@ fn (mut p Parser) parse_stmts_from_source(src string, template_path string, call
 	p.remap_template_source(first_node, first_diagnostic, file, stable_src, template_path, call_pos, source_lines)
 
 	p.s = saved_s
+	p.cur_file_id = saved_file_id
 	p.tok = saved_tok
 	p.lit = saved_lit
 	p.tok_pos = saved_tok_pos
@@ -1432,13 +1423,31 @@ fn (mut p Parser) remap_template_source(first_node int, first_diagnostic int, ge
 	mut control_map := []bool{len: generated_lines.len}
 	mut control_column_delta := []int{len: generated_lines.len}
 	mut interpolation_skip_offset := []int{len: generated_lines.len, init: -1}
+	// Each template line is rendered once. The search below compares a template
+	// line with every generated line until one matches, and rendering it again
+	// for each comparison made remapping quadratic in the template's length.
+	context_name := p.veb_context_name()
+	mut rendered_plain := []string{cap: source_lines.len}
+	mut rendered_escaped := []string{cap: source_lines.len}
+	mut controls := []TemplateControlSourceMap{cap: source_lines.len}
+	mut has_control := []bool{cap: source_lines.len}
+	for source_line in source_lines {
+		expanded_template_line := expand_veb_tr_shorthand(source_line.text, context_name)
+		rendered_plain << tmpl_line_content(expanded_template_line, false)
+		rendered_escaped << tmpl_line_content(expanded_template_line, true)
+		if control := template_control_source_map(source_line.text) {
+			controls << control
+			has_control << true
+		} else {
+			controls << TemplateControlSourceMap{}
+			has_control << false
+		}
+	}
 	mut template_search_start := 0
 	for generated_index, generated_line in generated_lines {
 		for template_index in template_search_start .. source_lines.len {
-			template_line := source_lines[template_index].text
-			expanded_template_line := expand_veb_tr_shorthand(template_line, p.veb_context_name())
-			plain := tmpl_line_content(expanded_template_line, false)
-			escaped := tmpl_line_content(expanded_template_line, true)
+			plain := rendered_plain[template_index]
+			escaped := rendered_escaped[template_index]
 			matches_content := (plain.len > 0 && generated_line.contains(plain))
 				|| (escaped.len > 0 && generated_line.contains(escaped))
 			mut matches_control := false
@@ -1446,7 +1455,8 @@ fn (mut p Parser) remap_template_source(first_node int, first_diagnostic int, ge
 			mut column_delta := 0
 			mut directive_offset := -1
 			mut control_has_inline_body := false
-			if control := template_control_source_map(template_line) {
+			if has_control[template_index] {
+				control := controls[template_index]
 				matches_control = generated_line.trim_space() == control.generated
 				matches_inline_body = control.has_inline_body && ((control.inline_plain.len > 0
 					&& generated_line.contains(control.inline_plain))
@@ -1712,7 +1722,7 @@ fn (mut p Parser) expand_veb_template_stmt(stmt_id flat.NodeId) ?[]flat.NodeId {
 		child := p.a.nodes[int(child_id)]
 		if child.kind == .veb_template {
 			bname, mut src, source_lines := p.veb_template_builder_source(child)
-			src += if child.typ == 'html' {
+			src += if child.typ_text() == 'html' {
 				'\nreturn ${p.veb_context_name()}.html(${bname})\n'
 			} else {
 				'\nreturn ${bname}\n'
@@ -1751,7 +1761,7 @@ fn (mut p Parser) expand_veb_template_stmt(stmt_id flat.NodeId) ?[]flat.NodeId {
 			// lowered as an immutable local and reject later mutation of `x`.
 			mut_prefix := if node.kind == .decl_assign && node.is_mut { 'mut ' } else { '' }
 			bname, mut src, source_lines := p.veb_template_builder_source(rhs)
-			value_expr := if rhs.typ == 'html' {
+			value_expr := if rhs.typ_text() == 'html' {
 				'${p.veb_context_name()}.html(${bname})'
 			} else {
 				bname
@@ -2024,17 +2034,17 @@ fn (mut p Parser) veb_template_iife_replacement(tmpl flat.Node) ?flat.NodeId {
 		p.collect_template_free_idents(bid, mut declared, mut seen, mut names, mut mut_names)
 	}
 	ctx_name := p.veb_context_name()
-	value_expr := if tmpl.typ == 'html' { '${ctx_name}.html(${bname})' } else { bname }
-	ret_type := if tmpl.typ == 'html' { 'veb.Result' } else { 'string' }
+	value_expr := if tmpl.typ_text() == 'html' { '${ctx_name}.html(${bname})' } else { bname }
+	ret_type := if tmpl.typ_text() == 'html' { 'veb.Result' } else { 'string' }
 	mut captures := []string{}
-	if tmpl.typ == 'html' {
+	if tmpl.typ_text() == 'html' {
 		// The html value expression calls the request context's `html` method, so the
 		// closure must capture that binding even when the template body never references
 		// it — and mutably, since `Context.html` has a mut receiver. Put it first.
 		captures << 'mut ${ctx_name}'
 	}
 	for name in names {
-		if tmpl.typ == 'html' && name == ctx_name {
+		if tmpl.typ_text() == 'html' && name == ctx_name {
 			continue
 		}
 		// A name used mutably (`@{fill(mut buf)}`) must be captured `mut`, or the
@@ -2328,6 +2338,6 @@ fn (mut p Parser) parse_veb_template_replacement_expr(src string, tmpl flat.Node
 fn (mut p Parser) veb_template_builder_source(tmpl flat.Node) (string, string, []TemplateSourceLine) {
 	bname := 'v3tmpl_${p.veb_tmpl_counter}'
 	p.veb_tmpl_counter++
-	source, source_lines := p.compile_template_file(tmpl.value, bname, tmpl.typ == 'html')
+	source, source_lines := p.compile_template_file(tmpl.value, bname, tmpl.typ_text() == 'html')
 	return bname, source, source_lines
 }

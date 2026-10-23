@@ -141,6 +141,20 @@ fn test_debug_comptime_flag_uses_target_preferences() {
 	assert comptime_flag_value(prefs, 'debug')
 }
 
+fn test_native_int_flag_matches_ssa_width_without_changing_c_targets() {
+	mut prefs := new_preferences()
+	prefs.target = target_from('macos', 'arm64') or { panic(err) }
+	prefs.backend = 'arm64'
+	assert !comptime_optional_flag_value(prefs, 'new_int')
+	prefs.user_defines << 'new_int'
+	assert !comptime_optional_flag_value(prefs, 'new_int')
+	prefs.backend = 'c'
+	assert comptime_optional_flag_value(prefs, 'new_int')
+	prefs.user_defines.clear()
+	prefs.target = target_from('linux', 'arm32') or { panic(err) }
+	assert !comptime_optional_flag_value(prefs, 'new_int')
+}
+
 fn test_prod_comptime_flag_uses_target_preferences() {
 	mut prefs := new_preferences()
 	assert !comptime_flag_value(prefs, 'prod')
@@ -372,6 +386,48 @@ fn test_architecture_suffixes_are_still_c_backend_tests() {
 	assert is_test_file_for_backend('foo_test.amd64.v', 'c')
 }
 
+// `-b native` is the documented spelling of the native backend, which the driver rewrites to
+// the internal name `arm64` before prefs.backend is read. Both spellings therefore select a
+// `foo_test.native.v` file; selecting only the literal one is why the native backend has no
+// tests of its own.
+fn test_native_backend_tests_answer_to_both_spellings() {
+	assert is_test_file_for_backend('foo_test.native.v', 'native')
+	assert is_test_file_for_backend('foo_test.native.v', 'arm64')
+	assert !is_test_file_for_backend('foo_test.native.v', 'c')
+	assert !is_test_file_for_backend('foo_test.native.v', 'fastc')
+	assert !is_test_file_for_backend('foo_test.native.v', 'js')
+	assert !is_test_file_for_backend('foo_test.native.v', 'wasm')
+	for arch in ['amd64', 'arm64'] {
+		target := target_from('linux', arch) or { panic(err) }
+		assert is_test_file_for_platform('foo_test.native.v', 'arm64', target), 'native test on ${arch}'
+		assert !is_test_file_for_platform('foo_test.native.v', 'c', target), 'native test on ${arch}'
+	}
+	// The other spelling still names the architecture, so it stays a C-backend test and never
+	// becomes a native one: `bits.arm64.v`-style assembly files are unchanged by this rule.
+	assert is_test_file_for_backend('foo_test.arm64.v', 'c')
+	assert !is_test_file_for_backend('foo_test.arm64.v', 'native')
+	assert !is_test_file_for_backend('foo_test.arm64.v', 'arm64')
+}
+
+fn test_native_backend_test_files_are_selected_from_a_directory() {
+	dir := os.join_path(os.vtmp_dir(), 'v3_native_backend_pref_${os.getpid()}')
+	os.rmdir_all(dir) or {}
+	os.mkdir_all(dir) or { panic(err) }
+	defer {
+		os.rmdir_all(dir) or {}
+	}
+	for name in ['basic_test.v', 'basic_test.native.v', 'basic_test.arm64.v', 'basic_test.c.v'] {
+		os.write_file(os.join_path(dir, name), 'module sample\n') or { panic(err) }
+	}
+	arm := target_from('linux', 'arm64') or { panic(err) }
+	selected := get_test_v_files_from_dir_for_target(dir, [], 'arm64', arm).map(os.base(it))
+	assert selected == ['basic_test.native.v', 'basic_test.v'], '${selected}'
+	// The C backend keeps selecting the architecture and `.c.v` files and still skips the
+	// native one, which is the spelling rule seen end to end.
+	c_selected := get_test_v_files_from_dir_for_target(dir, [], 'c', arm).map(os.base(it))
+	assert c_selected == ['basic_test.arm64.v', 'basic_test.c.v', 'basic_test.v'], '${c_selected}'
+}
+
 // A WASM backend test is not architecture qualified, so a native host must not filter it out
 // as a foreign architecture before the backend selection is even consulted.
 fn test_wasm_backend_tests_are_not_filtered_by_host_architecture() {
@@ -450,4 +506,17 @@ fn test_cross_gcc_condition_uses_a_macro_gcc_defines() {
 	assert gcc_condition.contains('!defined(__clang__)')
 	assert gcc_condition.contains('!defined(__TINYC__)')
 	assert !gcc_condition.contains('__V_GCC__')
+}
+
+fn test_darwin_release_rejects_tcc_executables_from_darwin_27() {
+	assert !darwin_release_rejects_tcc_executables('')
+	assert !darwin_release_rejects_tcc_executables('unknown')
+	assert !darwin_release_rejects_tcc_executables('27x.0.0')
+	assert !darwin_release_rejects_tcc_executables('24.6.0')
+	assert !darwin_release_rejects_tcc_executables('26.9.9')
+	assert darwin_release_rejects_tcc_executables('27.0.0')
+	assert darwin_release_rejects_tcc_executables('28.1.0')
+	$if !macos {
+		assert !host_rejects_tcc_executables()
+	}
 }

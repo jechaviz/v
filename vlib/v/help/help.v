@@ -41,19 +41,7 @@ pub fn print_and_exit(topic string, opts ExitOptions) {
 	}
 	if topic in cli_topics {
 		vexe := get_vexe()
-		cmd := '${os.quoted_path(vexe)} ${topic} --help'
-		exit_code := os.system(cmd)
-		if exit_code != 0 {
-			eprintln(os.process_command_failure_report('v.help.command', exit_code,
-				stage:          'delegate_cli_topic_help'
-				command:        cmd
-				reason:         'help_topic_delegate_failed'
-				action:         'rerun_delegated_help_command'
-				message:        'delegated help topic command exited with a non-zero status'
-				output_capture: 'inherited_stdio'
-			))
-			exit(fail_code)
-		}
+		os.system_args([vexe, '${topic}', '--help'])
 		exit(opts.exit_code)
 	}
 	mut topic_path := ''

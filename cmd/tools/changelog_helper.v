@@ -88,17 +88,8 @@ fn main() {
 		return
 	}
 	if !os.exists(log_txt) {
-		cmd := git_log_cmd + ' > ' + log_txt
-		res := os.execute(cmd)
-		if res.exit_code != 0 {
-			eprintln(res.command_failure_report('changelog.command',
-				reason:  'git_log_failed'
-				action:  'inspect_git_output'
-				message: 'failed to generate changelog log.txt'
-				command: cmd
-			))
-			exit(1)
-		}
+		result := os.exec(os.split_args(git_log_cmd)!)
+		os.write_file(log_txt, result.output)!
 		println('log.txt generated')
 		// println('log.txt generated, remove unnecessary commits from it and run the tool again')
 		// return

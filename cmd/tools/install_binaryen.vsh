@@ -61,14 +61,8 @@ fn main() {
 
 	println('Extracting `${tloc}/${fname}` to `${tloc}/binaryen` ...')
 	cmd := 'tar -xvf ${saveloc} --directory ${tloc}'
-	exit_code := os.system(cmd)
-	if exit_code != 0 {
-		eprintln(os.process_command_failure_report('install_binaryen.command', exit_code,
-			reason:         'archive_extract_failed'
-			action:         'inspect_tar_command_output'
-			command:        cmd
-			output_capture: 'inherited_stdio'
-		))
+	if os.system_args(['tar', '-xvf', '${saveloc}', '--directory', '${tloc}']) != 0 {
+		eprintln('`${cmd}` exited with a non zero exit code')
 		exit(1)
 	}
 

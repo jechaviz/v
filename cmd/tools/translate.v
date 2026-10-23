@@ -35,14 +35,10 @@ fn main() {
 		println('C2V is not installed. Cloning C2V to ${c2v_dir} ...')
 		os.chdir(vmodules)!
 		res :=
-			os.execute('${os.quoted_path(vexe)} retry -- git clone --filter=blob:none https://github.com/vlang/c2v')
+			os.exec([vexe, 'retry', '--', 'git', 'clone', '--filter=blob:none',
+				'https://github.com/vlang/c2v'])
 		if res.exit_code != 0 {
-			eprintln(res.command_failure_report('v.translate.c2v',
-				reason:  'c2v_clone_failed'
-				action:  'inspect_git_clone_output'
-				message: 'Failed to download C2V.'
-				command: '${os.quoted_path(vexe)} retry -- git clone --filter=blob:none https://github.com/vlang/c2v'
-			))
+			eprintln('Failed to download C2V.')
 			exit(1)
 		}
 	}
@@ -51,14 +47,10 @@ fn main() {
 		os.chdir(c2v_dir)!
 		println('Compiling c2v ...')
 		res2 :=
-			os.execute('${os.quoted_path(vexe)} -o ${os.quoted_path(c2v_bin)} -keepc -g -experimental .')
+			os.exec([vexe, '-o', c2v_bin, '-keepc', '-g', '.'])
 		if res2.exit_code != 0 {
-			eprintln(res2.command_failure_report('v.translate.c2v',
-				reason:  'c2v_compile_failed'
-				action:  'inspect_compiler_output_and_report_issue'
-				message: 'Failed to compile C2V. This should not happen. Please report it via GitHub.'
-				command: '${os.quoted_path(vexe)} -o ${os.quoted_path(c2v_bin)} -keepc -g -experimental .'
-			))
+			eprintln(res2.output)
+			eprintln('Failed to compile C2V. This should not happen. Please report it via GitHub.')
 			exit(2)
 		}
 	}
@@ -70,14 +62,10 @@ fn main() {
 	// println(passed_args)
 	os.chdir(os.wd_at_startup)!
 	c2v_cmd := '${os.quoted_path(c2v_bin)} ${passed_args}'
-	res := os.execute(c2v_cmd)
-	if res.exit_code != 0 {
-		eprintln(res.command_failure_report('v.translate.c2v',
-			reason:  'c2v_translate_failed'
-			action:  'inspect_translation_output_and_report_issue'
-			message: 'C2V failed to translate the C files. Please report it via GitHub.'
-			command: c2v_cmd
-		))
+	res := os.system_args([c2v_bin, ...translate_args])
+	if res != 0 {
+		eprintln('C2V command: ${c2v_cmd}')
+		eprintln('C2V failed to translate the C files. Please report it via GitHub.')
 		exit(4)
 	}
 }

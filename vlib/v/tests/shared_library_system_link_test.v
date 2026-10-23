@@ -103,7 +103,7 @@ fn test_shared_library_only_exports_tagged_symbols() {
 }
 
 fn run_cmd(cmd string) !os.Result {
-	res := os.execute(cmd)
+	res := os.exec(os.split_args(cmd) or { panic(err) })
 	if res.exit_code != 0 {
 		return error(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}

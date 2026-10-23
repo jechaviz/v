@@ -21,6 +21,9 @@ fn testsuite_begin() {
 		assert os.getenv('VFLAGS') == ''
 		assert os.getenv(v3_fallback_file_env) == ''
 		assert os.getenv(v3_c_error_dir_env) == ''
+		// A replay in a child of a diagnostics server is a compilation, not a
+		// server that waits for requests.
+		assert os.getenv('V_DIAGNOSTICS_SERVER') == ''
 		assert !os.exists(os.join_path(root, 'ran'))
 		assert !os.exists(os.join_path(root, 'replayed'))
 		os.write_file(os.join_path(root, 'replayed'), 'yes') or { panic(err) }
@@ -44,7 +47,8 @@ fn test_only_c_errors_launch_the_compatibility_compiler() {
 	}
 	previous := os.environ()
 	names := [compiler_error_probe_env, v3_no_fallback_env, v3_retry_env, v3_fallback_file_env,
-		v3_c_error_dir_env, 'VNORUN', 'VFLAGS', 'V_C_ERROR_BUG_REPORT_DISABLED']
+		v3_c_error_dir_env, 'VNORUN', 'VFLAGS', 'V_C_ERROR_BUG_REPORT_DISABLED', 'V_DIAGNOSTICS_SERVER',
+		'V3_INTERNAL_CACHE_FORCE_SOURCE', 'V3_CACHE_FORCE_SOURCE']
 	defer {
 		for name in names {
 			if name in previous {
@@ -58,6 +62,8 @@ fn test_only_c_errors_launch_the_compatibility_compiler() {
 		'compiler_error\nC generation', 'inline_asm', 'c_compilation_error']
 	for case_index, payload in payloads {
 		for status in [0, 23] {
+			caller_value := if status == 0 { '' } else { 'caller-control' }
+			caller_presence := if status == 0 { '' } else { 'x' }
 			root := os.join_path(os.vtmp_dir(), 'v3_compiler_error_launch_${os.getpid()}_${case_index}_${status}')
 			os.rmdir_all(root) or {}
 			os.mkdir_all(root)!
@@ -88,7 +94,12 @@ fn test_only_c_errors_launch_the_compatibility_compiler() {
 				'test "\$VFLAGS" = "already merged" || exit 92\n' +
 				'test -z "\$V_MACOS_V3_FALLBACK_FILE" || exit 93\n' +
 				'test -z "\$V_MACOS_V3_C_ERROR_DIR" || exit 94\n' +
+				'test -z "\${V3_INTERNAL_CACHE_FORCE_SOURCE+x}" || { echo "private source-retry sentinel leaked" >&2; exit 96; }\n' +
+				'test "\${V3_CACHE_FORCE_SOURCE+x}" = "${caller_presence}" || exit 97\n' +
+				'test "\$V3_CACHE_FORCE_SOURCE" = "${caller_value}" || exit 98\n' +
+				'printf "private=%s\\ncaller_present=%s\\ncaller=%s\\n" "\${V3_INTERNAL_CACHE_FORCE_SOURCE+x}" "\${V3_CACHE_FORCE_SOURCE+x}" "\$V3_CACHE_FORCE_SOURCE" > "\$${compiler_error_probe_env}/compat_env"\n' +
 				'test "\$1" = run && test "\$3" = ci || exit 95\n' +
+				'printf "%s\\n" "\$@" > "\$${compiler_error_probe_env}/compat_args"\n' +
 				'printf "ran\\n" >> "\$${compiler_error_probe_env}/ran"\n' +
 				'echo "compatibility program ran" >&2\nexit ${status}\n'
 			for path in [os.join_path(compat, 'v'), os.join_path(root, v1_fallback_binary)] {
@@ -109,15 +120,37 @@ fn test_only_c_errors_launch_the_compatibility_compiler() {
 			os.setenv(v3_c_error_dir_env, c_error_dir, true)
 			os.unsetenv('VNORUN')
 			os.setenv('VFLAGS', 'already merged', true)
+			// Model the compiler state after a source retry, retaining the caller's flag.
+			os.setenv('V3_INTERNAL_CACHE_FORCE_SOURCE', '1', true)
+			if status == 0 {
+				os.unsetenv('V3_CACHE_FORCE_SOURCE')
+			} else {
+				os.setenv('V3_CACHE_FORCE_SOURCE', caller_value, true)
+			}
 			os.setenv('V_C_ERROR_BUG_REPORT_DISABLED', '1', true)
-			result := cmdexec.run_with_timeout(launcher, ['run', os.join_path(root, 'sample.vsh'),
-				'ci'], 15_000)
+			// As in a child of a diagnostics server, which runs a one-shot compilation.
+			os.setenv('V_DIAGNOSTICS_SERVER', '1', true)
+			mut launch_args := ['run', os.join_path(root, 'sample.vsh'), 'ci']
+			if payload == 'c_compilation_error' {
+				private_args := [
+					'-v3-internal-implicit-tcc-warning=warning: implicit tcc failed',
+					'-v3-internal-parser-diagnostics-printed',
+				]
+				// The restart markers are compiler options at the front, and user
+				// data after the script. Only the compiler options may be removed.
+				launch_args << private_args
+				launch_args.prepend(private_args)
+			}
+			result := cmdexec.run_with_timeout(launcher, launch_args, 15_000)
 			if payload == 'c_compilation_error' {
 				assert result.exit_code == status, result.output
 				assert result.output.starts_with('C compiler output from the default V compiler:\noriginal C error\n'), result.output
 				assert result.output.count('original C error') == 1, result.output
 				assert result.output.all_after('retrying with').contains('compatibility program ran'), result.output
 				assert os.read_file(os.join_path(root, 'ran'))! == 'ran\n'
+				assert os.read_file(os.join_path(root, 'compat_env'))! ==
+					'private=\ncaller_present=${caller_presence}\ncaller=${caller_value}\n'
+				assert os.read_lines(os.join_path(root, 'compat_args'))! == launch_args[2..]
 				assert os.exists(os.join_path(root, 'queried'))
 				assert !os.exists(os.join_path(root, 'replayed'))
 			} else {
@@ -126,6 +159,7 @@ fn test_only_c_errors_launch_the_compatibility_compiler() {
 				assert result.exit_code == compiler_error_probe_exit, result.output
 				assert result.output == 'Compiler output from the default V compiler:\n${compiler_error_probe_message}\n', result.output
 				assert !os.exists(os.join_path(root, 'ran'))
+				assert !os.exists(os.join_path(root, 'compat_env'))
 				assert !os.exists(os.join_path(root, 'queried'))
 				assert os.read_file(os.join_path(root, 'replayed'))! == 'yes'
 			}

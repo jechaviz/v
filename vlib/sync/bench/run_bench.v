@@ -38,13 +38,9 @@ fn main() {
 		// 1. compile
 		compile_cmd := 'v channel_bench_v.v -cc ${cc}'
 		println('compile_cmd: ${compile_cmd}')
-		compile_result := os.execute(compile_cmd)
+		compile_result := os.exec(['v', 'channel_bench_v.v', '-cc', cc])
 		if compile_result.exit_code != 0 {
-			panic(compile_result.command_failure_report('sync_bench.command',
-				reason:  'benchmark_compile_failed'
-				action:  'inspect_compiler_output'
-				command: compile_cmd
-			))
+			panic('compile fail with "${compile_cmd}"')
 		}
 
 		// 2. run
@@ -54,14 +50,8 @@ fn main() {
 			mut iteration_result := []f32{}
 			for i in 0 .. run_iterations {
 				print('${i:3}: ${run_cmd}')
-				run_result := os.execute(run_cmd)
-				if run_result.exit_code != 0 {
-					panic(run_result.command_failure_report('sync_bench.command',
-						reason:  'benchmark_run_failed'
-						action:  'inspect_benchmark_output'
-						command: run_cmd
-					))
-				}
+				run_result := os.exec(['./channel_bench_v', '${s[0]:-3}', '${s[1]:-3}', '${s[2]:-3}',
+					'${nobj}'])
 				f := get_perf_from_result(run_result.output)!
 				iteration_result << f
 				println(' => ${f:.2} objs/µs')

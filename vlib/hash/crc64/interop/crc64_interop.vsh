@@ -16,7 +16,7 @@ fn compile_c_helper(dir string) string {
 
 	// Compile: gcc -std=c99 crc64_ref.c -o crc64_ref
 	cmd := 'gcc -std=c99 "${ref_c}" -o "${ref_bin}"'
-	result := os.execute(cmd)
+	result := os.exec(['gcc', '-std=c99', '${ref_c}', '-o', ref_bin])
 	if result.exit_code != 0 {
 		eprintln(result.command_failure_report('crc64_interop.command',
 			reason:  'c_helper_compile_failed'
@@ -32,7 +32,7 @@ fn compile_c_helper(dir string) string {
 fn run_c_checksum(ref_bin string, data []u8) !u64 {
 	hex_str := data.hex()
 	cmd := '${ref_bin} checksum ${hex_str}'
-	result := os.execute(cmd)
+	result := os.exec([ref_bin, 'checksum', '${hex_str}'])
 	if result.exit_code != 0 {
 		return error(result.command_failure_report('crc64_interop.command',
 			reason:  'c_helper_failed'
@@ -49,7 +49,7 @@ fn run_python_checksum(dir string, data []u8) !u64 {
 	ref_py := os.join_path(dir, 'crc64_ref.py')
 	hex_str := data.hex()
 	cmd := 'python3 "${ref_py}" checksum ${hex_str}'
-	result := os.execute(cmd)
+	result := os.exec(['python3', '${ref_py}', 'checksum', '${hex_str}'])
 	if result.exit_code != 0 {
 		return error(result.command_failure_report('crc64_interop.command',
 			reason:  'python_helper_failed'

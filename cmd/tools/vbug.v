@@ -13,14 +13,13 @@ fn olog(msg string) {
 
 fn vversion() string {
 	vexe := os.getenv('VEXE')
-	cmd := '${os.quoted_path(vexe)} version'
-	result := os.execute(cmd)
+	result := os.exec([vexe, 'version'])
 	if result.exit_code != 0 {
 		elog(result.command_failure_report('vbug.command',
 			reason:  'v_version_failed'
 			action:  'continue_with_unavailable_version'
 			message: 'unable to get `v version` output'
-			command: cmd
+			command: '${os.quoted_path(vexe)} version'
 		))
 		return '<unavailable>'
 	}
@@ -31,14 +30,13 @@ fn vversion() string {
 fn get_vdoctor_output(is_verbose bool) string {
 	vexe := os.getenv('VEXE')
 	verbose_flag := if is_verbose { '-v' } else { '' }
-	cmd := '${os.quoted_path(vexe)} ${verbose_flag} doctor'
-	result := os.execute(cmd)
+	result := os.exec([vexe, ...(os.split_args(verbose_flag) or { panic(err) }), 'doctor'])
 	if result.exit_code != 0 {
 		elog(result.command_failure_report('vbug.command',
 			reason:  'v_doctor_failed'
 			action:  'continue_without_v_doctor_output'
 			message: 'unable to get `v doctor` output'
-			command: cmd
+			command: '${os.quoted_path(vexe)} ${verbose_flag} doctor'
 		))
 		return ''
 	}
@@ -48,7 +46,7 @@ fn get_vdoctor_output(is_verbose bool) string {
 fn runv(label string, user_cmd string) os.Result {
 	mut result := os.Result{}
 	elog('> ${label} using: ${term.ecolorize(term.magenta, user_cmd)}')
-	result = os.execute(user_cmd)
+	result = os.exec(os.split_args(user_cmd) or { panic(err) })
 	print(result.output)
 	if result.exit_code != 0 {
 		elog(result.command_failure_report('vbug.command',

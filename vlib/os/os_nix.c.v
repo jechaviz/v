@@ -1,14 +1,6 @@
 module os
 
-#include <dirent.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/utsname.h>
-#include <sys/types.h>
-#include <sys/statvfs.h>
-#include <sys/wait.h>
-#include <utime.h>
-#insert "@VEXEROOT/vlib/os/execute_capture_nix.h"
+#flag @VEXEROOT/vlib/os/execute_capture_nix.o
 
 // short_path is a Windows-only helper that returns the DOS 8.3 short path.
 // On non-Windows platforms it simply returns the given path unchanged,
@@ -86,6 +78,26 @@ enum GlobMatch {
 	any
 }
 
+fn glob_match_wildcard(name string, pattern string) bool {
+	parts := pattern.split('*')
+	if !name.starts_with(parts[0]) {
+		return false
+	}
+	mut pos := parts[0].len
+	for i in 1 .. parts.len {
+		part := parts[i]
+		if part == '' {
+			continue
+		}
+		if i == parts.len - 1 {
+			return name.ends_with(part) && name.len - part.len >= pos
+		}
+		offset := name[pos..].index(part) or { return false }
+		pos += offset + part.len
+	}
+	return true
+}
+
 fn glob_match(dir string, pattern string, next_pattern string, mut matches []string) []string {
 	mut subdirs := []string{}
 	if is_file(dir) {
@@ -146,8 +158,8 @@ fn glob_match(dir string, pattern string, next_pattern string, mut matches []str
 				f.ends_with(pat)
 			}
 			.start_and_ends_with {
-				p := pat.split('*')
-				f.starts_with(p[0]) && f.ends_with(p[1])
+				// Keep the original edge wildcards and match every interior piece in order.
+				glob_match_wildcard(f, if pattern == '**' { next_pattern } else { pattern })
 			}
 			.contains {
 				f.contains(pat)
@@ -170,9 +182,21 @@ fn glob_match(dir string, pattern string, next_pattern string, mut matches []str
 
 fn native_glob_pattern(pattern string, mut matches []string) ! {
 	steps := pattern.split(path_separator)
-	cwd := if pattern.starts_with(path_separator) { path_separator } else { '.' }
+	mut cwd := if pattern.starts_with(path_separator) { path_separator } else { '.' }
+	// A leading `.` or `..` says where the search starts; it is not a pattern to
+	// match the entries of a folder against. It is folded into the start folder,
+	// and put back in front of the results verbatim, the way `glob(3)` reports
+	// them: `./a/*.v` yields `./a/x.v`, not `a/x.v`.
+	mut first := 0
+	mut prefix := ''
+	for first + 1 < steps.len && (steps[first] == '.' || steps[first] == '..') {
+		prefix += '${steps[first]}${path_separator}'
+		cwd = if cwd == '.' { steps[first] } else { '${cwd}/${steps[first]}' }
+		first++
+	}
+	from := matches.len
 	mut subdirs := [cwd]
-	for i := 0; i < steps.len; i++ {
+	for i := first; i < steps.len; i++ {
 		step := steps[i]
 		step2 := if i + 1 == steps.len { step } else { steps[i + 1] }
 		if step == '' {
@@ -196,18 +220,24 @@ fn native_glob_pattern(pattern string, mut matches []string) ! {
 		}
 		mut subs := []string{}
 		for sd in subdirs {
-			d := if cwd == '/' {
-				sd
-			} else {
-				if cwd == '.' || cwd == '' {
-					sd
-				} else {
-					if sd == '.' || sd == '/' { cwd } else { '${cwd}/${sd}' }
-				}
-			}
-			subs << glob_match(d.replace('//', '/'), step, step2, mut matches)
+			// The folders walked already carry the start folder in front.
+			subs << glob_match(sd.replace('//', '/'), step, step2, mut matches)
 		}
 		subdirs = subs.clone()
+	}
+	if prefix != '' {
+		// The walk reports paths rooted at the folded start folder; swap that
+		// root for the prefix as it was written in the pattern. From `.`, only the
+		// folders matched by a wildcard or walked by `**` start with `./`.
+		walked := '${cwd}${path_separator}'
+		for i := from; i < matches.len; i++ {
+			found := matches[i]
+			matches[i] = if found.starts_with(walked) {
+				'${prefix}${found[walked.len..]}'
+			} else {
+				'${prefix}${found}'
+			}
+		}
 	}
 }
 
@@ -276,6 +306,9 @@ pub fn loginname() !string {
 }
 
 // ls returns ![]string of the files and dirs in the given `path` ( os.ls uses C.readdir ). Symbolic links are returned to be files. For recursive list see os.walk functions.
+// The entries come in the order the operating system reports them, which os.ls does not sort.
+// That order differs between platforms and filesystems, so call `.sort()` on the result when
+// a stable order is needed.
 // See also: `os.walk`, `os.walk_ext`, `os.is_dir`, `os.is_file`
 // Example:
 // ```
@@ -326,7 +359,7 @@ pub fn mkdir(path string, params MkdirParams) ! {
 	apath := real_path(path)
 	r := unsafe { C.mkdir(&char(apath.str), params.mode) }
 	if r == -1 {
-		return error(posix_get_error_msg(C.errno))
+		return error_posix()
 	}
 }
 
@@ -354,7 +387,12 @@ fn nix_execute_failure_output(reason string, action string, message string, disp
 }
 
 // execute starts the specified command, waits for it to complete, and returns its output.
+@[deprecated: 'use os.exec with an argument array; command strings can allow shell injection']
 pub fn execute(cmd string) Result {
+	return execute_shell(cmd)
+}
+
+fn execute_shell(cmd string) Result {
 	mut pid := 0
 	mut read_fd := -1
 	v_os_execute_lock()
@@ -457,9 +495,10 @@ pub fn exec(args []string) Result {
 // On Windows raw_execute starts the specified command, waits for it to complete, and returns its output.
 // It's marked as `unsafe` to help emphasize the problems that may arise by allowing, for example,
 // user provided escape sequences.
+@[deprecated: 'use os.exec with an argument array; command strings can allow shell injection']
 @[unsafe]
 pub fn raw_execute(cmd string) Result {
-	return execute(cmd)
+	return execute_shell(cmd)
 }
 
 // symlink creates a symbolic link named link_name, which points to target.

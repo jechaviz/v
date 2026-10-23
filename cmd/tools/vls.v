@@ -222,7 +222,7 @@ fn (upd VlsUpdater) download_prebuilt() ! {
 }
 
 fn (upd VlsUpdater) print_new_vls_version(new_vls_exec_path string) {
-	exec_version := os.execute('${new_vls_exec_path} --version')
+	exec_version := os.exec([new_vls_exec_path, '--version'])
 	if exec_version.exit_code == 0 {
 		upd.log('VLS was updated to version: ${exec_version.output.all_after('vls version ').trim_space()}')
 	}
@@ -246,28 +246,16 @@ fn (upd VlsUpdater) compile_from_source() ! {
 
 	if !os.exists(vls_src_folder) {
 		upd.log('Cloning VLS repo...')
-		clone_cmd := '${os.quoted_path(vexe)} retry -- ${os.quoted_path(git)} clone --filter=blob:none https://github.com/vlang/vls ${os.quoted_path(vls_src_folder)}'
-		clone_result := os.execute(clone_cmd)
+		clone_result :=
+			os.exec([vexe, 'retry', '--', '${git}', 'clone', '--filter=blob:none',
+				'https://github.com/vlang/vls', '${vls_src_folder}'])
 		if clone_result.exit_code != 0 {
-			return error(clone_result.command_failure_report('vls.command',
-				reason:  'vls_clone_failed'
-				action:  'inspect_git_clone_output'
-				message: 'Failed to build VLS from source.'
-				command: clone_cmd
-			))
+			return error('Failed to build VLS from source. Reason: ${clone_result.output}')
 		}
 	} else {
 		upd.log('Updating VLS repo...')
-		pull_cmd := '${os.quoted_path(vexe)} retry -- ${os.quoted_path(git)} -C ${os.quoted_path(vls_src_folder)} pull'
-		pull_result := os.execute(pull_cmd)
-		if pull_result.exit_code != 0 {
-			return error(pull_result.command_failure_report('vls.command',
-				reason:  'vls_pull_failed'
-				action:  'inspect_git_pull_output'
-				message: 'Failed to update VLS source.'
-				command: pull_cmd
-			))
-		}
+		pull_result :=
+			os.exec([vexe, 'retry', '--', '${git}', '-C', '${vls_src_folder}', 'pull'])
 		if !upd.is_force && pull_result.output.trim_space() == 'Already up to date.'
 			&& os.is_executable(exec_path) {
 			upd.log('VLS was already updated to its latest version.')
@@ -290,15 +278,10 @@ fn (upd VlsUpdater) compile_from_source() ! {
 	}
 
 	os.mkdir_all(os.dir(exec_path))!
-	compile_cmd := '${os.quoted_path(vexe)} -cc ${possible_compilers[selected_compiler_idx]} -o ${os.quoted_path(exec_path)} ${os.quoted_path(vls_src_folder)}'
-	compile_result := os.execute(compile_cmd)
+	compile_result := os.exec([vexe, '-cc', '${possible_compilers[selected_compiler_idx]}', '-o',
+		exec_path, '${vls_src_folder}'])
 	if compile_result.exit_code != 0 {
-		return error(compile_result.command_failure_report('vls.command',
-			reason:  'vls_compile_failed'
-			action:  'inspect_vls_build_output'
-			message: 'Cannot compile VLS from source.'
-			command: compile_cmd
-		))
+		return error('Cannot compile VLS from source: ${compile_result.output}')
 	}
 
 	upd.update_manifest(exec_path, true, time.now()) or {
@@ -368,9 +351,17 @@ fn (mut upd VlsUpdater) parse(mut fp flag.FlagParser) ! {
 
 	upd.is_help = fp.bool('help', `h`, false, "Show this updater's help text. To show the help text for the language server, pass the `--ls` flag before it.")
 
-	if !upd.is_help && !upd.pass_to_ls {
+	if !upd.is_help && !upd.pass_to_ls && !upd.is_check {
 		// automatically set the cli launcher to language server mode
 		upd.pass_to_ls = true
+	}
+
+	if upd.is_check && upd.ls_path == '' {
+		if ls_path := upd.find_ls_path() {
+			if os.is_executable(ls_path) {
+				upd.ls_path = ls_path
+			}
+		}
 	}
 
 	if upd.pass_to_ls {
@@ -490,19 +481,7 @@ fn (upd VlsUpdater) run(fp flag.FlagParser) ! {
 			}
 		}
 	} else if upd.pass_to_ls {
-		ls_cmd := '${upd.ls_path} ${upd.args.join(' ')}'
-		exit_code := os.system(ls_cmd)
-		if exit_code != 0 {
-			eprintln(os.process_command_failure_report('vls.command', exit_code,
-				stage:          'pass_to_language_server'
-				command:        ls_cmd
-				reason:         'language_server_command_failed'
-				action:         'inspect_vls_output_or_run_language_server_directly'
-				message:        'delegated V language server command exited with a non-zero status'
-				output_capture: 'inherited_stdio'
-			))
-		}
-		exit(exit_code)
+		exit(os.system_args([upd.ls_path, ...upd.args]))
 	} else if upd.is_help {
 		println(fp.usage())
 		exit(0)

@@ -51,6 +51,27 @@ fn test_prod_is_a_fact() {
 	})
 }
 
+fn test_race_is_a_define_and_never_uses_tcc() {
+	with_clean_build_environment(fn () {
+		environment := vtest_build_environment(@VEXEROOT, ['-race'])
+		assert 'race' in environment.defines, environment.defines.str()
+		assert 'tinyc' !in environment.facts, environment.facts.str()
+	})
+}
+
+// -prod cannot use TCC, so on Windows the compiler a `-prod` build names no `-cc` for is
+// MSVC, clang or gcc, and `// vtest build:` expressions must see that one.
+fn test_a_windows_prod_build_without_cc_is_not_a_tinyc_build() {
+	$if !windows {
+		return
+	}
+	with_clean_build_environment(fn () {
+		facts := vtest_build_environment(@VEXEROOT, ['-prod']).facts
+		assert 'prod' in facts, facts.str()
+		assert 'tinyc' !in facts, facts.str()
+	})
+}
+
 fn test_the_explicit_c_compiler_is_the_compiler_fact() {
 	with_clean_build_environment(fn () {
 		gcc := vtest_build_environment(@VEXEROOT, ['-cc', 'gcc']).facts
@@ -88,6 +109,27 @@ fn test_user_defines_are_recorded_by_name() {
 	})
 }
 
+fn test_precise_gc_records_platform_compiler_facts() {
+	with_clean_build_environment(fn () {
+		facts := vtest_build_environment(@VEXEROOT, ['-d', 'no_gc_thread_local_alloc']).facts
+		assert 'tinyc' !in facts, facts.str()
+		assert 'gcc' in facts || 'clang' in facts, facts.str()
+	})
+}
+
+fn test_disabled_precise_gc_keeps_default_compiler_facts() {
+	with_clean_build_environment(fn () {
+		for base in [['-gc', 'none'], ['-cross']] {
+			ordinary := vtest_build_environment(@VEXEROOT, base).facts
+			mut precise_args := base.clone()
+			precise_args << ['-d', 'no_gc_thread_local_alloc']
+			assert vtest_build_environment(@VEXEROOT, precise_args).facts == ordinary
+		}
+		ordinary := vtest_build_environment(@VEXEROOT, []).facts
+		assert vtest_build_environment(@VEXEROOT, ['-d', 'no_gc_thread_local_alloc=']).facts == ordinary
+	})
+}
+
 fn test_options_starting_with_d_are_not_defines() {
 	with_clean_build_environment(fn () {
 		defines := vtest_build_environment(@VEXEROOT, ['-dump-c-flags', 'flags.txt', '-dump-files',
@@ -116,5 +158,35 @@ fn test_custom_environment_facts_and_defines_are_kept() {
 		assert 'custom_lane' in environment.facts, environment.facts.str()
 		assert environment.facts.filter(it == pref.host_target().os).len == 1, environment.facts.str()
 		assert environment.defines.filter(it == 'lane_define').len == 1, environment.defines.str()
+	})
+}
+
+fn test_prod_build_facts_distinguish_implicit_and_explicit_tcc() {
+	bundled_tcc := os.join_path(@VEXEROOT, 'thirdparty', 'tcc', 'tcc.exe')
+	if !v3_usable_tcc_compiler(bundled_tcc) {
+		eprintln('> skipping: no usable bundled tcc at ${bundled_tcc}')
+		return
+	}
+	with_clean_build_environment(fn [bundled_tcc] () {
+		for args in [['-prod'], ['-prod', '-cg'], ['-cg', '-prod'], ['-prod', '-parallel-cc']] {
+			implicit := vtest_build_environment(@VEXEROOT, args).facts
+			assert 'prod' in implicit, implicit.str()
+			assert 'tinyc' !in implicit, '${args}: ${implicit}'
+			mut explicit_args := args.clone()
+			explicit_args << ['-cc', bundled_tcc]
+			explicit := vtest_build_environment(@VEXEROOT, explicit_args).facts
+			assert 'prod' in explicit, explicit.str()
+			assert 'tinyc' in explicit, '${explicit_args}: ${explicit}'
+		}
+	})
+}
+
+fn test_arm64_backend_and_freestanding_skip_gc_defines() {
+	with_clean_build_environment(fn () {
+		for args in [['-b', 'arm64'], ['-d', 'freestanding']] {
+			environment := vtest_build_environment(@VEXEROOT, args)
+			assert 'gcboehm' !in environment.defines, '${args}: ${environment.defines}'
+			assert 'vgc' !in environment.defines, '${args}: ${environment.defines}'
+		}
 	})
 }

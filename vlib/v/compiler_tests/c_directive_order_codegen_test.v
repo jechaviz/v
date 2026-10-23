@@ -7,7 +7,7 @@ const directive_order_vlib_dir = os.dir(directive_order_v3_dir)
 const directive_order_v3_src = os.join_path(directive_order_v3_dir, 'v.v')
 
 fn directive_order_v3_bin_path() string {
-	return os.join_path(os.temp_dir(), 'v3_c_directive_order_test_${os.getpid()}')
+	return os.join_path(os.temp_dir(), 'v3_c_directive_order_test_${os.getpid()}') + $if windows { '.exe' } $else { '' }
 }
 
 fn testsuite_begin() {
@@ -20,7 +20,8 @@ fn directive_order_build_v3() string {
 		return v3_bin
 	}
 	build :=
-		os.execute('${directive_order_vexe} -gc none -path "${directive_order_vlib_dir}|@vlib|@vmodules" -o ${v3_bin} ${directive_order_v3_src}')
+		os.exec([directive_order_vexe, '-gc', 'none', '-path',
+			'${directive_order_vlib_dir}' + '|@vlib|@vmodules', '-o', v3_bin, directive_order_v3_src])
 	assert build.exit_code == 0, build.output
 	return v3_bin
 }
@@ -67,7 +68,7 @@ import sokol.c as _
 	directive_order_write_file(root, 'sokol/f/sokol_gfx.h', '')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -101,7 +102,7 @@ import foo.bar as _
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_dotted_collision.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -142,9 +143,9 @@ static inline int foo_value(void) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_importer_macro')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '42', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -180,9 +181,9 @@ pub fn value() int {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_dir_header')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '24', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -218,9 +219,9 @@ static inline int flag_value(void) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_flag_include_dir')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '52', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -256,9 +257,9 @@ static inline int late_flag_value(void) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_late_flag_include_dir')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '63', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -288,9 +289,9 @@ int multiline_value(void) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_multiline_static_inline')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '33', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -326,7 +327,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_extern_after_header.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -351,7 +352,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_header_declared_proto.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -385,7 +386,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_struct_field_after_header.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -425,9 +426,9 @@ static inline int anonymous_value(AnonymousThing* item) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_anonymous_typedef')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '31', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -468,9 +469,9 @@ static inline int tagged_value(TaggedAlias* item) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_tagged_typedef_alias')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '43', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -515,7 +516,7 @@ typedef union TaggedUnionImpl {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_union_typedef_aliases.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -560,9 +561,9 @@ typedef struct {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_nested_include')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '16', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -593,7 +594,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_unresolved_system_include.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -613,7 +614,7 @@ fn main() {}
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_unresolved_quoted_include.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -641,7 +642,7 @@ typedef uint64_t NestedWord;
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_nested_system_include.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -678,7 +679,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_x11_aggregates.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -700,7 +701,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_bcrypt.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -730,7 +731,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_mach.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -750,7 +751,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_task_info.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -792,7 +793,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_timerfd.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -835,9 +836,9 @@ static inline int stdarg_sum(int count, ...) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_stdarg')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space() == '6', run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -870,9 +871,9 @@ static inline int inttypes_macro_widths(void) {
 	bin_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_inttypes')
 	os.rm(bin_out) or {}
 	os.rm(bin_out + '.c') or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${bin_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', bin_out])
 	assert result.exit_code == 0, result.output
-	run := os.execute(bin_out)
+	run := os.exec([bin_out])
 	assert run.exit_code == 0, run.output
 	assert run.output.trim_space().int() > 0, run.output
 	return os.read_file(bin_out + '.c') or { panic(err) }
@@ -905,7 +906,7 @@ static inline int poll_user_fd(struct pollfd* item) {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_poll.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -927,7 +928,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_rwmutex.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -949,7 +950,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_shared_runtime.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -972,7 +973,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_request_extern.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -996,7 +997,7 @@ fn main() {
 ')
 	c_out := os.join_path(os.temp_dir(), 'v3_c_directive_order_request_macro.c')
 	os.rm(c_out) or {}
-	result := os.execute('${v3_bin} ${os.join_path(root, 'main.v')} -b c -o ${c_out}')
+	result := os.exec([v3_bin, os.join_path(root, 'main.v'), '-b', 'c', '-o', '${c_out}'])
 	assert result.exit_code == 0, result.output
 	return os.read_file(c_out) or { panic(err) }
 }
@@ -1253,11 +1254,11 @@ fn test_mach_headers_are_emitted_headerlessly() {
 	assert c_code.contains('int mach_timebase_info('), c_code
 }
 
-fn test_inferred_mach_headers_are_target_guarded() {
+fn test_inferred_mach_bindings_are_emitted_headerlessly() {
 	c_code := directive_order_gen_c_task_info_reference(directive_order_build_v3())
-	assert c_code.contains('#ifdef __APPLE__\n#define panic mach_panic\n#include <mach/mach.h>\n#undef panic\n#include <mach/task.h>\n#endif'), c_code
+	assert !directive_order_has_include_directive(c_code), c_code
 	assert c_code.contains('#if defined(__APPLE__) && !defined(_MACH_TASK_INFO_H_)\ntypedef unsigned int task_t;'), c_code
-	assert c_code.contains('#ifndef __APPLE__\nint task_info(void);\n#endif'), c_code
+	assert c_code.contains('int task_info(void);'), c_code
 }
 
 fn test_timerfd_header_uses_headerless_decls() {
@@ -1325,6 +1326,10 @@ fn test_request_named_c_function_keeps_extern_prototype() {
 
 fn test_header_backed_request_macro_does_not_get_extern_prototype() {
 	c_code := directive_order_gen_c_request_macro(directive_order_build_v3())
-	assert c_code.contains('#include "request.h"'), c_code
+	// request.h sits beside main.v, and the generated C is compiled elsewhere,
+	// so the include names the header by its resolved path.
+	header := os.real_path(os.join_path(os.temp_dir(),
+		'v3_c_directive_order_request_macro_project', 'request.h')).replace('\\', '/')
+	assert c_code.contains('#include "${header}"'), c_code
 	assert !c_code.contains('int request(int'), c_code
 }

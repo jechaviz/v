@@ -17,15 +17,17 @@ fn test_the_v_compiler_can_be_invoked() {
 	}
 	assert vexec != ''
 	vcmd := '${os.quoted_path(vexec)} -version'
-	r := os.execute_or_exit(vcmd)
-	assert r.exit_code == 0, r.exit_code_diagnostics('0', label: @FN)
+	r := os.exec_or_exit([vexec, '-version'])
+	assert r.exit_code == 0
+	// println('"${vcmd}" exit_code: ${r.exit_code} | output: ${r.output}')
 	// This assertion verifies the legacy builder's exact diagnostic text.
 	vcmd_error := '${os.quoted_path(vexec)} nonexisting.v'
-	r_error := os.execute(vcmd_error)
+	r_error := os.exec([vexec, 'nonexisting.v'])
 	if r_error.exit_code < 0 {
-		panic(r_error.exit_code_diagnostics('>= 0', label: @FN, command: vcmd_error))
+		panic(r_error.output)
 	}
-	assert r_error.exit_code == 1, r_error.exit_code_diagnostics('1', label: @FN)
+	// println('"${vcmd_error}" exit_code: ${r_error.exit_code} | output: ${r_error.output}')
+	assert r_error.exit_code == 1
 	actual_error := r_error.output.trim_space()
 	assert actual_error == "builder error: nonexisting.v doesn't exist"
 }

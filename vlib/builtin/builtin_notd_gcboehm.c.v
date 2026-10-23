@@ -14,7 +14,7 @@ fn C.GC_REALLOC(ptr voidptr, n usize) voidptr
 
 fn C.GC_FREE(ptr voidptr)
 
-fn C.GC_memalign(align isize, size isize) voidptr
+fn C.GC_memalign(align usize, size usize) voidptr
 
 fn C.GC_get_heap_usage_safe(pheap_size &usize, pfree_bytes &usize, punmapped_bytes &usize, pbytes_since_gc &usize,
 	ptotal_bytes &usize)
@@ -31,7 +31,11 @@ pub fn gc_check_leaks() {}
 // It will always return false, with `-gc none`.
 // See also gc_disable() and gc_enable().
 pub fn gc_is_enabled() bool {
-	return false
+	$if vgc ? {
+		return vgc_is_enabled()
+	} $else {
+		return false
+	}
 }
 
 // gc_enable explicitly enables the GC.
@@ -39,17 +43,29 @@ pub fn gc_is_enabled() bool {
 // and also that by default the GC is on, so you do not need to enable it.
 // See also gc_disable() and gc_collect().
 // Note that gc_enable() is a NOP with `-gc none`.
-pub fn gc_enable() {}
+pub fn gc_enable() {
+	$if vgc ? {
+		vgc_enable(true)
+	}
+}
 
 // gc_disable explicitly disables the GC.
 // Do not forget to enable it again by calling gc_enable(), when your program is otherwise idle, and can afford it.
 // See also gc_enable() and gc_collect().
 // Note that gc_disable() is a NOP with `-gc none`.
-pub fn gc_disable() {}
+pub fn gc_disable() {
+	$if vgc ? {
+		vgc_enable(false)
+	}
+}
 
 // gc_collect explicitly performs a garbage collection.
 // When the GC is not on, (with `-gc none`), it is a NOP.
-pub fn gc_collect() {}
+pub fn gc_collect() {
+	$if vgc ? {
+		vgc_collect()
+	}
+}
 
 pub type FnGC_WarnCB = fn (msg &char, arg usize)
 

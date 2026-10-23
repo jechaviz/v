@@ -53,19 +53,7 @@ fn main() {
 	unbuffer_stdout() // avoid the need for flush_stdout() calls
 	if os.args.len < 2 || '-h' in os.args || '-help' in os.args || '--help' in os.args
 		|| os.args[1..] == ['doc', 'help'] {
-		cmd := '${os.quoted_path(vexe)} help doc'
-		exit_code := os.system(cmd)
-		if exit_code != 0 {
-			eprintln(os.process_command_failure_report('vdoc.command', exit_code,
-				stage:          'show_help'
-				command:        cmd
-				reason:         'help_delegate_failed'
-				action:         'rerun_help_command'
-				message:        'vdoc help delegation exited with a non-zero status'
-				output_capture: 'inherited_stdio'
-			))
-			exit(exit_code)
-		}
+		os.system_args([vexe, 'help', 'doc'])
 		exit(0)
 	}
 	args := os.args[2..].clone()
@@ -146,10 +134,6 @@ fn parse_arguments(args []string) Config {
 			}
 			'-os' {
 				platform_str := cmdline.option(current_args, '-os', '')
-				if platform_str == 'cross' {
-					eprintln('`v doc -os cross` is not supported yet.')
-					exit(1)
-				}
 				selected_platform := doc.platform_from_string(platform_str) or {
 					eprintln(err.msg())
 					exit(1)

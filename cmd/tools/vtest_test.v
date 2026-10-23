@@ -83,13 +83,6 @@ fn test_global() {
 	assert os.exists(os.join_path(tpath, 'partial/failing_test.v'))
 	assert os.exists(os.join_path(tpath, 'strict_v3/environment_test.v'))
 	assert os.exists(os.join_path(tpath, 'strict_v3/backend_test.js.v'))
-	compile_mytest_exe()
-}
-
-fn compile_mytest_exe() {
-	os.chdir(vroot) or { panic(err) }
-	res := os.execute('${os.quoted_path(vexe)} -nocache -o ${os.quoted_path(mytest_exe)} cmd/tools/vtest.v')
-	assert res.exit_code == 0, '${res.exit_code_diagnostics('0', label: @FN)}\n${res.output}'
 }
 
 fn test_vflags_target_musl_detection() {
@@ -101,13 +94,15 @@ fn test_vflags_target_musl_detection() {
 }
 
 fn test_vtest_executable_compiles() {
+	os.chdir(vroot)!
+	os.exec_or_exit([vexe, '-nocache', '-o', '${tpath}' + '/mytest.exe', 'cmd/tools/vtest.v'])
 	assert os.exists(mytest_exe), 'executable file: `${mytest_exe}` should exist'
 }
 
 fn test_vtest_accepts_windows_path_separators() {
 	$if windows {
 		windows_path := tpath_passing.replace('/', '\\')
-		res := os.execute('${os.quoted_path(mytest_exe)} test ${os.quoted_path(windows_path)}')
+		res := os.exec([mytest_exe, 'test', windows_path])
 		assert res.exit_code == 0, res.output
 		assert res.output.contains('2 passed, 2 total'), res.output
 	}
@@ -118,12 +113,12 @@ fn test_strict_v3_flags_apply_only_to_top_level_test_compilation() {
 		// The embedded V3 compiler is currently available only on macOS, Linux, and BSD.
 		return
 	}
-	os.execute_or_exit('${os.quoted_path(vexe)} -nocache -o ${mytest_exe} cmd/tools/vtest.v')
+	os.exec_or_exit([vexe, '-nocache', '-o', mytest_exe, 'cmd/tools/vtest.v'])
 	old_vflags := os.getenv_opt('VFLAGS')
 	old_test_only := os.getenv_opt('VTEST_ONLY_FN')
 	os.setenv('VFLAGS', '-new-compiler -gc none -cc clang', true)
 	os.unsetenv('VTEST_ONLY_FN')
-	res := os.execute('${os.quoted_path(mytest_exe)} test ${os.quoted_path(tpath_strict_v3)}')
+	res := os.exec([mytest_exe, 'test', tpath_strict_v3])
 	if value := old_vflags {
 		os.setenv('VFLAGS', value, true)
 	} else {
@@ -138,58 +133,19 @@ fn test_strict_v3_flags_apply_only_to_top_level_test_compilation() {
 	assert res.output.contains('1 passed, 1 skipped, 2 total'), res.output
 }
 
-fn run_mytest(args string) os.Result {
-	old_vtest_only := os.getenv_opt('VTEST_ONLY')
-	old_vtest_only_fn := os.getenv_opt('VTEST_ONLY_FN')
-	os.unsetenv('VTEST_ONLY')
-	os.unsetenv('VTEST_ONLY_FN')
-	res := os.execute('${os.quoted_path(mytest_exe)} ${args}')
-	if value := old_vtest_only {
-		os.setenv('VTEST_ONLY', value, true)
-	} else {
-		os.unsetenv('VTEST_ONLY')
-	}
-	if value := old_vtest_only_fn {
-		os.setenv('VTEST_ONLY_FN', value, true)
-	} else {
-		os.unsetenv('VTEST_ONLY_FN')
-	}
-	return res
-}
-
-fn assert_mytest_success(res os.Result, label string) {
-	assert res.exit_code == 0, '${res.exit_code_diagnostics('0', label: label)}\n${res.output}'
-}
-
 fn test_with_several_test_files() {
-	res := run_mytest('test ${os.quoted_path(tpath_passing)}')
-	assert_mytest_success(res, @FN)
+	res := os.exec_or_exit([mytest_exe, 'test', tpath_passing])
 	assert !res.output.contains('1 assert'), res.output
 	assert !res.output.contains('3 asserts'), res.output
 	assert res.output.contains('2 passed, 2 total'), res.output
 	assert res.output.count('OK') == 2, res.output
-	assert_vtest_job_label_matches_host_policy(res.output)
-}
-
-fn assert_vtest_job_label_matches_host_policy(output string) {
-	if os.user_os() == 'windows' {
-		assert output.contains('on 1 job') || output.contains('on 2 parallel jobs'), output
-		return
-	}
-	assert output.contains('on 2 parallel jobs'), output
-}
-
-fn test_no_parallel_forces_single_vtest_worker() {
-	res := run_mytest('-no-parallel test ${os.quoted_path(tpath_passing)}')
-	assert_mytest_success(res, @FN)
-	assert res.output.contains('on 1 job'), res.output
-	assert !res.output.contains('parallel jobs'), res.output
+	assert res.output.contains('on 2 parallel jobs'), res.output
 }
 
 fn test_with_stats_and_several_test_files() {
 	// There should be more OKs here, since the output will have the inner OKs for each individual test fn:
-	res := run_mytest('-stats test ${os.quoted_path(tpath_passing)}')
-	assert_mytest_success(res, @FN)
+	res :=
+		os.exec_or_exit([mytest_exe, '-stats', 'test', tpath_passing])
 	assert res.output.contains('1 assert'), res.output
 	assert res.output.contains('3 asserts'), res.output
 	assert res.output.contains('2 passed, 2 total'), res.output
@@ -212,8 +168,8 @@ fn test_with_stats_and_several_test_files() {
 }
 
 fn test_partial_failure() {
-	res := run_mytest('test ${os.quoted_path(tpath_partial)}')
-	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
+	res := os.exec([mytest_exe, 'test', tpath_partial])
+	assert res.exit_code == 1
 	assert res.output.contains('assert 5 == 7'), res.output
 	assert res.output.contains(' 1 failed, 1 passed, 2 total'), res.output
 	assert res.output.contains('To reproduce just failure'), res.output
@@ -221,15 +177,16 @@ fn test_partial_failure() {
 
 fn test_run_only_reports_filtered_failures() {
 	failing_test_path := os.join_path(tpath_partial, 'failing_test.v')
-	res := run_mytest('test -run-only test_xyz ${os.quoted_path(failing_test_path)}')
-	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
+	res :=
+		os.exec([mytest_exe, 'test', '-run-only', 'test_xyz', failing_test_path])
+	assert res.exit_code == 1
 	assert res.output.contains('assert 5 == 7'), res.output
 	assert res.output.contains(' 1 failed, 1 total'), res.output
 }
 
 fn test_wimpure_v_warnings_are_shown_for_test_files() {
-	res := run_mytest('-Wimpure-v test ${os.quoted_path(tpath_impure)}')
-	assert_mytest_success(res, @FN)
+	res :=
+		os.exec_or_exit([mytest_exe, '-Wimpure-v', 'test', tpath_impure])
 	assert res.output.contains('warning_test.v'), res.output
 	assert res.output.contains('warning: C code will not be allowed in pure .v files'), res.output
 }
@@ -257,7 +214,8 @@ fn test_js_tests_are_skipped_without_strict_mode() {
 	js_test := os.join_path(tpath_js_runtime_error, 'runtime_error_test.js.v')
 	for options in ['', '-stats', '-b js', '-stats -b js'] {
 		for target in [js_test, tpath_js_runtime_error] {
-			res := os.execute('${os.quoted_path(mytest_exe)} ${options} test ${os.quoted_path(target)}')
+			res := os.exec([mytest_exe, ...(os.split_args(options) or { panic(err) }), 'test',
+				'${target}'])
 			assert res.exit_code == 0, res.output
 			assert res.output.contains('1 skipped, 1 total'), res.output
 			assert res.output.contains('SKIP'), res.output
@@ -270,14 +228,14 @@ fn test_js_tests_are_skipped_without_strict_mode() {
 	os.mkdir_all(mixed)!
 	os.write_file(os.join_path(mixed, 'native_test.v'), 'fn test_native() { assert true }\n')!
 	os.write_file(os.join_path(mixed, 'invalid_test.js.v'), 'deliberately invalid V source\n')!
-	res := os.execute('${os.quoted_path(mytest_exe)} test ${os.quoted_path(mixed)}')
+	res := os.exec([mytest_exe, 'test', '${mixed}'])
 	assert res.exit_code == 0, res.output
 	assert res.output.contains('1 passed, 1 skipped, 2 total'), res.output
 }
 
 fn test_with_stats_and_partial_failure() {
-	res := run_mytest('-no-parallel -stats test ${os.quoted_path(tpath_partial)}')
-	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
+	res := os.exec([mytest_exe, '-stats', 'test', tpath_partial])
+	assert res.exit_code == 1, res.output
 	assert res.output.contains('assert 5 == 7'), res.output
 	assert res.output.contains(' 1 failed, 1 passed, 2 total'), res.output
 	assert res.output.contains('To reproduce just failure'), res.output
@@ -287,7 +245,8 @@ fn test_launcher_forwards_compiler_options_to_test_files() {
 	passing_dir := os.join_path(tpath, 'prefix_flags', 'passing')
 	// Exercise the compiler launcher, not the already-built vtest executable.
 	for target in [os.join_path(passing_dir, 'bug_test.v'), passing_dir] {
-		res := os.execute('${os.quoted_path(vexe)} -enable-globals -d vtest_prefix_flag test -run-only test_global ${os.quoted_path(target)}')
+		res := os.exec([vexe, '-enable-globals', '-d', 'vtest_prefix_flag', 'test', '-run-only',
+			'test_global', '${target}'])
 		assert res.exit_code == 0, res.output
 		assert res.output.contains('1 passed, 1 total'), res.output
 	}
@@ -295,7 +254,8 @@ fn test_launcher_forwards_compiler_options_to_test_files() {
 
 fn test_launcher_keeps_compiler_options_in_failure_reproduction() {
 	path := os.join_path(tpath, 'prefix_flags', 'failing', 'bug_test.v')
-	res := os.execute('${os.quoted_path(vexe)} -enable-globals -d vtest_prefix_flag test -run-only test_global ${os.quoted_path(path)}')
+	res := os.exec([vexe, '-enable-globals', '-d', 'vtest_prefix_flag', 'test', '-run-only',
+		'test_global', path])
 	assert res.exit_code == 1, res.output
 	assert res.output.contains('assert g_counter == 2'), res.output
 	assert !res.output.contains('use `v -enable-globals'), res.output
@@ -303,4 +263,80 @@ fn test_launcher_keeps_compiler_options_in_failure_reproduction() {
 	assert hints.len == 1, res.output
 	assert hints[0].contains('-enable-globals'), hints[0]
 	assert hints[0].contains('-d vtest_prefix_flag'), hints[0]
+}
+
+fn test_standalone_strict_vflags_preserves_repeated_option_values() {
+	$if !macos && !linux && !bsd {
+		return
+	}
+	old_vflags := os.getenv_opt('VFLAGS')
+	defer {
+		if value := old_vflags {
+			os.setenv('VFLAGS', value, true)
+		} else {
+			os.unsetenv('VFLAGS')
+		}
+	}
+	path := os.join_path(tpath, 'vflags_pairs_test.v')
+	os.write_file(path, '
+fn test_both_defines() {
+	\$if vtest_environment_define ? {} \$else { assert false, "missing environment define" }
+	\$if vtest_command_define ? {} \$else { assert false, "missing command define" }
+}
+')!
+	os.setenv('VFLAGS', '-new-compiler -gc none -cc clang -d vtest_environment_define', true)
+	result := os.exec([mytest_exe, '-d', 'vtest_command_define', 'test', path])
+	assert result.exit_code == 0, result.output
+	assert result.output.contains('1 passed, 1 total'), result.output
+}
+
+fn test_launcher_strict_vflags_preserves_quoted_cflags_once() {
+	$if !macos && !linux && !bsd {
+		return
+	}
+	old_vflags := os.getenv_opt('VFLAGS')
+	defer {
+		if value := old_vflags {
+			os.setenv('VFLAGS', value, true)
+		} else {
+			os.unsetenv('VFLAGS')
+		}
+	}
+	include_dir := os.join_path(tpath, 'include directory with spaces')
+	os.mkdir_all(include_dir)!
+	os.write_file(os.join_path(include_dir, 'vtest_flags_probe.h'),
+		'static int vtest_flags_probe(void) { return 27; }\n')!
+	path := os.join_path(tpath, 'vflags_quoted_failure_test.c.v')
+	os.write_file(path, '
+#include "vtest_flags_probe.h"
+fn C.vtest_flags_probe() int
+fn test_compilation_completed() {
+	assert C.vtest_flags_probe() == 27
+	assert false, "VTEST_QUOTED_FLAGS_EXECUTED"
+}
+')!
+	cflags := '-I"${include_dir}"'
+	os.setenv('VFLAGS', '-new-compiler -gc none -cc clang -g -cflags ${os.quoted_path(cflags)}', true)
+	for stats in [false, true] {
+		args := if stats { [vexe, '-stats', 'test', path] } else { [vexe, 'test', path] }
+		result := os.exec(args)
+		assert result.exit_code == 1, result.output
+		assert result.output.contains('VTEST_QUOTED_FLAGS_EXECUTED'), result.output
+		assert !result.output.contains('compilation failed'), result.output
+		hints := result.output.split_into_lines().filter(it.contains('To reproduce just failure'))
+		assert hints.len == 1, result.output
+		forwarded := os.split_args(hints[0].all_after('run:').trim_space())!
+		assert forwarded.filter(it == '-g').len == 1, hints[0]
+		assert forwarded.filter(it == '-cflags').len == 1, hints[0]
+		position := forwarded.index('-cflags')
+		assert position >= 0 && position + 1 < forwarded.len, hints[0]
+		assert forwarded[position + 1] == cflags, hints[0]
+	}
+}
+
+fn test_no_parallel_forces_single_vtest_worker() {
+	res := run_mytest('-no-parallel test ${os.quoted_path(tpath_passing)}')
+	assert_mytest_success(res, @FN)
+	assert res.output.contains('on 1 job'), res.output
+	assert !res.output.contains('parallel jobs'), res.output
 }

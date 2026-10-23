@@ -32,7 +32,14 @@ mut:
 
 fn execute_test_binary(generated_binary_fpath string, run_js bool, run_cmd string) os.Result {
 	if !process_guard_enabled() {
-		return process_guard_with_silent_diagnostics(run_cmd, process_singleton_execute(run_cmd))
+		args := os.split_args(run_cmd) or {
+			return os.Result{
+				exit_code: -1
+				output:    process_guard_spawn_error(run_cmd, err.msg())
+			}
+		}
+		return process_guard_with_silent_diagnostics(run_cmd, process_singleton_exec_args(args,
+			run_cmd))
 	}
 	executable := process_guard_executable(generated_binary_fpath, run_js) or {
 		return os.Result{

@@ -3,13 +3,6 @@ import log
 
 const should_clean = os.args.contains('-c')
 
-struct FailedCommand {
-	command        string
-	exit_code      int
-	output         string
-	output_capture string
-}
-
 fn main() {
 	log.use_stdout()
 	unbuffer_stdout()
@@ -41,7 +34,7 @@ fn main() {
 		exit(1)
 	}
 	mut executables := []string{}
-	mut failed_commands := []FailedCommand{}
+	mut failed_commands := []string{}
 	mut project_folders := map[string]bool{}
 	mut skipped_files := []string{}
 	for idx, example in files {
@@ -80,13 +73,9 @@ fn main() {
 		}
 		cmd := '${os.quoted_path(@VEXE)} ${backend_options} ${os.quoted_path(example)}'
 		log.info('> compiling program ${idx + 1:4}/${files.len:-4}: ${cmd}')
-		res := os.execute(cmd)
-		if res.exit_code != 0 {
-			failed_commands << FailedCommand{
-				command:   cmd
-				exit_code: res.exit_code
-				output:    res.output
-			}
+		if 0 != os.system_args([@VEXE, ...(os.split_args(backend_options) or { panic(err) }),
+			'${example}']) {
+			failed_commands << cmd
 		} else {
 			executables << executable_name(example)
 		}
@@ -98,29 +87,16 @@ fn main() {
 		glsl_files := os.walk_ext(pf, '.glsl')
 		if glsl_files.len > 0 {
 			if pf !in glsl_folders {
-				shader_cmd := '${os.quoted_path(@VEXE)} shader ${os.quoted_path(pf)}'
-				log.debug('>>> found .glsl files in ${pf} ... running `${shader_cmd}` ...')
-				shader_exit_code := os.system(shader_cmd)
-				if shader_exit_code != 0 {
-					failed_commands << FailedCommand{
-						command:        shader_cmd
-						exit_code:      shader_exit_code
-						output_capture: 'inherited_stdio'
-					}
-				}
+				log.debug('>>> found .glsl files in ${pf} ... running `v shader ${pf}` ...')
+				os.system_args([@VEXE, 'shader', '${pf}'])
 				glsl_folders[pf] = true
 			}
 		}
 		exe_path := os.join_path(pf, os.file_name(pf) + exe_extension)
 		cmd := '${os.quoted_path(@VEXE)} -o ${exe_path} ${pf}'
 		log.info('> compiling project ${pfi + 1:4}/${project_folders.len:-4}: ${cmd}')
-		res := os.execute(cmd)
-		if res.exit_code != 0 {
-			failed_commands << FailedCommand{
-				command:   cmd
-				exit_code: res.exit_code
-				output:    res.output
-			}
+		if 0 != os.system_args([@VEXE, '-o', exe_path, '${pf}']) {
+			failed_commands << cmd
 		} else {
 			executables << exe_path
 		}
@@ -135,15 +111,7 @@ fn main() {
 	}
 	if failed_commands.len > 0 {
 		for idx, fcmd in failed_commands {
-			log.error('>>> FAILED command ${idx + 1:4}/${failed_commands.len:-4}:')
-			log.error(os.process_command_failure_report('vshould_compile_all.command',
-				fcmd.exit_code,
-				reason:         'compile_failed'
-				action:         'inspect_command_output'
-				command:        fcmd.command
-				output:         fcmd.output
-				output_capture: fcmd.output_capture
-			))
+			log.error('>>> FAILED command ${idx + 1:4}/${failed_commands.len:-4}: ${fcmd}')
 		}
 		log.info('Summary: ${failed_commands.len:4}/${files.len:-4} file(s) failed to compile.')
 		exit(1)

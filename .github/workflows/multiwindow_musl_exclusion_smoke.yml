@@ -22,9 +22,17 @@ concurrency:
 env:
   V_CI_MUSL: 1
 
+permissions:
+  contents: read
+
 jobs:
   multiwindow-musl-exclusion:
     runs-on: ubuntu-24.04
+    env:
+      # Stop a failing test session at its first failure instead of
+      # running the whole suite to completion; the remaining files
+      # add no signal.
+      VTEST_FAIL_FAST: '1'
     timeout-minutes: 20
     container:
       image: thevlang/vlang:alpine-build
@@ -35,6 +43,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Add Alpine build dependencies
         run: apk add libc6-compat gcompat gc gc-dev binutils diffutils elfutils
       - name: Build V

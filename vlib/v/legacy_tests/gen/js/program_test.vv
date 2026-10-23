@@ -16,7 +16,7 @@ fn exit_because(msg string) {
 }
 
 fn test_node_exists() {
-	res := os.execute('node --version')
+	res := os.exec(['node', '--version'])
 	if res.exit_code != 0 {
 		exit_because('node does not exist')
 	}
@@ -58,10 +58,9 @@ fn check_path(dir string, tests []string) !int {
 			os.write_file(program_out, '')!
 		}
 		print(program + ' ')
-		cmd := '${os.quoted_path(vexe)} -b js_node run ${os.quoted_path(program)}'
-		res := os.execute(cmd)
+		res := os.exec([vexe, '-b', 'js_node', 'run', '${program}'])
 		if res.exit_code < 0 {
-			panic(res.exit_code_diagnostics('0', label: @FN, command: cmd))
+			panic(res.output)
 		}
 		mut expected := os.read_file(program_out)!
 		expected = clean_line_endings(expected)

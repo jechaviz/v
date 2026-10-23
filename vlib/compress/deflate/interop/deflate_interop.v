@@ -5,7 +5,7 @@ import os
 
 fn choose_cc() string {
 	for cc in ['cc', 'gcc', 'clang'] {
-		if os.execute('${cc} --version').exit_code == 0 {
+		if os.exec([cc, '--version']).exit_code == 0 {
 			return cc
 		}
 	}
@@ -19,28 +19,11 @@ fn compile_c_ref(workdir string) !string {
 	}
 	src := os.join_path(@DIR, 'deflate_ref.c')
 	bin := os.join_path(workdir, 'deflate_cross_validate')
-	cmd := '${cc} -O2 ${os.quoted_path(src)} -lz -o ${os.quoted_path(bin)}'
-	res := os.execute(cmd)
+	res := os.exec([cc, '-O2', '${src}', '-lz', '-o', bin])
 	if res.exit_code != 0 {
-		return error(res.command_failure_report('deflate_interop.command',
-			reason:  'c_reference_compile_failed'
-			action:  'inspect_c_compiler_output'
-			command: cmd
-		))
+		return error('C compile failed: ${res.output}')
 	}
 	return bin
-}
-
-fn exit_on_command_failure(result os.Result, cmd string, reason string) {
-	if result.exit_code == 0 {
-		return
-	}
-	eprintln(result.command_failure_report('deflate_interop.command',
-		reason:  reason
-		action:  'inspect_helper_output'
-		command: cmd
-	))
-	exit(1)
 }
 
 fn main() {
@@ -76,9 +59,12 @@ fn main() {
 		exit(1)
 	}
 
-	cmd1 := '${os.quoted_path(bin)} compress ${os.quoted_path(ip)} ${os.quoted_path(cp)}'
-	res1 := os.execute(cmd1)
-	exit_on_command_failure(res1, cmd1, 'c_zlib_compress_failed')
+	res1 :=
+		os.exec([bin, 'compress', '${ip}', '${cp}'])
+	if res1.exit_code != 0 {
+		eprintln('C zlib compress failed: ${res1.output}')
+		exit(1)
+	}
 	c_zlib := os.read_bytes(cp) or {
 		eprintln('read C zlib stream failed: ${err.msg()}')
 		exit(1)
@@ -93,9 +79,11 @@ fn main() {
 	}
 	println('OK: C zlib -> V decompress')
 
-	cmd2 := '${os.quoted_path(bin)} gzip ${os.quoted_path(ip)} ${os.quoted_path(gp)}'
-	res2 := os.execute(cmd2)
-	exit_on_command_failure(res2, cmd2, 'c_gzip_failed')
+	res2 := os.exec([bin, 'gzip', '${ip}', '${gp}'])
+	if res2.exit_code != 0 {
+		eprintln('C gzip failed: ${res2.output}')
+		exit(1)
+	}
 	c_gzip := os.read_bytes(gp) or {
 		eprintln('read C gzip stream failed: ${err.msg()}')
 		exit(1)
@@ -118,9 +106,12 @@ fn main() {
 		eprintln('write V zlib failed: ${err.msg()}')
 		exit(1)
 	}
-	cmd3 := '${os.quoted_path(bin)} decompress ${os.quoted_path(vp)} ${os.quoted_path(dp)}'
-	res3 := os.execute(cmd3)
-	exit_on_command_failure(res3, cmd3, 'c_decompress_v_zlib_failed')
+	res3 :=
+		os.exec([bin, 'decompress', '${vp}', '${dp}'])
+	if res3.exit_code != 0 {
+		eprintln('C decompress of V zlib failed: ${res3.output}')
+		exit(1)
+	}
 	c_unzlib := os.read_bytes(dp) or {
 		eprintln('read C zlib decompressed output failed: ${err.msg()}')
 		exit(1)
@@ -139,9 +130,11 @@ fn main() {
 		eprintln('write V gzip failed: ${err.msg()}')
 		exit(1)
 	}
-	cmd4 := '${os.quoted_path(bin)} gunzip ${os.quoted_path(vgp)} ${os.quoted_path(dp)}'
-	res4 := os.execute(cmd4)
-	exit_on_command_failure(res4, cmd4, 'c_gunzip_v_gzip_failed')
+	res4 := os.exec([bin, 'gunzip', '${vgp}', '${dp}'])
+	if res4.exit_code != 0 {
+		eprintln('C gunzip of V gzip failed: ${res4.output}')
+		exit(1)
+	}
 	c_ungzip := os.read_bytes(dp) or {
 		eprintln('read C gzip decompressed output failed: ${err.msg()}')
 		exit(1)
@@ -152,7 +145,7 @@ fn main() {
 	}
 	println('OK: V gzip -> C decompress')
 
-	if os.execute('python3 --version').exit_code == 0 {
+	if os.exec(['python3', '--version']).exit_code == 0 {
 		py_src := os.join_path(@DIR, 'deflate_ref.py')
 		py_driver := os.join_path(workdir, 'deflate_ref.py')
 		os.cp(py_src, py_driver) or {
@@ -163,9 +156,12 @@ fn main() {
 		py_zp := os.join_path(workdir, 'xval_py_zlib.bin')
 		py_gp := os.join_path(workdir, 'xval_py_gzip.bin')
 
-		cmd5 := 'python3 ${os.quoted_path(py_driver)} compress ${os.quoted_path(ip)} ${os.quoted_path(py_zp)}'
-		res5 := os.execute(cmd5)
-		exit_on_command_failure(res5, cmd5, 'python_zlib_compress_failed')
+		res5 :=
+			os.exec(['python3', '${py_driver}', 'compress', '${ip}', '${py_zp}'])
+		if res5.exit_code != 0 {
+			eprintln('Python zlib compress failed: ${res5.output}')
+			exit(1)
+		}
 		py_zlib := os.read_bytes(py_zp) or {
 			eprintln('read Python zlib stream failed: ${err.msg()}')
 			exit(1)
@@ -176,9 +172,12 @@ fn main() {
 		}
 		println('OK: Python zlib -> V decompress')
 
-		cmd6 := 'python3 ${os.quoted_path(py_driver)} gzip ${os.quoted_path(ip)} ${os.quoted_path(py_gp)}'
-		res6 := os.execute(cmd6)
-		exit_on_command_failure(res6, cmd6, 'python_gzip_failed')
+		res6 :=
+			os.exec(['python3', '${py_driver}', 'gzip', '${ip}', '${py_gp}'])
+		if res6.exit_code != 0 {
+			eprintln('Python gzip failed: ${res6.output}')
+			exit(1)
+		}
 		py_gzip := os.read_bytes(py_gp) or {
 			eprintln('read Python gzip stream failed: ${err.msg()}')
 			exit(1)
@@ -190,9 +189,12 @@ fn main() {
 		println('OK: Python gzip -> V decompress')
 
 		py_unz := os.join_path(workdir, 'xval_py_unz.bin')
-		cmd7 := 'python3 ${os.quoted_path(py_driver)} decompress ${os.quoted_path(vp)} ${os.quoted_path(py_unz)}'
-		res7 := os.execute(cmd7)
-		exit_on_command_failure(res7, cmd7, 'python_decompress_v_zlib_failed')
+		res7 :=
+			os.exec(['python3', '${py_driver}', 'decompress', '${vp}', '${py_unz}'])
+		if res7.exit_code != 0 {
+			eprintln('Python decompress of V zlib failed: ${res7.output}')
+			exit(1)
+		}
 		if (os.read_bytes(py_unz) or { []u8{} }) != input {
 			eprintln('V zlib -> Python mismatch')
 			exit(1)
@@ -200,9 +202,12 @@ fn main() {
 		println('OK: V zlib -> Python decompress')
 
 		py_ungz := os.join_path(workdir, 'xval_py_ungz.bin')
-		cmd8 := 'python3 ${os.quoted_path(py_driver)} gunzip ${os.quoted_path(vgp)} ${os.quoted_path(py_ungz)}'
-		res8 := os.execute(cmd8)
-		exit_on_command_failure(res8, cmd8, 'python_gunzip_v_gzip_failed')
+		res8 :=
+			os.exec(['python3', '${py_driver}', 'gunzip', '${vgp}', '${py_ungz}'])
+		if res8.exit_code != 0 {
+			eprintln('Python gunzip of V gzip failed: ${res8.output}')
+			exit(1)
+		}
 		if (os.read_bytes(py_ungz) or { []u8{} }) != input {
 			eprintln('V gzip -> Python mismatch')
 			exit(1)

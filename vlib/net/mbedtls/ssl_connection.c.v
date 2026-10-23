@@ -136,6 +136,8 @@ pub fn (mut c SSLCerts) cleanup() {
 
 // SSLConn is the current connection
 pub struct SSLConn {
+mut:
+	initialized bool
 pub:
 	config SSLConnectConfig
 pub mut:
@@ -166,8 +168,9 @@ pub mut:
 
 // SSLListener listens on a TCP port and accepts connection secured with TLS
 pub struct SSLListener {
-	saddr  string
-	config SSLConnectConfig
+	saddr   string
+	config  SSLConnectConfig
+	options SSLListenerOptions
 mut:
 	server_fd C.mbedtls_net_context
 	ssl       C.mbedtls_ssl_context
@@ -185,11 +188,19 @@ mut:
 	// duration	time.Duration
 }
 
-// create a new SSLListener binding to `saddr`
-pub fn new_ssl_listener(saddr string, config SSLConnectConfig) !&SSLListener {
+// SSLListenerOptions configures the TCP listener used by an SSLListener.
+@[params]
+pub struct SSLListenerOptions {
+pub:
+	family net.AddrFamily = .unspec
+}
+
+// new_ssl_listener creates a new SSLListener binding to `saddr`.
+pub fn new_ssl_listener(saddr string, config SSLConnectConfig, options SSLListenerOptions) !&SSLListener {
 	mut listener := &SSLListener{
-		saddr:  saddr
-		config: config
+		saddr:   saddr
+		config:  config
+		options: options
 	}
 	listener.init()!
 	listener.opened = true
@@ -218,13 +229,41 @@ pub fn (mut l SSLListener) shutdown() ! {
 	}
 }
 
+fn listen_ssl_tcp(saddr string, family net.AddrFamily, options net.ListenOptions) !&net.TcpListener {
+	if family != .unspec {
+		return net.listen_tcp(family, saddr, options)
+	}
+	address, _ := net.split_address(saddr)!
+	if address == '' || address == '::' {
+		return net.listen_tcp(.ip6, saddr, options)
+	}
+	addrs := net.resolve_addrs(saddr, .unspec, .tcp)!
+	mut attempted := []net.AddrFamily{}
+	mut errors := []IError{}
+	for addr in addrs {
+		candidate := addr.family()
+		if candidate in attempted {
+			continue
+		}
+		attempted << candidate
+		listener := net.listen_tcp(candidate, saddr, options) or {
+			errors << err
+			continue
+		}
+		return listener
+	}
+	if errors.len > 0 {
+		return errors[errors.len - 1]
+	}
+	return error('net.mbedtls SSLListener.init, no addresses resolved for ${saddr}')
+}
+
 // internal function to init and bind the listener
 fn (mut l SSLListener) init() ! {
 	$if trace_ssl ? {
 		eprintln(@METHOD)
 	}
 
-	lhost, lport := net.split_address(l.saddr)!
 	if l.config.cert == '' || l.config.cert_key == '' {
 		return error('net.mbedtls SSLListener.init, no certificate or key provided')
 	}
@@ -261,22 +300,20 @@ fn (mut l SSLListener) init() ! {
 		C.mbedtls_ssl_conf_authmode(&l.conf, C.MBEDTLS_SSL_VERIFY_REQUIRED)
 	}
 
-	mut bind_ip := unsafe { nil }
-	if lhost != '' {
-		bind_ip = voidptr(lhost.str)
-	}
-	bind_port := lport.str()
-
-	ret = C.mbedtls_net_bind(&l.server_fd, bind_ip, voidptr(bind_port.str), C.MBEDTLS_NET_PROTO_TCP)
-
-	if ret != 0 {
-		return error_with_code("net.mbedtls SSLListener.init, mbedtls_net_bind can't bind to ${l.saddr} error ret: ${ret}",
-			ret)
+	tcp_listener := listen_ssl_tcp(l.saddr, l.options.family, net.ListenOptions{
+		backlog: C.MBEDTLS_NET_LISTEN_BACKLOG
+	}) or { return error('net.mbedtls SSLListener.init, listen_tcp failed for ${l.saddr}: ${err}') }
+	l.server_fd.fd = tcp_listener.sock.handle
+	l.opened = true
+	net.set_blocking(l.server_fd.fd, true) or {
+		l.shutdown() or {}
+		return error('net.mbedtls SSLListener.init, could not make listener socket blocking: ${err}')
 	}
 
 	ret = C.mbedtls_ssl_config_defaults(&l.conf, C.MBEDTLS_SSL_IS_SERVER,
 		C.MBEDTLS_SSL_TRANSPORT_STREAM, C.MBEDTLS_SSL_PRESET_DEFAULT)
 	if ret != 0 {
+		l.shutdown() or {}
 		return error_with_code("net.mbedtls SSLListener.init, mbedtls_ssl_config_defaults can't set config defaults ret: ${ret}",
 			ret)
 	}
@@ -289,6 +326,7 @@ fn (mut l SSLListener) init() ! {
 	C.mbedtls_ssl_conf_ca_chain(&l.conf, &l.certs.cacert, unsafe { nil })
 	ret = C.mbedtls_ssl_conf_own_cert(&l.conf, &l.certs.client_cert, &l.certs.client_key)
 	if ret != 0 {
+		l.shutdown() or {}
 		return error_with_code("net.mbedtls SSLListener.init, mbedtls_ssl_conf_own_cert can't load certificate ret: ${ret}",
 			ret)
 	}
@@ -299,6 +337,7 @@ fn (mut l SSLListener) init() ! {
 		n := l.config.alpn_protocols.len
 		l.alpn_list = unsafe { &&char(C.malloc(isize((n + 1) * int(sizeof(voidptr))))) }
 		if l.alpn_list == unsafe { nil } {
+			l.shutdown() or {}
 			return error('net.mbedtls SSLListener.init, failed to allocate ALPN list')
 		}
 		unsafe {
@@ -309,6 +348,7 @@ fn (mut l SSLListener) init() ! {
 		}
 		ret = C.mbedtls_ssl_conf_alpn_protocols(&l.conf, voidptr(l.alpn_list))
 		if ret != 0 {
+			l.shutdown() or {}
 			return error_with_code('net.mbedtls SSLListener.init, mbedtls_ssl_conf_alpn_protocols failed ret: ${ret}',
 				ret)
 		}
@@ -316,6 +356,7 @@ fn (mut l SSLListener) init() ! {
 
 	ret = C.mbedtls_ssl_setup(&l.ssl, &l.conf)
 	if ret != 0 {
+		l.shutdown() or {}
 		return error_with_code("net.mbedtls SSLListener.init, mbedtls_ssl_setup can't setup ssl ret: ${ret}",
 			ret)
 	}
@@ -557,7 +598,10 @@ pub fn new_ssl_conn(config SSLConnectConfig) !&SSLConn {
 		duration:     config.read_timeout
 		read_timeout: config.read_timeout
 	}
-	conn.init()!
+	conn.init() or {
+		conn.shutdown() or {}
+		return err
+	}
 	return conn
 }
 
@@ -573,22 +617,23 @@ pub fn (mut s SSLConn) close() ! {
 	s.shutdown()!
 }
 
-// shutdown terminates the ssl connection and does cleanup
+// shutdown releases the TLS context and any owned socket, including before a connection opens.
 pub fn (mut s SSLConn) shutdown() ! {
 	$if trace_ssl ? {
 		eprintln(@METHOD)
 	}
-	if !s.opened {
+	if !s.opened && !s.initialized {
 		return error('net.mbedtls SSLConn.shutdown, connection was not open')
 	}
-	// Mark closed before freeing so a second shutdown (e.g. a worker defer racing
-	// close_idle) is a harmless no-op rather than a double-free of the mbedtls
-	// contexts below.
+	// Contexts also exist before a successful handshake. Mark them released before
+	// freeing so sequential repeated shutdown calls cannot free them twice.
 	s.opened = false
+	s.initialized = false
 	if unsafe { s.certs != nil } {
 		C.mbedtls_x509_crt_free(&s.certs.cacert)
 		C.mbedtls_x509_crt_free(&s.certs.client_cert)
 		C.mbedtls_pk_free(&s.certs.client_key)
+		s.certs = unsafe { nil }
 	}
 	C.mbedtls_ssl_free(&s.ssl)
 	C.mbedtls_ssl_config_free(&s.conf)
@@ -600,6 +645,7 @@ pub fn (mut s SSLConn) shutdown() ! {
 		}
 	}
 	if s.owns_socket {
+		s.owns_socket = false
 		net.shutdown(s.handle)
 		net.close(s.handle)!
 	}
@@ -627,6 +673,7 @@ fn (mut s SSLConn) init() ! {
 	C.mbedtls_ssl_init(&s.ssl)
 	C.mbedtls_ssl_config_init(&s.conf)
 	init_rng(mut s.ctr_drbg, mut s.entropy)!
+	s.initialized = true
 	mut ret := 0
 	ret = C.mbedtls_ssl_config_defaults(&s.conf, C.MBEDTLS_SSL_IS_CLIENT,
 		C.MBEDTLS_SSL_TRANSPORT_STREAM, C.MBEDTLS_SSL_PRESET_DEFAULT)
@@ -739,21 +786,7 @@ pub fn (mut s SSLConn) connect(mut tcp_conn net.TcpConn, hostname string) ! {
 	mut connected := false
 	defer {
 		if !connected {
-			if unsafe { s.certs != nil } {
-				C.mbedtls_x509_crt_free(&s.certs.cacert)
-				C.mbedtls_x509_crt_free(&s.certs.client_cert)
-				C.mbedtls_pk_free(&s.certs.client_key)
-				s.certs = unsafe { nil }
-			}
-			C.mbedtls_ssl_free(&s.ssl)
-			C.mbedtls_ssl_config_free(&s.conf)
-			free_rng(mut s.ctr_drbg, mut s.entropy)
-			if s.alpn_list != unsafe { nil } {
-				unsafe {
-					C.free(s.alpn_list)
-					s.alpn_list = nil
-				}
-			}
+			s.shutdown() or {}
 			s.handle = 0
 		}
 	}
@@ -795,18 +828,10 @@ pub fn (mut s SSLConn) dial(hostname string, port int) ! {
 	mut connected := false
 	defer {
 		if !connected {
-			if unsafe { s.certs != nil } {
-				C.mbedtls_x509_crt_free(&s.certs.cacert)
-				C.mbedtls_x509_crt_free(&s.certs.client_cert)
-				C.mbedtls_pk_free(&s.certs.client_key)
-				s.certs = unsafe { nil }
-			}
 			C.mbedtls_net_free(&s.server_fd)
-			C.mbedtls_ssl_free(&s.ssl)
-			C.mbedtls_ssl_config_free(&s.conf)
-			free_rng(mut s.ctr_drbg, mut s.entropy)
-			s.handle = 0
 			s.owns_socket = false
+			s.shutdown() or {}
+			s.handle = 0
 		}
 	}
 	s.owns_socket = true
@@ -1044,7 +1069,7 @@ fn select(handle int, test Select, timeout time.Duration) !bool {
 			net.socket_error(res)!
 			return error_with_code('net.mbedtls select, failed, res: ${res}', C.errno)
 		} else if res == 0 {
-			return net.err_timed_out
+			return error_with_code(net.err_timed_out.msg(), net.err_timed_out.code())
 		}
 
 		res = C.FD_ISSET(handle, &set)
@@ -1054,7 +1079,7 @@ fn select(handle int, test Select, timeout time.Duration) !bool {
 		return res != 0
 	}
 
-	return net.err_timed_out
+	return error_with_code(net.err_timed_out.msg(), net.err_timed_out.code())
 }
 
 // wait_for wraps the common wait code
@@ -1064,7 +1089,7 @@ fn wait_for(handle int, what Select, timeout time.Duration) ! {
 		return
 	}
 
-	return net.err_timed_out
+	return error_with_code(net.err_timed_out.msg(), net.err_timed_out.code())
 }
 
 // wait_for_write waits for a write io operation to be available. Pure

@@ -58,7 +58,7 @@ fn _ht_free(p voidptr) {
 // malloc dynamically allocates a `n` bytes block of memory on the heap.
 // malloc returns a `byteptr` pointing to the memory address of the allocated space.
 // unlike the `calloc` family of functions - malloc will not zero the memory block.
-@[unsafe]
+@[inline; unsafe]
 pub fn malloc(n isize) &u8 {
 	$if trace_malloc ? {
 		total_m += n
@@ -72,6 +72,16 @@ pub fn malloc(n isize) &u8 {
 	}
 	auto_process_memory_guard_before_alloc(n)
 	mut res := &u8(unsafe { nil })
+	$if builtin_arena ? {
+		// A scoped arena of the current thread (see arena_d_builtin_arena.c.v)
+		// serves first.
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			res = g_arena_alloc_hook(n, 0)
+			if res != 0 {
+				return res
+			}
+		}
+	}
 	$if prealloc {
 		return unsafe { prealloc_malloc(n) }
 	} $else $if vgc ? {
@@ -109,7 +119,8 @@ pub fn malloc(n isize) &u8 {
 	return res
 }
 
-@[unsafe]
+// malloc_noscan allocates n bytes that do not contain garbage-collected pointers.
+@[inline; unsafe]
 pub fn malloc_noscan(n isize) &u8 {
 	$if trace_malloc ? {
 		total_m += n
@@ -121,6 +132,14 @@ pub fn malloc_noscan(n isize) &u8 {
 	}
 	auto_process_memory_guard_before_alloc(n)
 	mut res := &u8(unsafe { nil })
+	$if builtin_arena ? {
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			res = g_arena_alloc_hook(n, 0)
+			if res != 0 {
+				return res
+			}
+		}
+	}
 	$if prealloc {
 		return unsafe { prealloc_malloc(n) }
 	} $else $if vgc ? {
@@ -162,7 +181,20 @@ pub fn malloc_noscan(n isize) &u8 {
 	return res
 }
 
-@[unsafe]
+// String contents contain bytes only, including when a string view starts at an
+// unaligned offset. Keep normal allocator hooks and tracing on their existing path.
+@[inline; unsafe]
+fn malloc_string_buffer(n isize) &u8 {
+	$if prealloc && !builtin_arena ?&& !trace_malloc ? {
+		if n < 0 {
+			_memory_panic('malloc_noscan', n)
+		}
+		return unsafe { vmemory_block_malloc_aligned(n, 1) }
+	}
+	return unsafe { malloc_noscan(n) }
+}
+
+@[inline; unsafe]
 fn malloc_uninit(n isize) &u8 {
 	if n < 0 {
 		_memory_panic(@FN, n)
@@ -176,7 +208,7 @@ fn malloc_uninit(n isize) &u8 {
 	return malloc(n)
 }
 
-@[unsafe]
+@[inline; unsafe]
 fn malloc_noscan_uninit(n isize) &u8 {
 	if n < 0 {
 		_memory_panic(@FN, n)
@@ -215,6 +247,15 @@ pub fn malloc_uncollectable(n isize) &u8 {
 	auto_process_memory_guard_before_alloc(n)
 
 	mut res := &u8(unsafe { nil })
+	$if builtin_arena ? {
+		// Arena chunks are uncollectable with the Boehm GC too.
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			res = g_arena_alloc_hook(n, 0)
+			if res != 0 {
+				return res
+			}
+		}
+	}
 	$if prealloc {
 		return unsafe { prealloc_malloc(n) }
 	} $else $if vgc ? {
@@ -264,6 +305,15 @@ pub fn v_realloc(b &u8, n isize) &u8 {
 	}
 	auto_process_memory_guard_before_alloc(n)
 	mut new_ptr := &u8(unsafe { nil })
+	$if builtin_arena ? {
+		// Arena memory never reaches the C allocator; see arena_realloc.
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			new_ptr = g_arena_realloc_hook(b, -1, n)
+			if new_ptr != 0 {
+				return new_ptr
+			}
+		}
+	}
 	$if prealloc {
 		unsafe {
 			new_ptr = malloc(n)
@@ -318,6 +368,15 @@ pub fn realloc_data(old_data &u8, old_size int, new_size int) &u8 {
 	$if prealloc {
 		return unsafe { prealloc_realloc(old_data, old_size, new_size) }
 	}
+	$if builtin_arena ? {
+		// Arena memory never reaches the C allocator; see arena_realloc.
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			arena_ptr := g_arena_realloc_hook(old_data, old_size, new_size)
+			if arena_ptr != 0 {
+				return arena_ptr
+			}
+		}
+	}
 	$if debug_realloc ? {
 		// Note: this is slower, but helps debugging memory problems.
 		// The main idea is to always force reallocating:
@@ -366,6 +425,7 @@ pub fn realloc_data(old_data &u8, old_size int, new_size int) &u8 {
 // vcalloc dynamically allocates a zeroed `n` bytes block of memory on the heap.
 // vcalloc returns a `byteptr` pointing to the memory address of the allocated space.
 // vcalloc checks for negative values given in `n`.
+@[inline]
 pub fn vcalloc(n isize) &u8 {
 	$if trace_vcalloc ? {
 		total_m += n
@@ -377,6 +437,16 @@ pub fn vcalloc(n isize) &u8 {
 		return &u8(unsafe { nil })
 	}
 	auto_process_memory_guard_before_alloc(n)
+	$if builtin_arena ? {
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			arena_ptr := g_arena_alloc_hook(n, 0)
+			if arena_ptr != 0 {
+				// Reset arenas reuse their memory, so it is not zeroed.
+				unsafe { C.memset(arena_ptr, 0, n) }
+				return arena_ptr
+			}
+		}
+	}
 	$if prealloc {
 		return unsafe { prealloc_calloc(n) }
 	} $else $if vgc ? {
@@ -406,6 +476,7 @@ pub fn vcalloc(n isize) &u8 {
 
 // special versions of the above that allocate memory which is not scanned
 // for pointers (but is collected) when the Boehm garbage collection is used
+@[inline]
 pub fn vcalloc_noscan(n isize) &u8 {
 	$if trace_vcalloc ? {
 		total_m += n
@@ -420,6 +491,19 @@ pub fn vcalloc_noscan(n isize) &u8 {
 	} $else $if vgc ? {
 		return unsafe { &u8(vgc_calloc(usize(n))) }
 	} $else $if gcboehm ? {
+		if n < 0 {
+			_memory_panic(@FN, n)
+		}
+		auto_process_memory_guard_before_alloc(n)
+		$if builtin_arena ? {
+			if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) && n > 0 {
+				arena_ptr := g_arena_alloc_hook(n, 0)
+				if arena_ptr != 0 {
+					unsafe { C.memset(arena_ptr, 0, n) }
+					return arena_ptr
+				}
+			}
+		}
 		$if gcboehm_opt ? {
 			res := unsafe { C.GC_MALLOC_ATOMIC(n) }
 			unsafe { C.memset(res, 0, n) }
@@ -481,9 +565,21 @@ pub fn free(ptr voidptr) {
 		//
 		// The exception is doing leak detection for manual memory management:
 		$if gcboehm_leak ? {
+			$if builtin_arena ? {
+				// Arena memory is released in bulk by its arena.
+				if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) && g_arena_owns_hook(ptr) {
+					return
+				}
+			}
 			unsafe { C.GC_FREE(ptr) }
 		}
 	} $else {
+		$if builtin_arena ? {
+			// Arena memory is released in bulk by its arena.
+			if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) && g_arena_owns_hook(ptr) {
+				return
+			}
+		}
 		// Manual memory management: this is the only path that actually returns
 		// the block to the C allocator, and it mirrors where _ht_alloc fires, so
 		// report the free here (after the nil / none__ / nop / GC guards above).
@@ -497,10 +593,28 @@ pub fn free(ptr voidptr) {
 	}
 }
 
+@[unsafe]
+fn free_unaliased(ptr voidptr) {
+	$if prealloc || builtin_free_nop ? {
+		return
+	}
+	$if gcboehm ? {
+		$if builtin_arena ? {
+			// Scoped arena allocations are released in bulk, including unique buffers.
+			if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) && g_arena_owns_hook(ptr) {
+				return
+			}
+		}
+		C.GC_FREE(ptr)
+	} $else {
+		free(ptr)
+	}
+}
+
 // memdup dynamically allocates a `sz` bytes block of memory on the heap
 // memdup then copies the contents of `src` into the allocated space and
 // returns a pointer to the newly allocated space.
-@[unsafe]
+@[inline; unsafe]
 pub fn memdup(src voidptr, sz isize) voidptr {
 	$if trace_memdup ? {
 		C.fprintf(C.stderr, c'memdup size: %10d\n', sz)
@@ -517,7 +631,8 @@ pub fn memdup(src voidptr, sz isize) voidptr {
 	}
 }
 
-@[unsafe]
+// memdup_noscan copies `sz` bytes into newly allocated pointer-free storage.
+@[inline; unsafe]
 pub fn memdup_noscan(src voidptr, sz isize) voidptr {
 	$if trace_memdup ? {
 		C.fprintf(C.stderr, c'memdup_noscan size: %10d\n', sz)
@@ -555,6 +670,7 @@ pub fn memdup_uncollectable(src voidptr, sz isize) voidptr {
 // memdup_align dynamically allocates a memory block of `sz` bytes on the heap,
 // copies the contents from `src` into the allocated space, and returns a pointer
 // to the newly allocated memory. The returned pointer is aligned to the specified `align` boundary.
+// VGC allocations remain scanned, including when alignment produces an interior pointer.
 //   - `align` must be a power of two and at least 1
 //   - `sz` must be non-negative
 //   - The memory regions should not overlap
@@ -575,13 +691,32 @@ pub fn memdup_align(src voidptr, sz isize, align isize) voidptr {
 	if n < 0 {
 		_memory_panic(@FN, n)
 	}
+	$if builtin_arena ? {
+		if _unlikely_(C.atomic_load_u32(&g_arena_hooks_ready) != 0) {
+			arena_ptr := g_arena_alloc_hook(n, align)
+			if arena_ptr != 0 {
+				return C.memcpy(arena_ptr, src, sz)
+			}
+		}
+	}
 	mut res := &u8(unsafe { nil })
 	$if prealloc {
 		res = prealloc_malloc_align(n, align)
+	} $else $if vgc ? {
+		// VGC traces and frees interior pointers within the scanned allocation.
+		alignment := usize(align)
+		base := vgc_malloc(usize(n) + alignment - 1)
+		if base != unsafe { nil } {
+			res = unsafe { &u8((usize(base) + alignment - 1) & ~(alignment - 1)) }
+		}
 	} $else $if gcboehm ? {
 		unsafe {
 			res = C.GC_memalign(align, n)
 		}
+	} $else $if vinix {
+		// The Vinix kernel's libc has no aligned_alloc(). Only GC and prealloc
+		// builds, which Vinix does not use, call this.
+		panic('memdup_align is not implemented on Vinix')
 	} $else $if freestanding {
 		// todo: is this safe to call malloc there? We export __malloc as malloc and it uses dlmalloc behind the scenes
 		// so theoretically it is safe
@@ -606,21 +741,22 @@ pub fn memdup_align(src voidptr, sz isize, align isize) voidptr {
 		// when the calling code wrongly relies on it being zeroed.
 		unsafe { C.memset(res, 0x4D, n) }
 	}
-	// memdup_align allocates directly via aligned_alloc / _aligned_malloc, so
+	// The aligned allocation bypasses malloc, so
 	// report it like malloc does; otherwise the later free() of an aligned heap
 	// literal (HEAP_align) would emit vheap_free for an untracked pointer.
 	_ht_alloc(res, n)
 	return C.memcpy(res, src, sz)
 }
 
-// GCHeapUsage contains stats about the current heap usage of your program.
+// GCHeapUsage contains stats about the current heap usage of your program. The fields mean
+// the same with `-gc boehm` and `-gc vgc`; they are 0 with `-gc none`.
 pub struct GCHeapUsage {
 pub:
-	heap_size      usize
-	free_bytes     usize
-	total_bytes    usize
-	unmapped_bytes usize
-	bytes_since_gc usize
+	heap_size      usize // the heap memory obtained from the OS, without the part returned to it
+	free_bytes     usize // the part of heap_size in free blocks
+	total_bytes    usize // the bytes allocated since the program started
+	unmapped_bytes usize // free heap memory that was returned to the OS
+	bytes_since_gc usize // the bytes allocated since the last collection
 }
 
 // gc_heap_usage returns the info about heap usage.
@@ -644,7 +780,8 @@ pub fn gc_heap_usage() GCHeapUsage {
 	}
 }
 
-// gc_memory_use returns the total memory use in bytes by all allocated blocks.
+// gc_memory_use returns the total memory use in bytes by all allocated blocks: the heap_size
+// of gc_heap_usage() without its free_bytes.
 pub fn gc_memory_use() usize {
 	$if vgc ? {
 		return vgc_memory_use()

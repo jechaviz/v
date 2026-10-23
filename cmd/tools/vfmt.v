@@ -8,6 +8,7 @@ import os.cmdline
 import rand
 import term
 import v.util
+import v.vmod
 import v.util.diff
 import v.util.vflags
 import v.errors as compiler_errors
@@ -17,43 +18,51 @@ import v.parser as compiler_parser
 import v.pref as compiler_pref
 
 struct FormatOptions {
-	is_l             bool
-	is_c             bool // Note: This refers to the '-c' fmt flag, NOT the C backend
-	is_w             bool
-	is_diff          bool
-	is_verbose       bool
-	is_debug         bool
-	is_noerror       bool
-	is_verify        bool // exit(1) if the file is not vfmt'ed
-	is_worker        bool // true *only* in the worker processes. Note: workers can crash.
-	is_backup        bool // make a `file.v.bak` copy *before* overwriting a `file.v` in place with `-w`
-	in_process       bool // do not fork a worker process; potentially faster, but more prone to crashes for invalid files
-	is_new_int       bool // rewrite int to i32 in translated modules and C declarations
-	no_migrate_json2 bool // opt out of the default rewrite of deprecated `json` usage to `json2` (`-no-migrate-json2`)
-	backend          string = 'c'
+	is_l                bool
+	is_c                bool // Note: This refers to the '-c' fmt flag, NOT the C backend
+	is_w                bool
+	is_diff             bool
+	is_verbose          bool
+	is_debug            bool
+	is_noerror          bool
+	is_verify           bool     // exit(1) if the file is not vfmt'ed
+	is_worker           bool     // true *only* in the worker processes. Note: workers can crash.
+	is_backup           bool     // make a `file.v.bak` copy *before* overwriting a `file.v` in place with `-w`
+	in_process          bool     // do not fork a worker process; potentially faster, but more prone to crashes for invalid files
+	is_new_int          bool     // rewrite int to i32 in translated modules and C declarations
+	no_migrate_json2    bool     // opt out of the default rewrite of removed `json` usage to `json2` (`-no-migrate-json2`)
+	module_search_paths []string // the expanded `-path` roots, where the compiler also looks for imported modules
+	backend             string = 'c'
 mut:
 	diff_cmd string // filled in when -diff or -verify is passed
 }
 
 const formatted_file_token = '\@\@\@' + 'FORMATTED_FILE: '
-const utf8_bom = '\xef\xbb\xbf'
 const vtmp_folder = os.vtmp_dir()
 const term_colors = term.can_show_color_on_stderr()
 
 fn formatter_backend(args []string) !string {
 	mut backend := 'c'
 	for i, arg in args {
-		if arg in ['-b', '-backend'] && i + 1 < args.len {
-			backend = match args[i + 1] {
-				'c', 'fastc', 'wasm' {
-					args[i + 1]
-				}
-				'js', 'js_node', 'js_browser', 'js_freestanding' {
-					'js'
-				}
-				else {
-					return error('Unknown V backend: ${args[i + 1]}\nValid -backend choices are: c, fastc, js, js_node, js_browser, js_freestanding, wasm')
-				}
+		requested := if arg in ['-b', '-backend'] && i + 1 < args.len {
+			args[i + 1]
+		} else if arg.starts_with('-b=') || arg.starts_with('-backend=') {
+			arg.all_after('=')
+		} else {
+			continue
+		}
+		backend = match requested {
+			'c', 'fastc', 'wasm' {
+				requested
+			}
+			'js', 'js_node', 'js_browser', 'js_freestanding' {
+				'js'
+			}
+			'native', 'go', 'arm64', 'eval' {
+				'c'
+			}
+			else {
+				return error('Unknown V backend: ${requested}\nValid -backend choices are: c, fastc, go, js, js_node, js_browser, js_freestanding, native, arm64, eval, wasm')
 			}
 		}
 	}
@@ -73,20 +82,22 @@ fn main() {
 		exit(1)
 	}
 	mut foptions := FormatOptions{
-		is_c:             '-c' in args
-		is_l:             '-l' in args
-		is_w:             '-w' in args
-		is_diff:          '-diff' in args
-		is_verbose:       '-verbose' in args || '--verbose' in args
-		is_worker:        '-worker' in args
-		is_debug:         '-debug' in args
-		is_noerror:       '-noerror' in args
-		is_verify:        '-verify' in args
-		is_backup:        '-backup' in args
-		in_process:       '-inprocess' in args
-		is_new_int:       '-new_int' in args
-		no_migrate_json2: '-no-migrate-json2' in args
-		backend:          backend
+		is_c:                '-c' in args
+		is_l:                '-l' in args
+		is_w:                '-w' in args
+		is_diff:             '-diff' in args
+		is_verbose:          '-verbose' in args || '--verbose' in args
+		is_worker:           '-worker' in args
+		is_debug:            '-debug' in args
+		is_noerror:          '-noerror' in args
+		is_verify:           '-verify' in args
+		is_backup:           '-backup' in args
+		in_process:          '-inprocess' in args
+		is_new_int:          '-new_int' in args
+		no_migrate_json2:    '-no-migrate-json2' in args
+		module_search_paths: compiler_pref.expand_module_search_paths(cmdline.option(args,
+			'-path', ''), os.dir(os.getenv('VEXE')))
+		backend:             backend
 	}
 	if term_colors {
 		os.setenv('VCOLORS', 'always', true)
@@ -126,7 +137,7 @@ fn main() {
 	mut cli_args_no_files := []string{}
 	for idx, a in os.args {
 		if idx == 0 {
-			cli_args_no_files << os.quoted_path(a)
+			cli_args_no_files << a
 			continue
 		}
 		if a !in files {
@@ -148,14 +159,15 @@ fn main() {
 			continue
 		}
 		mut worker_command_array := cli_args_no_files.clone()
-		worker_command_array << ['-worker', util.quote_path(fpath)]
+		worker_command_array << ['-worker', fpath]
 		worker_cmd := worker_command_array.join(' ')
 		foptions.vlog('vfmt worker_cmd: ${worker_cmd}')
-		worker_result := os.execute(worker_cmd)
+		worker_result := os.exec(worker_command_array)
 		// Guard against a possibly crashing worker process.
 		if worker_result.exit_code != 0 {
-			report_worker_failure(file, fpath, worker_cmd, worker_result)
+			eprintln(worker_result.output)
 			if worker_result.exit_code == 1 {
+				eprintln('Internal vfmt error while formatting file: ${file}.')
 				has_internal_error = true
 				continue
 			}
@@ -174,7 +186,6 @@ fn main() {
 				continue
 			}
 		}
-		report_worker_missing_result(file, fpath, worker_cmd, worker_result)
 		errors++
 	}
 	if has_internal_error {
@@ -197,88 +208,10 @@ fn main() {
 	exit(0)
 }
 
-fn report_worker_failure(file string, fpath string, worker_cmd string, worker_result os.Result) {
-	output := worker_result.output.trim_space()
-	if output != '' {
-		eprintln(output)
-	}
-	eprintln('vfmt.worker.failed=true')
-	eprintln('vfmt.worker.reason=worker_exit_nonzero')
-	eprintln('vfmt.worker.action=rerun_single_file_or_inspect_host')
-	eprintln('vfmt.worker.message=vfmt worker failed while formatting file: ${vfmt_report_value(file)}')
-	eprintln('vfmt.worker.path=${vfmt_report_value(fpath)}')
-	eprintln('vfmt.worker.exit_code=${worker_result.exit_code}')
-	eprintln('vfmt.worker.exit_code_meaning=${os.process_exit_code_meaning(worker_result.exit_code)}')
-	eprintln('vfmt.worker.exit_description=${vfmt_report_value(worker_exit_description(worker_result.exit_code))}')
-	eprintln('vfmt.worker.origin_pid=${os.getpid()}')
-	eprintln('vfmt.worker.cwd=${vfmt_report_value(os.getwd())}')
-	eprintln('vfmt.worker.command=${vfmt_report_value(worker_cmd)}')
-	if output == '' {
-		eprintln('vfmt.worker.output_empty=true')
-	}
-	eprintln('vfmt.worker.advice=${vfmt_report_value(worker_failure_advice(worker_result))}')
-}
-
-fn report_worker_missing_result(file string, fpath string, worker_cmd string, worker_result os.Result) {
-	output := worker_result.output.trim_space()
-	eprintln('vfmt.worker.failed=true')
-	eprintln('vfmt.worker.reason=missing_formatted_file_marker')
-	eprintln('vfmt.worker.action=discard_worker_output_and_report')
-	eprintln('vfmt.worker.message=vfmt worker did not return a formatted-file marker for: ${vfmt_report_value(file)}')
-	eprintln('vfmt.worker.path=${vfmt_report_value(fpath)}')
-	eprintln('vfmt.worker.exit_code=${worker_result.exit_code}')
-	eprintln('vfmt.worker.exit_code_meaning=${os.process_exit_code_meaning(worker_result.exit_code)}')
-	eprintln('vfmt.worker.exit_description=${vfmt_report_value(worker_exit_description(worker_result.exit_code))}')
-	eprintln('vfmt.worker.origin_pid=${os.getpid()}')
-	eprintln('vfmt.worker.cwd=${vfmt_report_value(os.getwd())}')
-	eprintln('vfmt.worker.command=${vfmt_report_value(worker_cmd)}')
-	if output == '' {
-		eprintln('vfmt.worker.output_empty=true')
-	} else {
-		eprintln('vfmt.worker.output_preview=${vfmt_report_value(limit_worker_output(output, 2000))}')
-	}
-	eprintln('vfmt.worker.advice=${vfmt_report_value(worker_failure_advice(worker_result))}')
-}
-
-fn vfmt_report_value(value string) string {
-	return value.replace('\r', '\\r').replace('\n', '\\n')
-}
-
-fn worker_exit_description(code int) string {
-	return match code {
-		0 { 'worker finished but did not emit its formatted output path' }
-		1 { 'internal formatter failure or process crash' }
-		2 { 'source parse or usage failure' }
-		-1 { 'host process failure or process ended before a usable exit status was produced' }
-		else { 'worker failed with an unmapped exit status' }
-	}
-}
-
-fn worker_failure_advice(worker_result os.Result) string {
-	output := worker_result.output.to_lower()
-	if worker_result.exit_code == -1 || output.trim_space() == '' {
-		return 'rerun this single file with `v fmt -w <path>`; if it repeats, inspect concurrent v.exe processes, memory/pagefile pressure, and the command above.'
-	}
-	if output.contains('access is denied') || output.contains('used by another process') {
-		return 'a Windows file lock is likely; close the process holding the file and rerun this single file.'
-	}
-	if output.contains('out of memory') || output.contains('pagefile') || output.contains('memory') {
-		return 'the host reported memory pressure; reduce parallel V commands and rerun this single file.'
-	}
-	return 'fix the diagnostic above, then rerun this single file before formatting the whole directory.'
-}
-
-fn limit_worker_output(output string, max_chars int) string {
-	if output.len <= max_chars {
-		return output
-	}
-	return output[..max_chars] + '\n<truncated>'
-}
-
 fn (foptions &FormatOptions) verify_file(fpath string) bool {
 	content := os.read_file(fpath) or { return false }
 	fcontent := foptions.formatted_content_from_file(fpath, false) or { return false }
-	return formatted_content_with_original_bom(content, fcontent) == content
+	return fcontent == content
 }
 
 fn (foptions &FormatOptions) vlog(msg string) {
@@ -291,10 +224,86 @@ fn (foptions &FormatOptions) should_migrate_json2(file string) bool {
 	if foptions.no_migrate_json2 {
 		return false
 	}
-	return !file.ends_with('_test.v') && !file.ends_with('.vv')
+	// `.vv` files are fixtures (formatter and compiler test inputs) whose legacy
+	// source is the point; tests are migrated like any other code.
+	return !file.ends_with('.vv')
+}
+
+fn imports_json(a &flat.FlatAst) bool {
+	return a.nodes.any(it.kind == .import_decl && it.value == 'json')
+}
+
+// resolves_project_json_module reports whether `import json` in `file` resolves to
+// an existing module. vlib has no `json` module anymore, so such a module belongs
+// to the project (beside the file, in a parent directory, or in a module root).
+// The compiler keeps using it, so its calls must not be rewritten to `json2`.
+fn (foptions &FormatOptions) resolves_project_json_module(file string) bool {
+	mut lookup := &compiler_pref.Preferences{
+		vroot: os.dir(os.getenv('VEXE'))
+	}
+	if foptions.module_search_paths.len > 0 {
+		// `-path` replaces vlib and ~/.vmodules as the module roots, but the compiler
+		// still looks beside the importing file and in its parent directories first
+		// (`resolve_local_or_project_module_path` and `resolve_ancestor_module_path`
+		// in v.driver); `pref.get_module_path` is only its last fallback.
+		// Like `module_dir_belongs_to_other_project`, a parent directory's `json` only
+		// counts when it belongs to the importer's project, or declares `json` itself.
+		mut roots := foptions.module_search_paths.clone()
+		importer_vmod_root := util.nearest_vmod_root(file) or { '' }
+		for dir in importer_and_parent_dirs(file) {
+			if json_dir_belongs_to_importer(os.join_path(dir, 'json'), importer_vmod_root) {
+				roots << dir
+			}
+		}
+		lookup.module_search_paths = roots
+	}
+	return lookup.get_module_path('json', file) != ''
+}
+
+// json_dir_belongs_to_importer reports whether a `json` directory in a parent folder
+// is the module an import of the importer (in the project at `importer_vmod_root`)
+// resolves to: it is inside that project, or its own `v.mod` declares `json`.
+fn json_dir_belongs_to_importer(candidate string, importer_vmod_root string) bool {
+	if importer_vmod_root.len == 0 {
+		return true
+	}
+	real_candidate := os.real_path(candidate).replace('\\', '/')
+	real_importer := os.real_path(importer_vmod_root).replace('\\', '/')
+	if real_candidate == real_importer || real_candidate.starts_with(real_importer + '/') {
+		return true
+	}
+	root := util.nearest_vmod_root(candidate) or { return false }
+	manifest := vmod.from_file(os.join_path_single(root, 'v.mod')) or { return false }
+	return manifest.name == 'json'
+}
+
+// importer_and_parent_dirs lists the directory of `file` and its parents, up to a
+// directory with a module search stop marker.
+fn importer_and_parent_dirs(file string) []string {
+	mut dirs := []string{}
+	mut dir := os.dir(os.real_path(file))
+	for {
+		dirs << dir
+		if compiler_pref.is_module_search_stop_dir(dir) {
+			break
+		}
+		parent := os.dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return dirs
 }
 
 fn (foptions &FormatOptions) formatted_content_from_file(file string, report_diagnostics bool) !string {
+	return foptions.formatted_content_with_imports_from(file, report_diagnostics, file)
+}
+
+// formatted_content_with_imports_from formats `file`, resolving its imports as if it
+// were `import_file`: stdin is staged in a temporary folder, but its imports belong
+// to the caller's working directory.
+fn (foptions &FormatOptions) formatted_content_with_imports_from(file string, report_diagnostics bool, import_file string) !string {
 	foptions.vlog('vfmt running v.gen.v over file: ${file}')
 	mut prefs := compiler_pref.new_preferences()
 	prefs.is_fmt = true
@@ -302,7 +311,11 @@ fn (foptions &FormatOptions) formatted_content_from_file(file string, report_dia
 	prefs.preserve_comptime_conditionals = true
 	prefs.supports_inline_asm = true
 	mut p := compiler_parser.Parser.new(prefs)
-	a := p.parse_file(file)
+	mut a := p.parse_file(file)
+	if a.formatter_migrate_json2 && imports_json(a)
+		&& foptions.resolves_project_json_module(import_file) {
+		a.formatter_migrate_json2 = false
+	}
 	if report_compiler_parser_diagnostics(p.diagnostics, a, report_diagnostics) {
 		return error('the file contains parser errors')
 	}
@@ -365,8 +378,9 @@ fn (foptions &FormatOptions) format_pipe() {
 	defer {
 		os.rm(stdin_path) or {}
 	}
-	formatted_content := foptions.formatted_content_from_file(stdin_path, true) or { exit(1) }
-	print(formatted_content_with_original_bom(input_text, formatted_content))
+	formatted_content := foptions.formatted_content_with_imports_from(stdin_path, true,
+		os.join_path(os.getwd(), 'vfmt_stdin.v')) or { exit(1) }
+	print(formatted_content)
 	flush_stdout()
 	foptions.vlog('vfmt wrote ${formatted_content.len} bytes to stdout.')
 }
@@ -379,17 +393,9 @@ fn (mut foptions FormatOptions) post_process_file(file string, formatted_file_pa
 		eprintln('File ${file} could not be read')
 		return
 	}
-	mut formatted_fc := os.read_file(formatted_file_path) or {
+	formatted_fc := os.read_file(formatted_file_path) or {
 		eprintln('File ${formatted_file_path} could not be read')
 		return
-	}
-	adjusted_formatted_fc := formatted_content_with_original_bom(fc, formatted_fc)
-	if adjusted_formatted_fc != formatted_fc {
-		formatted_fc = adjusted_formatted_fc
-		os.write_file(formatted_file_path, formatted_fc) or {
-			eprintln('File ${formatted_file_path} could not be updated')
-			return
-		}
 	}
 	is_formatted_different := fc != formatted_fc
 	if foptions.is_diff {
@@ -442,13 +448,6 @@ fn (mut foptions FormatOptions) post_process_file(file string, formatted_file_pa
 	}
 	print(formatted_fc)
 	flush_stdout()
-}
-
-fn formatted_content_with_original_bom(original string, formatted string) string {
-	if original.starts_with(utf8_bom) && !formatted.starts_with(utf8_bom) {
-		return utf8_bom + formatted
-	}
-	return formatted
 }
 
 @[noreturn]

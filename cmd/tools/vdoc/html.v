@@ -6,42 +6,13 @@ import encoding.html
 import strings
 import markdown
 import document as doc
-import v.token
 
 const css_js_assets = ['doc.css', 'normalize.css', 'doc.js', 'dark-mode.js']
 const default_theme = os.join_path(@VEXEROOT, 'cmd', 'tools', 'vdoc', 'theme')
 const link_svg = '<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M0 0h24v24H0z" fill="none"/><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>'
 
-const single_quote = "'"
-const double_quote = '"'
-const quote_escape_seq = [single_quote, '', double_quote, '']
-
 fn tabs(n int) string {
 	return '\t'.repeat(n)
-}
-
-enum HighlightTokenTyp {
-	unone
-	boolean
-	builtin
-	char
-	comment
-	function
-	keyword
-	name
-	number
-	operator
-	punctuation
-	string
-	// For string interpolation
-	opening_string
-	string_interp
-	partial_string
-	closing_string
-	symbol
-	none
-	module_
-	prefix
 }
 
 struct SearchModuleResult {
@@ -176,16 +147,50 @@ fn (vd &VDoc) get_repo_file_path_for_links(file_path string) string {
 	if file_path == '' {
 		return ''
 	}
-	cfg := vd.cfg
-	if !cfg.is_multi {
-		return os.file_name(file_path).replace('\\', '/')
-	}
-	base_dir := os.dir(os.real_path(cfg.input_path))
-	prefix := base_dir + os.path_separator
-	if file_path.starts_with(prefix) {
-		return file_path[prefix.len..].replace('\\', '/')
+	input_path := os.real_path(vd.cfg.input_path)
+	input_dir := if os.is_dir(input_path) { input_path } else { os.dir(input_path) }
+	base_dir := vd.repo_root_for_links(input_dir)
+	real_file := os.real_path(file_path)
+	prefix := base_dir.trim_right(os.path_separator) + os.path_separator
+	if real_file.starts_with(prefix) {
+		return real_file[prefix.len..].replace('\\', '/')
 	}
 	return file_path.replace('\\', '/')
+}
+
+fn (vd &VDoc) repo_root_for_links(input_dir string) string {
+	mut ancestor := input_dir
+	mut manifest_root := ''
+	for {
+		// A module's manifest takes precedence over an unrelated enclosing checkout.
+		if os.is_file(os.join_path(ancestor, 'v.mod')) {
+			manifest_root = ancestor
+			break
+		}
+		// Worktrees have a .git file instead of a directory.
+		if os.exists(os.join_path(ancestor, '.git')) {
+			return ancestor
+		}
+		parent := os.dir(ancestor)
+		if parent == ancestor {
+			break
+		}
+		ancestor = parent
+	}
+	mut root := if manifest_root != '' {
+		manifest_root
+	} else if vd.cfg.is_multi {
+		os.dir(os.real_path(vd.cfg.input_path))
+	} else {
+		input_dir
+	}
+	if manifest_root != '' {
+		// Include every declared source directory without relying on enclosing Git metadata.
+		for source_dir in doc.module_source_dirs(module_source_root(manifest_root)) {
+			root = common_ancestor(root, os.real_path(source_dir) + os.path_separator)
+		}
+	}
+	return root
 }
 
 fn (vd &VDoc) write_content(cn &doc.DocNode, mut hw strings.Builder) {
@@ -467,49 +472,19 @@ fn resolve_relative_markdown_link(base_url string, link string) string {
 }
 
 fn html_highlight(code string) string {
-	tokens := scan_code(code)
 	mut buf := strings.new_builder(code.len + 64)
 	mut offset := 0
-	for i, scanned in tokens {
-		if scanned.start > offset {
-			buf.write_string(escape_code(code[offset..scanned.start]))
+	for highlighted in highlight_tokens(code) {
+		if highlighted.start > offset {
+			buf.write_string(escape_code(code[offset..highlighted.start]))
 		}
-		raw := code[scanned.start..scanned.end]
-		next_kind := if i + 1 < tokens.len { tokens[i + 1].kind } else { token.Token.eof }
-		typ := match scanned.kind {
-			.comment { HighlightTokenTyp.comment }
-			.string { HighlightTokenTyp.string }
-			.char { HighlightTokenTyp.char }
-			.number { HighlightTokenTyp.number }
-			.key_true, .key_false { HighlightTokenTyp.boolean }
-			.key_none { HighlightTokenTyp.none }
-			.name {
-				if scanned.lit in highlight_builtin_types || scanned.lit == 'chan' {
-					HighlightTokenTyp.builtin
-				} else if next_kind == .lpar {
-					HighlightTokenTyp.function
-				} else {
-					HighlightTokenTyp.name
-				}
-			}
-			else {
-				if scanned.kind.is_keyword() {
-					HighlightTokenTyp.keyword
-				} else if scanned.kind == .question || scanned.kind.is_assignment()
-					|| scanned.kind.is_prefix()
-					|| scanned.kind.is_infix() || scanned.kind.is_postfix() {
-					HighlightTokenTyp.operator
-				} else {
-					HighlightTokenTyp.punctuation
-				}
-			}
-		}
-		if typ in [.unone, .name] {
+		raw := code[highlighted.start..highlighted.end]
+		if highlighted.typ == .name {
 			buf.write_string(escape_code(raw))
 		} else {
-			buf.write_string('<span class="token ${typ}">${escape_code(raw)}</span>')
+			buf.write_string('<span class="token ${highlighted.typ}">${escape_code(raw)}</span>')
 		}
-		offset = scanned.end
+		offset = highlighted.end
 	}
 	if offset < code.len {
 		buf.write_string(escape_code(code[offset..]))
@@ -533,14 +508,13 @@ fn (vd &VDoc) doc_node_html(dn doc.DocNode, link string, md_link_base string, he
 	md_content := markdown.render(prepare_markdown_for_html(only_comments_text), mut renderer) or {
 		''
 	}
-	highlighted_code := html_highlight(dn.content)
 	node_class := if dn.kind == .const_group { ' const' } else { '' }
 	sym_name := get_sym_name(dn)
-	mut deprecated_tags := dn.tags.filter(it.starts_with('deprecated'))
+	mut deprecated_tags := dn.tags.filter(is_deprecated_attribute(it))
 	if doc.should_sort {
 		deprecated_tags.sort()
 	}
-	mut tags := dn.tags.filter(!it.starts_with('deprecated'))
+	mut tags := dn.tags.filter(!is_deprecated_attribute(it))
 	if doc.should_sort {
 		tags.sort()
 	}
@@ -562,20 +536,42 @@ fn (vd &VDoc) doc_node_html(dn doc.DocNode, link string, md_link_base string, he
 		}
 		dnw.write_string('</div>\n')
 	}
-	if deprecated_tags.len > 0 {
+	// The declarations of a symbol with variants can have different attributes, so each of them
+	// shows its own in its signature, instead of above all of them.
+	attributes_in_signatures := dn.variants.len > 0
+	if deprecated_tags.len > 0 && !attributes_in_signatures {
 		attributes :=
-			deprecated_tags.map('<div class="attribute attribute-deprecated">${it.replace_each(quote_escape_seq)}</div>\n').join('')
+			deprecated_tags.map('<div class="attribute attribute-deprecated">${html.escape(it)}</div>\n').join('')
 		dnw.writeln('<div class="attributes">${attributes}</div>\n')
 	}
-	if tags.len > 0 {
-		attributes := tags.map('<div class="attribute">${it}</div>').join('')
+	if tags.len > 0 && !attributes_in_signatures {
+		attributes := tags.map('<div class="attribute">${html.escape(it)}</div>').join('')
 		dnw.writeln('<div class="attributes">${attributes}</div>')
 	}
+	comments_apart := !head && dn.content.len > 0 && has_variant_comments(dn)
 	if !head && dn.content.len > 0 {
-		dnw.writeln('<pre class="signature">\n<code>${highlighted_code}</code></pre>')
+		dnw.write_string(declaration_html(dn, attributes_in_signatures))
+		// The comment is shown once, after all the declarations, unless they have their own.
+		if comments_apart {
+			dnw.writeln(md_content)
+		}
+		for variant in dn.variants {
+			dnw.write_string(declaration_html(variant, true))
+			if has_own_comments(variant, dn) {
+				mut variant_renderer := markdown.HtmlRenderer{
+					transformer: &MdHtmlCodeHighlighter{
+						relative_link_base: md_link_base
+					}
+				}
+				variant_comments := prepare_markdown_for_html(variant.merge_comments_without_examples())
+				dnw.writeln(markdown.render(variant_comments, mut variant_renderer) or { '' })
+			}
+		}
 	}
 	// do not mess with md_content further, its formatting is important, just output it 1:1 !
-	dnw.writeln('${md_content}\n')
+	if !comments_apart {
+		dnw.writeln('${md_content}\n')
+	}
 	// Write examples if any found
 	examples := dn.examples()
 	if include_examples && examples.len > 0 {
@@ -590,6 +586,22 @@ fn (vd &VDoc) doc_node_html(dn doc.DocNode, link string, md_link_base string, he
 	dnw.writeln('</section>')
 	dnw_str := dnw.str()
 	return dnw_str
+}
+
+// declaration_html returns the signature of `dn`, after the platforms that it is available on,
+// since they apply to all the declarations of a group of constants.
+fn declaration_html(dn doc.DocNode, with_attributes bool) string {
+	mut result := ''
+	platforms := doc.platforms_note(dn.platforms, fn (name string) string {
+		return '<strong>${name}</strong>'
+	})
+	if platforms != '' {
+		result += '<p class="platforms">${platforms}</p>\n'
+	}
+	// The attributes are usually shown above the signature, so they are left out of it.
+	code := if with_attributes { dn.content } else { without_attribute_lines(dn.content) }
+	highlighted_code := html_highlight(code)
+	return result + '<pre class="signature">\n<code>${highlighted_code}</code></pre>\n'
 }
 
 fn prepare_markdown_for_html(text string) string {
@@ -772,6 +784,10 @@ fn write_toc(dn doc.DocNode, mut toc strings.Builder) {
 	toc.writeln('</li>')
 }
 
+// highlight_code_languages are the languages of the fenced code blocks that vdoc highlights as
+// V code, like ```v. Code blocks in other languages, like ```sh, are shown as they are.
+const highlight_code_languages = ['v', 'vlang', 'vsh']!
+
 struct MdHtmlCodeHighlighter {
 mut:
 	language           string
@@ -788,16 +804,16 @@ fn (f &MdHtmlCodeHighlighter) transform_attribute(p markdown.ParentType, name st
 
 fn (f &MdHtmlCodeHighlighter) transform_content(parent markdown.ParentType, text string) string {
 	if parent is markdown.MD_BLOCKTYPE && parent == .md_block_code {
-		if f.language == '' {
-			return html.escape(text)
-		}
-		output := html_highlight(text)
+		is_v_code := f.language.to_lower() in highlight_code_languages
 		// Reset the language, so that it will not persist between blocks,
 		// and will not be accidentally re-used for the next block, that may be lacking ```language :
 		unsafe {
 			f.language = ''
 		}
-		return output
+		if !is_v_code {
+			return html.escape(text)
+		}
+		return html_highlight(text)
 	}
 	return text
 }

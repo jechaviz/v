@@ -9,6 +9,7 @@ import time
 import sokol.sapp
 import sokol.sgl
 import sokol.gfx
+import sync.stdatomic as _
 
 @[typedef]
 struct C.XRRScreenResources {
@@ -211,10 +212,11 @@ mut:
 	// a cache with all images created by the user. used for sokol image init and to save space
 	// (so that the user can store image ids, not entire Image objects)
 	image_cache                 []Image
-	needs_refresh               bool = true
+	needs_refresh               u32 = 1 // atomic: refresh requested for the next frame
 	ticks                       int // for ui mode only
 	last_bg_overlay_frame       u64
 	translucent_bg_seed_pending bool
+	frame_pass                  gfx.Pass
 pub:
 	native_rendering bool
 pub mut:
@@ -289,7 +291,7 @@ fn gg_init_sokol_window(user_data voidptr) {
 			font_path:             ctx.config.font_path
 			custom_bold_font_path: ctx.config.custom_bold_font_path
 			scale:                 ctx.scale
-		) or { panic(err) }
+		) or { panic('gg: failed to initialize font "${ctx.config.font_path}"') }
 		// println('FT took ${time.ticks()-t} ms')
 		ctx.font_inited = true
 	} else {
@@ -300,7 +302,7 @@ fn gg_init_sokol_window(user_data voidptr) {
 				bytes_mono:   ctx.config.font_bytes_mono
 				bytes_italic: ctx.config.font_bytes_italic
 				scale:        sapp.dpi_scale()
-			) or { panic(err) }
+			) or { panic('gg: failed to initialize font from embedded bytes') }
 			ctx.font_inited = true
 		} else {
 			sfont := font.default()
@@ -312,7 +314,7 @@ fn gg_init_sokol_window(user_data voidptr) {
 				font_path:             sfont
 				custom_bold_font_path: ctx.config.custom_bold_font_path
 				scale:                 sapp.dpi_scale()
-			) or { panic(err) }
+			) or { panic('gg: failed to initialize system font "${sfont}"') }
 			ctx.font_inited = true
 		}
 	}
@@ -389,7 +391,9 @@ fn gg_frame_fn(mut ctx Context) {
 	}
 	ctx.memory_trace_frame()
 
-	if ctx.ui_mode && !ctx.needs_refresh {
+	// Consume this request before drawing so a refresh during the frame remains pending.
+	refresh_requested := C.atomic_exchange_u32(&ctx.needs_refresh, 0) != 0
+	if ctx.ui_mode && !refresh_requested {
 		// println('ui mode, exiting')
 		// Draw 3 more frames after the "stop refresh" command
 		ctx.ticks++
@@ -397,6 +401,11 @@ fn gg_frame_fn(mut ctx Context) {
 			ctx.stop_recording_if_needed()
 			return
 		}
+	} else {
+		// A refresh is pending. The frame thread alone writes ticks, so
+		// refresh_ui calls that arrive from other threads never race this
+		// counter.
+		ctx.ticks = 0
 	}
 	if ctx.config.update_fn != unsafe { nil } {
 		dt := ctx.update_timer.elapsed().seconds()
@@ -408,7 +417,6 @@ fn gg_frame_fn(mut ctx Context) {
 		// See the note above: capture the freshly drawn frame before Present.
 		ctx.record_frame()
 	}
-	ctx.needs_refresh = false
 }
 
 fn swap_interval_frame_budget(swap_interval int) time.Duration {
@@ -551,7 +559,7 @@ fn gg_event_fn(ce voidptr, user_data voidptr) {
 		}
 	}
 
-	$if windows || ( linux && !sokol_wayland ?) {
+	$if windows || (linux && !sokol_wayland ?) {
 		if e.typ == .key_down && e.key_code in [.backspace, .delete, .enter, .tab] {
 			// with Win32 and X11, sokol does not send .char events for some keys;
 			// we will emulate them for consistency here:
@@ -759,10 +767,12 @@ pub fn (mut ctx Context) resize(width int, height int) {
 	gg_resize_window(width, height)
 }
 
-// refresh_ui requests a complete re-draw of the window contents.
+// refresh_ui requests a complete re-draw of the window contents. It only
+// atomically sets the pending flag, so it is safe to call from any thread.
+// Requests made during drawing are kept for the next frame; the frame thread
+// resets the trailing-frame counter itself.
 pub fn (mut ctx Context) refresh_ui() {
-	ctx.needs_refresh = true
-	ctx.ticks = 0
+	C.atomic_store_u32(&ctx.needs_refresh, 1)
 }
 
 // begin prepares the context for drawing.
@@ -865,26 +875,13 @@ pub fn (ctx &Context) end(options EndOptions) {
 			ctx.show_fps()
 		}
 	}
-	pass := match options.how {
-		.clear {
-			if ctx.bg_color.a < 255 {
-				if ctx.translucent_bg_seed_pending {
-					mut ctx_mut := unsafe { &Context(ctx) }
-					ctx_mut.translucent_bg_seed_pending = false
-					create_default_pass(ctx.clear_pass)
-				} else {
-					create_default_pass(load_pass)
-				}
-			} else {
-				create_default_pass(ctx.clear_pass)
-			}
-		}
-		.passthru {
-			create_default_pass(dontcare_pass)
-		}
-	}
-
-	gfx.begin_pass(pass)
+	// Rendering uses this Context serially on the render thread. Only internal pass state
+	// is mutated, and Sokol consumes its descriptor before this call returns.
+	mut frame_ctx := unsafe { &Context(ctx) }
+	frame_ctx.prepare_end_pass(options, sapp.glue_swapchain())
+	// sg_begin_pass copies its descriptor synchronously. The next pass can
+	// reuse this Context-owned storage without retaining a frame-local value.
+	gfx.begin_pass(&frame_ctx.frame_pass)
 	sgl.draw()
 	gfx.end_pass()
 	gfx.commit()
@@ -894,6 +891,27 @@ pub fn (ctx &Context) end(options EndOptions) {
 		wait_events()
 	}
 	*/
+}
+
+fn (mut ctx Context) prepare_end_pass(options EndOptions, swapchain gfx.Swapchain) {
+	action := match options.how {
+		.clear {
+			if ctx.bg_color.a < 255 {
+				if ctx.translucent_bg_seed_pending {
+					ctx.translucent_bg_seed_pending = false
+					ctx.clear_pass
+				} else {
+					load_pass
+				}
+			} else {
+				ctx.clear_pass
+			}
+		}
+		.passthru {
+			dontcare_pass
+		}
+	}
+	ctx.frame_pass = gfx.Pass{ action: action, swapchain: swapchain }
 }
 
 pub struct FPSConfig {

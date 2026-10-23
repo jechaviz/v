@@ -11,8 +11,8 @@
 extern "C" {
 #endif
 
-extern unsigned int __stdcall GetFinalPathNameByHandleW(void* hFile,
-	unsigned short* lpFilePath, unsigned int nSize, unsigned int dwFlags);
+extern unsigned long __stdcall GetFinalPathNameByHandleW(void* hFile,
+	unsigned short* lpFilePath, unsigned long nSize, unsigned long dwFlags);
 
 #ifdef __cplusplus
 }

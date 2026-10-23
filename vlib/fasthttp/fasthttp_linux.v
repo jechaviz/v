@@ -6,11 +6,13 @@ import sync.stdatomic
 import time
 
 const epoll_wait_timeout_ms = 100
+
+// Pending readiness stays queued in epoll; a worker need not reserve one slot per connection.
+const epoll_event_batch_size = 256
 const status_408_response = 'HTTP/1.1 408 Request Timeout\r\nContent-Type: text/plain\r\nContent-Length: 19\r\nConnection: close\r\n\r\n408 Request Timeout'.bytes()
 
-// Per-connection buffer capacities. Both buffers are allocated once per connection
-// and reused for its whole lifetime — capacity is kept across requests, so the
-// steady state does zero per-request buffer allocation.
+// Normal-sized buffers are reused across requests; oversized buffers are trimmed
+// once their contents have been consumed.
 const read_buf_cap = 8 * 1024
 const write_buf_cap = 16 * 1024
 // Initial size of the flat fd-indexed connection table; it doubles on demand.
@@ -23,6 +25,7 @@ const sendfile_chunk = 1024 * 1024
 const max_pending_write = 8 * 1024 * 1024
 const max_pooled_read_cap = 64 * 1024
 const max_pooled_write_cap = 64 * 1024
+const max_pooled_conns = 16
 
 enum FlushResult {
 	closed
@@ -157,13 +160,14 @@ mut:
 // table plus the free-list of retired ConnStates (each keeping its buffers).
 struct Worker {
 mut:
-	server       &Server = unsafe { nil }
-	epoll_fd     int
-	listen_fd    int
-	conns        []&ConnState
-	free_conns   []&ConnState
-	parked       int     // connections with an armed read/write deadline (gates the sweep)
-	worker_state voidptr // this worker thread's ServerConfig.make_state value (nil if unset)
+	server                &Server = unsafe { nil }
+	epoll_fd              int
+	listen_fd             int
+	conns                 []&ConnState
+	free_conns            []&ConnState
+	last_timeout_sweep_ns i64
+	parked                int     // connections with an armed read/write deadline (gates the sweep)
+	worker_state          voidptr // this worker thread's ServerConfig.make_state value (nil if unset)
 }
 
 fn close_socket(fd int) bool {
@@ -188,8 +192,8 @@ fn create_server_socket(addr net.Addr) !int {
 		eprintln(@LOCATION)
 		log_errno_failure('socket_create_failed', 'abort_server_start',
 			'failed to create listening socket', C.errno, [
-			'family=${int(addr.family())}',
-		])
+				'family=${int(addr.family())}',
+			])
 		return error('socket creation failed')
 	}
 
@@ -201,8 +205,8 @@ fn create_server_socket(addr net.Addr) !int {
 		eprintln(@LOCATION)
 		log_errno_failure('setsockopt_reuseaddr_failed', 'abort_server_start',
 			'failed to enable SO_REUSEADDR on listening socket', C.errno, [
-			'fd=${server_fd}',
-		])
+				'fd=${server_fd}',
+			])
 		close_socket(server_fd)
 		return error('setsockopt SO_REUSEADDR failed')
 	}
@@ -210,8 +214,8 @@ fn create_server_socket(addr net.Addr) !int {
 		eprintln(@LOCATION)
 		log_errno_failure('setsockopt_reuseport_failed', 'abort_server_start',
 			'failed to enable SO_REUSEPORT on listening socket', C.errno, [
-			'fd=${server_fd}',
-		])
+				'fd=${server_fd}',
+			])
 		close_socket(server_fd)
 		return error('setsockopt SO_REUSEPORT failed')
 	}
@@ -317,7 +321,7 @@ fn clear_active(mut w Worker, mut cs ConnState) {
 }
 
 // close_conn removes fd from epoll, closes it, and returns its ConnState to the
-// per-worker free-list with its buffers retained (length reset, capacity kept).
+// bounded per-worker free-list with normal-sized buffers retained.
 // Every field a fresh ConnState would have is reset so no stale state bleeds into
 // the next connection that reuses this slot.
 @[direct_array_access]
@@ -345,18 +349,6 @@ fn close_conn(mut w Worker, fd int) {
 					unsafe { prealloc_scope_free_after(cs.request_arena) }
 				}
 			}
-			if cs.read_buf.cap > max_pooled_read_cap {
-				unsafe { cs.read_buf.free() }
-				cs.read_buf = []u8{len: 0, cap: read_buf_cap}
-			} else {
-				unsafe { cs.read_buf.len = 0 }
-			}
-			if cs.write_buf.cap > max_pooled_write_cap {
-				unsafe { cs.write_buf.free() }
-				cs.write_buf = []u8{len: 0, cap: write_buf_cap}
-			} else {
-				unsafe { cs.write_buf.len = 0 }
-			}
 			cs.write_off = 0
 			cs.file_fd = -1
 			cs.file_off = 0
@@ -367,7 +359,7 @@ fn close_conn(mut w Worker, fd int) {
 			cs.write_start_ns = 0
 			cs.request_arena = unsafe { nil }
 			w.conns[fd] = unsafe { nil }
-			w.free_conns << cs
+			recycle_conn_state(mut w, mut cs)
 		}
 	}
 	remove_fd_from_epoll(w.epoll_fd, fd)
@@ -400,10 +392,6 @@ fn detach_conn(mut w Worker, fd int) {
 			abandon_request_arena_current_thread(cs.request_arena)
 		}
 	}
-	unsafe {
-		cs.read_buf.len = 0
-		cs.write_buf.len = 0
-	}
 	cs.write_off = 0
 	cs.file_fd = -1
 	cs.file_off = 0
@@ -414,8 +402,39 @@ fn detach_conn(mut w Worker, fd int) {
 	cs.write_start_ns = 0
 	cs.request_arena = unsafe { nil }
 	w.conns[fd] = unsafe { nil }
-	w.free_conns << cs
+	recycle_conn_state(mut w, mut cs)
 	remove_fd_from_epoll(w.epoll_fd, fd)
+}
+
+// recycle_conn_state bounds retained state unless the allocator requires reuse.
+fn recycle_conn_state(mut w Worker, mut cs ConnState) {
+	$if !prealloc {
+		if w.free_conns.len >= max_pooled_conns {
+			// The worker has removed every reference to this retired state.
+			unsafe {
+				cs.read_buf.free()
+				cs.write_buf.free()
+				free(cs)
+			}
+			return
+		}
+	}
+	// Prealloc cannot reclaim individual states, so keep them reachable for reuse.
+	compact_read_buf(mut cs, cs.read_buf.len)
+	reset_write_buf(mut cs)
+	w.free_conns << cs
+}
+
+// reset_write_buf resets drained output, retaining storage when prealloc requires reuse.
+fn reset_write_buf(mut cs ConnState) {
+	$if !prealloc {
+		if cs.write_buf.cap > max_pooled_write_cap {
+			unsafe { cs.write_buf.free() }
+			cs.write_buf = []u8{cap: write_buf_cap}
+			return
+		}
+	}
+	unsafe { cs.write_buf.len = 0 }
 }
 
 // mark_read_deadline arms/clears the read deadline for a partially-read request.
@@ -457,10 +476,10 @@ fn drain_file(fd int, mut cs ConnState) int {
 			}
 			log_errno_failure('sendfile_failed', 'close_client_connection',
 				'sendfile failed while streaming a response file', errno_val, [
-				'client_fd=${fd}',
-				'file_fd=${cs.file_fd}',
-				'remaining=${cs.file_remaining}',
-			])
+					'client_fd=${fd}',
+					'file_fd=${cs.file_fd}',
+					'remaining=${cs.file_remaining}',
+				])
 			return -1
 		}
 		// sent == 0: the file shrank between fstat() and now, or the peer closed.
@@ -493,8 +512,8 @@ fn flush_batch(mut w Worker, fd int, mut cs ConnState) FlushResult {
 			}
 			log_errno_failure('send_failed', 'close_client_connection',
 				'failed to send response bytes to client', errno_val, [
-				'client_fd=${fd}',
-			])
+					'client_fd=${fd}',
+				])
 		}
 		close_conn(mut w, fd)
 		return .closed
@@ -519,9 +538,7 @@ fn flush_batch(mut w Worker, fd int, mut cs ConnState) FlushResult {
 		}
 	}
 	// Everything sent. Recycle the write buffer and settle the connection.
-	unsafe {
-		cs.write_buf.len = 0
-	}
+	reset_write_buf(mut cs)
 	cs.write_off = 0
 	if cs.write_start_ns != 0 {
 		cs.write_start_ns = 0
@@ -567,10 +584,27 @@ fn has_pending_response(cs &ConnState) bool {
 // (partial / not-yet-framed) request at the front of the buffer.
 @[direct_array_access; inline]
 fn compact_read_buf(mut cs ConnState, pos int) {
-	if pos <= 0 {
+	if pos < 0 {
 		return
 	}
 	leftover := cs.read_buf.len - pos
+	$if !prealloc {
+		if cs.read_buf.cap > max_pooled_read_cap && leftover <= read_buf_cap {
+			mut trimmed := []u8{len: leftover, cap: read_buf_cap}
+			// Request handlers have finished with consumed bytes; preserve pipelined input.
+			unsafe {
+				if leftover > 0 {
+					vmemcpy(trimmed.data, &u8(cs.read_buf.data) + pos, leftover)
+				}
+				cs.read_buf.free()
+			}
+			cs.read_buf = trimmed
+			return
+		}
+	}
+	if pos == 0 {
+		return
+	}
 	if leftover > 0 {
 		unsafe { C.memmove(cs.read_buf.data, &u8(cs.read_buf.data) + pos, usize(leftover)) }
 	}
@@ -876,8 +910,8 @@ fn serve_conn(mut w Worker, fd int, mut cs ConnState) {
 			}
 			log_errno_failure('recv_failed', 'close_client_connection',
 				'failed to read request bytes from client socket', C.errno, [
-				'client_fd=${fd}',
-			])
+					'client_fd=${fd}',
+				])
 			C.send(fd, status_444_response.data, status_444_response.len, C.MSG_NOSIGNAL)
 			close_conn(mut w, fd)
 			return
@@ -979,8 +1013,8 @@ fn handle_accept_loop(mut w Worker) {
 			eprintln(@LOCATION)
 			log_errno_failure('accept_failed', 'continue_accept_loop',
 				'failed to accept incoming connection', C.errno, [
-				'listen_fd=${w.listen_fd}',
-			])
+					'listen_fd=${w.listen_fd}',
+				])
 			break
 		}
 		// Enable TCP_NODELAY for lower latency.
@@ -996,13 +1030,17 @@ fn handle_accept_loop(mut w Worker) {
 }
 
 // sweep_timeouts closes connections whose read/write deadline elapsed. Only runs
-// when something is parked, so it costs nothing on an idle/fast server.
+// when something is parked, at most once per epoll wait timeout interval.
 @[direct_array_access]
 fn sweep_timeouts(mut w Worker) {
 	if w.server.timeout_in_seconds <= 0 || w.parked == 0 {
 		return
 	}
-	now := time.sys_mono_now()
+	now := i64(time.sys_mono_now())
+	if now - w.last_timeout_sweep_ns < i64(epoll_wait_timeout_ms) * time.millisecond {
+		return
+	}
+	w.last_timeout_sweep_ns = now
 	timeout_ns := i64(w.server.timeout_in_seconds) * 1_000_000_000
 	for fd in 0 .. w.conns.len {
 		cs := w.conns[fd]
@@ -1041,13 +1079,23 @@ fn process_events(server &Server, epoll_fd int, listen_fd int) {
 	if server.make_state != unsafe { nil } {
 		w.worker_state = server.make_state()
 	}
-	mut events := [max_connection_size]C.epoll_event{}
+	mut events := [epoll_event_batch_size]C.epoll_event{}
 	for {
 		if server.is_shutting_down() && server.active_request_count() == 0 {
 			close_worker_clients(mut w)
 			return
 		}
-		num_events := C.epoll_wait(epoll_fd, &events[0], max_connection_size, epoll_wait_timeout_ms)
+		mut wait_ms := epoll_wait_timeout_ms
+		if server.timeout_in_seconds > 0 && w.parked > 0 {
+			// A skipped batch must not postpone the next sweep by another full wait.
+			elapsed_ms := (time.sys_mono_now() - w.last_timeout_sweep_ns) / time.millisecond
+			wait_ms = if elapsed_ms >= epoll_wait_timeout_ms {
+				0
+			} else {
+				epoll_wait_timeout_ms - int(elapsed_ms)
+			}
+		}
+		num_events := C.epoll_wait(epoll_fd, &events[0], events.len, wait_ms)
 		if num_events < 0 {
 			if C.errno == C.EINTR {
 				continue
@@ -1057,8 +1105,8 @@ fn process_events(server &Server, epoll_fd int, listen_fd int) {
 			}
 			log_errno_failure('epoll_wait_failed', 'continue_event_loop',
 				'epoll_wait failed while polling server events', C.errno, [
-				'epoll_fd=${epoll_fd}',
-			])
+					'epoll_fd=${epoll_fd}',
+				])
 			continue
 		}
 		for i := 0; i < num_events; i++ {
@@ -1125,6 +1173,18 @@ fn (mut server Server) stop_accepting() {
 	}
 }
 
+// close_setup_fds releases the listeners and epoll instances of a run() that
+// failed before spawning its workers.
+fn (mut server Server) close_setup_fds() {
+	server.stop_accepting()
+	for i := 0; i < max_thread_pool_size; i++ {
+		if server.epoll_fds[i] >= 0 {
+			close_socket(server.epoll_fds[i])
+			server.epoll_fds[i] = -1
+		}
+	}
+}
+
 // run starts the server and begins listening for incoming connections.
 pub fn (mut server Server) run() ! {
 	$if windows {
@@ -1136,24 +1196,31 @@ pub fn (mut server Server) run() ! {
 	// onto different addresses. Doing it here also lets an invalid/unresolvable
 	// host fail run() instead of silently leaving the server with no listener.
 	addr := resolve_bind_addr(server.host, server.family, server.port)!
+	// Set up every listener before spawning any worker, so that a failure leaves no
+	// worker behind and the server can be marked live before the first one serves.
 	for i := 0; i < max_thread_pool_size; i++ {
-		server.listen_fds[i] = create_server_socket(addr)!
+		server.listen_fds[i] = create_server_socket(addr) or {
+			server.close_setup_fds()
+			return err
+		}
 
 		server.epoll_fds[i] = C.epoll_create1(0)
 		if server.epoll_fds[i] < 0 {
 			log_errno_failure('epoll_create_failed', 'abort_server_start',
 				'failed to create epoll instance', C.errno, []string{})
-			close_socket(server.listen_fds[i])
+			server.close_setup_fds()
 			return error('epoll_create1 failed')
 		}
 
 		// Register the listening socket with each worker epoll for distributed accepts (edge-triggered)
 		if add_fd_to_epoll(server.epoll_fds[i], server.listen_fds[i], u32(C.EPOLLIN | C.EPOLLET)) == -1 {
-			close_socket(server.listen_fds[i])
-			close_socket(server.epoll_fds[i])
+			server.close_setup_fds()
 			return error('failed to register listener with epoll')
 		}
+	}
 
+	server.mark_starting()
+	for i := 0; i < max_thread_pool_size; i++ {
 		server.threads[i] = spawn process_events(server, server.epoll_fds[i], server.listen_fds[i])
 	}
 

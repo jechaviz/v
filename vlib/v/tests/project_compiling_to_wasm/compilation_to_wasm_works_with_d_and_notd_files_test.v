@@ -11,7 +11,7 @@ fn testsuite_begin() {
 }
 
 fn testsuite_end() {
-	os.system('ls -la .')
+	os.system_args(['ls', '-la', '.'])
 	os.chdir(os.home_dir()) or {}
 	os.rmdir_all(output_path) or {}
 }
@@ -22,9 +22,8 @@ fn test_normal() {
 	}
 	defer { println('done ${@FN}') }
 	dump(vexe)
-	cmd := '${vexe} -o normal.exe ${os.quoted_path(project_folder)}'
-	res := os.execute(cmd)
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
+	res := os.system_args([@VEXE, '-o', 'normal.exe', '${project_folder}'])
+	assert res == 0
 	dump(res)
 	assert os.exists('normal.exe')
 	content := os.read_file('normal.exe')!
@@ -41,9 +40,10 @@ fn test_emcc() {
 		return
 	}
 	dump(emcc)
-	cmd := '${vexe} -os wasm32_emscripten -o wasm_check.html ${os.quoted_path(project_folder)}'
-	res := os.execute(cmd)
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN, command: cmd)
+	res :=
+		os.system_args([@VEXE, '-os', 'wasm32_emscripten', '-o', 'wasm_check.html',
+			'${project_folder}'])
+	assert res == 0
 	dump(res)
 	assert os.exists('wasm_check.html')
 	assert os.exists('wasm_check.js')

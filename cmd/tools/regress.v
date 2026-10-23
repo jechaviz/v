@@ -61,32 +61,21 @@ fn main() {
 			panic('can not compile ${oldvexe}')
 		}
 	}
-	execute('git checkout master')
-	execute('git bisect reset')
-	execute('git checkout ${context.new_commit}')
-	execute('git bisect start')
-	execute('git bisect new')
-	execute('git checkout ${context.old_commit}')
-	execute('git bisect old')
+	os.exec(['git', 'checkout', 'master'])
+	os.exec(['git', 'bisect', 'reset'])
+	os.exec(['git', 'checkout', '${context.new_commit}'])
+	os.exec(['git', 'bisect', 'start'])
+	os.exec(['git', 'bisect', 'new'])
+	os.exec(['git', 'checkout', '${context.old_commit}'])
+	os.exec(['git', 'bisect', 'old'])
 	println(term.colorize(term.bright_yellow, term.header('', '-')))
 	execute('git bisect run ${os.quoted_path(oldvexe)} --bisect -c "${context.command}"')
 	println(term.colorize(term.bright_yellow, term.header('', '-')))
-	execute('git bisect reset')
-	execute('git checkout master')
+	os.exec(['git', 'bisect', 'reset'])
+	os.exec(['git', 'checkout', 'master'])
 }
 
 fn execute(cmd string) int {
 	eprintln('### ${cmd}')
-	exit_code := os.system(cmd)
-	if exit_code != 0 {
-		eprintln(os.process_command_failure_report('regress.command', exit_code,
-			stage:          'bisect_command'
-			command:        cmd
-			reason:         'bisect_command_failed'
-			action:         'inspect_git_bisect_or_wrapped_command_output'
-			message:        'regression helper command exited with a non-zero status'
-			output_capture: 'inherited_stdio'
-		))
-	}
-	return exit_code
+	return os.system_args(os.split_args(cmd) or { panic(err) })
 }
