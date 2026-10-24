@@ -326,7 +326,7 @@ fn tcc_atomic_arg(prefs &pref.Preferences, tcc_path string, tcc_includes string)
 		return ''
 	}
 	wrapv_flag := c_wrapv_flag(prefs.normalized_target_os())
-	cache_dir := os.join_path(os.vtmp_dir(), 'v3_thirdparty_objs')
+	cache_dir := v3_c_object_cache_dir()
 	signature := modulecache.file_signature(atomic_s)
 	if signature.len == 0 {
 		return atomic_s
@@ -613,7 +613,7 @@ fn prepare_c_flags_for_link(flags []string, environment_c_flags []string, primar
 		primary_compiler_flags: primary_compiler_flags
 		common_flags:           common_compile_flags
 	}
-	cache_dir := os.join_path(os.vtmp_dir(), 'v3_thirdparty_objs')
+	cache_dir := v3_c_object_cache_dir()
 	ensure_native_object_cache_dir(cache_dir)!
 	plan_path := c_link_plan_path(cache_dir, flags, &object_flag_plan, c99, no_std, pic_flag,
 		target_args, target, c_compiler, use_platform_non_c_compiler, mut stats)
@@ -1654,8 +1654,17 @@ fn ensure_native_object_cache_dir(path string) ! {
 	}
 }
 
+fn v3_c_object_cache_dir_for(vtmp_dir string, v3cache string) string {
+	cache_root := if v3cache.trim_space().len > 0 { os.abs_path(v3cache) } else { vtmp_dir }
+	return os.join_path(cache_root, 'v3_thirdparty_objs')
+}
+
+fn v3_c_object_cache_dir() string {
+	return v3_c_object_cache_dir_for(os.vtmp_dir(), os.getenv('V3CACHE'))
+}
+
 fn compile_cached_c_source_object(obj_path string, source_file string, source_language string, object_flags &CObjectFlagPlan, c99 bool, no_std bool, pic_flag string, target_args []string, target pref.Target, c_compiler string, use_platform_non_c_compiler bool, uncached_dir string, mut stats CObjectCacheStats) !string {
-	cache_dir := os.join_path(os.vtmp_dir(), 'v3_thirdparty_objs')
+	cache_dir := v3_c_object_cache_dir()
 	ensure_native_object_cache_dir(cache_dir)!
 	language := c_source_language(source_file, source_language)
 	is_cpp := language in ['c++', 'objective-c++']
@@ -1862,7 +1871,7 @@ fn c_object_compiler_version(compiler string, compiler_path string) string {
 	if metadata.len == 0 {
 		return cmdexec.run(compiler, ['--version']).output
 	}
-	cache_dir := os.join_path(os.vtmp_dir(), 'v3_thirdparty_objs')
+	cache_dir := v3_c_object_cache_dir()
 	path_hash := c_hash_bytes(u64(1469598103934665603), compiler_path.bytes()).hex()
 	memo_path := os.join_path(cache_dir, 'compiler_${path_hash}.version')
 	if content := os.read_file(memo_path) {
@@ -1942,8 +1951,9 @@ fn c_object_dependencies_from_output(output string, source_file string) CObjectD
 		// entire compiler output and tokenize it as bogus dependencies.
 		return fallback
 	}
-	continuation := '\\' + '\n'
-	dep_text := output.replace(continuation, ' ').all_after(marker)
+	continuation_crlf := '\\' + '\r\n'
+	continuation_lf := '\\' + '\n'
+	dep_text := output.replace(continuation_crlf, ' ').replace(continuation_lf, ' ').all_after(marker)
 	dependencies := cmdexec.split_args(dep_text) or { return fallback }
 	if dependencies.len == 0 {
 		return fallback
