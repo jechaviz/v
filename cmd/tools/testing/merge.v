@@ -2,6 +2,7 @@ module testing
 
 import os
 import sync.pool
+import time
 
 // merge.v - One compilation for the test files of a module.
 //
@@ -22,6 +23,10 @@ import sync.pool
 
 const merge_min_files = get_merge_min_files()
 const merged_prefix = 'zz_vmerged_'
+
+// a merged file older than this belongs to a run that died, and is removed; a younger one may belong to
+// a run that is still going in the same folder, and is left alone
+const stale_merged_seconds = 3600
 
 fn get_merge_min_files() int {
 	configured := os.getenv('VTEST_MERGE_MIN')
@@ -157,7 +162,7 @@ pub fn plan_module_merging_for(files []string, skip_files []string, jobs int) ([
 			continue
 		}
 		dir := key.all_before('|')
-		merged_path := os.join_path(dir, '${merged_prefix}${module_of[key]}_test.v')
+		merged_path := os.join_path(dir, '${merged_prefix}${module_of[key]}_${os.getpid()}_test.v')
 		text := merged_source(module_of[key], members) or { continue }
 		os.write_file(merged_path, text) or { continue }
 		plan.merged[merged_path] = members.clone()
@@ -172,7 +177,9 @@ pub fn plan_module_merging_for(files []string, skip_files []string, jobs int) ([
 			continue
 		}
 		if os.file_name(file).starts_with(merged_prefix) {
-			os.rm(file) or {}
+			if os.file_last_mod_unix(file) < time.now().unix() - stale_merged_seconds {
+				os.rm(file) or {}
+			}
 			continue
 		}
 		out << file

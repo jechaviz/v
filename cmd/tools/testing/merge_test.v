@@ -29,7 +29,7 @@ fn test_main_attributed_and_directive_files_are_not_mergeable() {
 	assert module_of_test(write_test_file(dir, 'c_test.v', '// vtest vflags: -d x\nmodule foo\n')) == ''
 	assert module_of_test(write_test_file(dir, 'd_test.c.v', 'module foo\n')) == ''
 	assert module_of_test(write_test_file(dir, 'e.v', 'module foo\n')) == ''
-	assert module_of_test(write_test_file(dir, 'zz_vmerged_foo_test.v', 'module foo\n')) == ''
+	assert module_of_test(write_test_file(dir, 'zz_vmerged_foo_${os.getpid()}_test.v', 'module foo\n')) == ''
 }
 
 fn test_the_merged_source_hoists_each_import_once_and_keeps_every_body() {
@@ -69,7 +69,7 @@ fn test_the_files_of_a_module_become_one_merged_file_next_to_them() {
 	files << other
 	out, plan := plan_module_merging(files, [])
 	assert !plan.is_empty()
-	merged := os.join_path(dir, 'zz_vmerged_foo_test.v')
+	merged := os.join_path(dir, 'zz_vmerged_foo_${os.getpid()}_test.v')
 	assert merged in plan.merged
 	assert plan.merged[merged].len == 3
 	assert os.exists(merged)
@@ -88,19 +88,36 @@ fn test_skipped_files_are_not_merged() {
 		files << write_test_file(dir, '${name}_test.v', 'module foo\n\nfn test_${name}() {}\n')
 	}
 	_, plan := plan_module_merging(files, [os.real_path(files[0])])
-	merged := os.join_path(dir, 'zz_vmerged_foo_test.v')
+	merged := os.join_path(dir, 'zz_vmerged_foo_${os.getpid()}_test.v')
 	assert plan.merged[merged].len == 3
 	plan.remove_merged_files()
 }
 
-fn test_stale_merged_files_from_an_interrupted_run_are_removed() {
-	dir := merge_test_dir('stale')
+fn test_a_merged_file_of_another_run_is_never_run_nor_deleted_while_it_is_fresh() {
+	dir := merge_test_dir('other')
 	defer { os.rmdir_all(dir) or {} }
-	stale := write_test_file(dir, 'zz_vmerged_old_test.v', 'module old\n')
+	// a run that is still going in the same folder has its merged file there: it is not a test of
+	// this run, and deleting it would make the other run fail
+	other := write_test_file(dir, 'zz_vmerged_old_4242_test.v', 'module old\n')
 	a := write_test_file(dir, 'a_test.v', 'module foo\n')
-	out, _ := plan_module_merging([a, stale], [])
-	assert stale !in out
-	assert !os.exists(stale)
+	out, _ := plan_module_merging([a, other], [])
+	assert other !in out
+	assert os.exists(other)
+	assert a in out
+}
+
+fn test_two_runs_in_one_folder_merge_into_files_with_different_names() {
+	dir := merge_test_dir('twice')
+	defer { os.rmdir_all(dir) or {} }
+	mut files := []string{}
+	for name in ['a', 'b', 'c'] {
+		files << write_test_file(dir, '${name}_test.v', 'module foo\n\nfn test_${name}() {}\n')
+	}
+	_, plan := plan_module_merging(files, [])
+	for merged, _ in plan.merged {
+		assert merged.contains('_${os.getpid()}_test.v')
+	}
+	plan.remove_merged_files()
 }
 
 fn test_a_test_that_waits_on_another_process_is_not_merged() {
@@ -114,7 +131,7 @@ fn test_a_test_that_waits_on_another_process_is_not_merged() {
 	assert test_file_is_heavy(heavy)
 	assert !test_file_is_heavy(light[0])
 	out, plan := plan_module_merging([heavy, ...light], [])
-	merged := os.join_path(dir, 'zz_vmerged_foo_test.v')
+	merged := os.join_path(dir, 'zz_vmerged_foo_${os.getpid()}_test.v')
 	assert plan.merged[merged].len == 3
 	assert heavy in out // it still runs, on its own, beside the merged program
 	assert heavy !in plan.merged[merged]
