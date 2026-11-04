@@ -757,6 +757,11 @@ pub fn (mut ts TestSession) test() {
 		remaining_files << dot_relative_file
 	}
 	remaining_files = vtest.filter_vtest_only(remaining_files, fix_slashes: false)
+	mut merge_plan := MergePlan{}
+	if ts.exec_mode == .compile_and_run && ts.will_compile && os.getenv('VTEST_ONLY') == ''
+		&& !merging_disabled(ts.vargs) {
+		remaining_files, merge_plan = plan_module_merging(remaining_files, ts.skip_files)
+	}
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
 	default_jobs := test_runner_jobs(ts.will_compile)
@@ -786,6 +791,10 @@ pub fn (mut ts TestSession) test() {
 
 	// all the testing happens here:
 	pool_of_test_runners.work_on_pointers(unsafe { remaining_files.pointers() })
+	if !merge_plan.is_empty() {
+		ts.rerun_failed_merges(merge_plan, njobs)
+		merge_plan.remove_merged_files()
+	}
 
 	ts.benchmark_stop()
 	ts.append_message(.sentinel, '', MessageThreadContext{ flow_id: '-1' }) // send the sentinel
@@ -1043,7 +1052,9 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		ts.append_message(.compile_begin, cmd, mtc)
 		compile_d_cmd := time.new_stopwatch()
 		mut compile_r := os.Result{}
-		for cretry in 0 .. max_compilation_retries {
+		// a merged file that does not compile is not flaky: it is rerun file by file instead
+		compile_attempts := if fname.starts_with(merged_prefix) { 1 } else { max_compilation_retries }
+		for cretry in 0 .. compile_attempts {
 			compile_r = ts.exec(compile_argv, mtc)
 			compile_cmd_duration = compile_d_cmd.elapsed()
 			// eprintln('>>>> cretry: ${cretry} | compile_r.exit_code: ${compile_r.exit_code} | compile_cmd_duration: ${compile_cmd_duration:8} | file: ${normalised_relative_file}')
