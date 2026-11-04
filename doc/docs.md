@@ -1656,6 +1656,21 @@ users.sort(a.age < b.age) // sort by User.age int field
 users.sort(a.name > b.name) // reverse sort by User.name string field
 ```
 
+Each side of the comparison can be any expression over `a` (one side) and `b` (the other), in
+either order: arithmetic on fields, casts, and calls to global functions. A comparator cannot use
+local variables of the enclosing function, function values included. `*a` and `*b` are accepted
+and mean the elements themselves. `.sorted()` takes the same comparators.
+
+```v
+fn key(s string) int {
+	return s.len
+}
+
+mut names := ['ccc', 'a', 'bb']
+names.sort(key(a) < key(b)) // ['a', 'bb', 'ccc']
+users.sort(a.age + a.name.len > b.age + b.name.len)
+```
+
 V also supports custom sorting, through the `sort_with_compare` array method.
 Which expects a comparing function which will define the sort order.
 Useful for sorting on multiple fields at the same time by custom sorting rules.

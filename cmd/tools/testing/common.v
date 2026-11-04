@@ -757,15 +757,16 @@ pub fn (mut ts TestSession) test() {
 		remaining_files << dot_relative_file
 	}
 	remaining_files = vtest.filter_vtest_only(remaining_files, fix_slashes: false)
+	default_jobs := test_runner_jobs(ts.will_compile)
+	memory_plan := util.memory_backpressure_plan('vtest', default_jobs)
 	mut merge_plan := MergePlan{}
 	if ts.exec_mode == .compile_and_run && ts.will_compile && os.getenv('VTEST_ONLY') == ''
 		&& !merging_disabled(ts.vargs) {
-		remaining_files, merge_plan = plan_module_merging(remaining_files, ts.skip_files)
+		remaining_files, merge_plan = plan_module_merging_for(remaining_files, ts.skip_files,
+			process_singleton_jobs(memory_plan.jobs))
 	}
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
-	default_jobs := test_runner_jobs(ts.will_compile)
-	memory_plan := util.memory_backpressure_plan('vtest', default_jobs)
 	mut njobs := if vtest_no_parallel_requested(ts.vargs) {
 		1
 	} else {

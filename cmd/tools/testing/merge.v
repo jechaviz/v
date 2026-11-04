@@ -16,6 +16,8 @@ import sync.pool
 //     no `// vtest` directives are merged, and only when a directory has at least `merge_min_files`;
 //   * if the merged program fails to compile (a helper defined twice in two files, for instance) or a
 //     test of it fails, its files are run again one by one, so the report names the real file;
+//   * test files that wait on another process (a C compiler, MetaEditor, a child program) are not
+//     merged: they run beside the merged program, in parallel, instead of after the other tests;
 //   * VTEST_NO_MERGE=1 turns it off.
 
 const merge_min_files = get_merge_min_files()
@@ -29,6 +31,22 @@ fn get_merge_min_files() int {
 fn merging_disabled(vargs string) bool {
 	return os.getenv('VTEST_NO_MERGE') != '' || vargs.contains('fmt') || vargs.contains('vet')
 		|| vargs.contains('-check')
+}
+
+// heavy_markers are the calls that make a test wait on another process: a C compiler, MetaEditor, a
+// child program. Such a test costs seconds of waiting, not of computing, and a merged program runs its
+// tests one after the other, so merging it with the others would put that waiting on the critical
+// path. Left alone, the pool runs it in parallel with the merged program.
+const heavy_markers = ['os.execute(', 'os.new_process(', 'os.exec(', 'compile_mql5(', 'compile_folder(']
+
+// test_file_is_heavy says whether a test file waits on other processes (VTEST_MERGE_HEAVY=1 merges
+// them anyway).
+fn test_file_is_heavy(file string) bool {
+	if os.getenv('VTEST_MERGE_HEAVY') != '' {
+		return false
+	}
+	text := os.read_file(file) or { return false }
+	return heavy_markers.any(text.contains(it))
 }
 
 // module_of_test returns the module of a test file that is safe to merge, or '' when it is not.
@@ -101,6 +119,14 @@ pub fn (plan MergePlan) is_empty() bool {
 // plan_module_merging replaces, in `files`, the test files of each module by one merged file written
 // next to them, and returns the new list. Stale merged files from an interrupted run are removed.
 pub fn plan_module_merging(files []string, skip_files []string) ([]string, MergePlan) {
+	return plan_module_merging_for(files, skip_files, 2)
+}
+
+// plan_module_merging_for is plan_module_merging for a runner with `jobs` parallel jobs. Tests that wait
+// on other processes are kept aside to run in parallel only when there is more than one job: with a
+// single job they would run one after the other anyway, and as separate programs they would also
+// pay a compilation each, so they are merged with the rest.
+pub fn plan_module_merging_for(files []string, skip_files []string, jobs int) ([]string, MergePlan) {
 	mut plan := MergePlan{}
 	mut groups := map[string][]string{} // directory + module -> files
 	mut module_of := map[string]string{}
@@ -112,6 +138,9 @@ pub fn plan_module_merging(files []string, skip_files []string) ([]string, Merge
 		name := module_of_test(file)
 		if name == '' {
 			continue
+		}
+		if jobs > 1 && test_file_is_heavy(file) {
+			continue // it stays a program of its own, so the pool runs it beside the merged one
 		}
 		details := get_test_details(file)
 		if details.vflags != '' || details.vbuild != '' {

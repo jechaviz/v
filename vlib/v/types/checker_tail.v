@@ -18194,6 +18194,7 @@ fn (mut tc TypeChecker) check_array_sort_call(id flat.NodeId, node flat.Node, ca
 	if arg.op !in [.lt, .gt] {
 		tc.record_error_at(.call_arg_mismatch, '`.sort()` can only use `<` or `>` comparison', id, method_pos)
 	}
+	tc.sort_strip_derefs(arg_id)
 	lhs_id := tc.a.child(&arg, 0)
 	rhs_id := tc.a.child(&arg, 1)
 	lhs_key := tc.expr_key(lhs_id)
@@ -18206,7 +18207,7 @@ fn (mut tc TypeChecker) check_array_sort_call(id flat.NodeId, node flat.Node, ca
 		if tc.cur_scope.lookup(invalid.value) == none {
 			tc.record_error_at(.call_arg_mismatch, '`.sort()` can only use `a` or `b` as argument, e.g. `arr.sort(a < b)`', id, method_pos)
 		}
-	} else if !tc.sort_operand_has_valid_shape(lhs_id) || !tc.sort_operand_has_valid_shape(rhs_id) {
+	} else if !tc.sort_operands_reference_a_and_b(lhs_id, rhs_id) {
 		tc.record_error_at(.call_arg_mismatch, '`.sort()` can only use `a` or `b` as argument, e.g. `arr.sort(a < b)`',
 			arg_id, method_pos)
 		tc.record_error_at(.call_arg_mismatch, '`.sort()` can only use ident, index, selector or call as argument,\ne.g. `arr.sort(a < b)`, `arr.sort(a.id < b.id)`, `arr.sort(a[0] < b[0])`',
@@ -18243,7 +18244,11 @@ fn (tc &TypeChecker) sort_first_invalid_ident(id flat.NodeId) ?flat.NodeId {
 	if node.kind == .ident && node.value !in ['a', 'b'] {
 		return id
 	}
-	for i in 0 .. node.children_count {
+	// The name of a global function is not a captured variable: `arr.sort(key(a) < key(b))` needs
+	// nothing but `a` and `b` from the call site. Local variables, function values included, still
+	// are captured variables.
+	start := if tc.sort_call_has_global_callee(node) { 1 } else { 0 }
+	for i in start .. node.children_count {
 		if invalid := tc.sort_first_invalid_ident(tc.a.child(&node, i)) {
 			return invalid
 		}
@@ -18251,13 +18256,43 @@ fn (tc &TypeChecker) sort_first_invalid_ident(id flat.NodeId) ?flat.NodeId {
 	return none
 }
 
-fn (tc &TypeChecker) sort_operand_has_valid_shape(id flat.NodeId) bool {
-	mut node := tc.a.nodes[int(id)]
-	for node.kind == .paren && node.children_count > 0 {
-		node = tc.a.nodes[int(tc.a.child(&node, 0))]
+// sort_call_has_global_callee says whether `node` is a call whose callee is a plain name that is not
+// a local variable of the enclosing function (so it names a function, not a captured value).
+fn (tc &TypeChecker) sort_call_has_global_callee(node flat.Node) bool {
+	if node.kind != .call || node.children_count == 0 {
+		return false
 	}
-	return node.kind in [.ident, .index, .selector, .call]
+	callee := tc.a.child_node(&node, 0)
+	return callee.kind == .ident && callee.value !in ['a', 'b'] && tc.cur_scope.lookup(callee.value) == none
 }
+
+// sort_references_ident says whether the expression mentions the identifier `name` anywhere: inside
+// a call, arithmetic, a cast, parentheses, an index or a selector.
+fn (tc &TypeChecker) sort_references_ident(id flat.NodeId, name string) bool {
+	node := tc.a.nodes[int(id)]
+	if node.kind == .ident && node.value == name {
+		return true
+	}
+	for i in 0 .. node.children_count {
+		if tc.sort_references_ident(tc.a.child(&node, i), name) {
+			return true
+		}
+	}
+	return false
+}
+
+// sort_operands_reference_a_and_b is the rule for a `.sort()` comparison: one side is an expression
+// over `a` and the other the same kind of expression over `b`, in either order (`a.x + a.y < b.x +
+// b.y`, `f(a) > f(b)`, `b.id < a.id`). A side that mentions neither, or both, is not a comparison of
+// two elements.
+fn (tc &TypeChecker) sort_operands_reference_a_and_b(lhs_id flat.NodeId, rhs_id flat.NodeId) bool {
+	lhs_a := tc.sort_references_ident(lhs_id, 'a')
+	lhs_b := tc.sort_references_ident(lhs_id, 'b')
+	rhs_a := tc.sort_references_ident(rhs_id, 'a')
+	rhs_b := tc.sort_references_ident(rhs_id, 'b')
+	return (lhs_a && !lhs_b && rhs_b && !rhs_a) || (lhs_b && !lhs_a && rhs_a && !rhs_b)
+}
+
 
 fn (tc &TypeChecker) expr_is_direct_fn_value(id flat.NodeId) bool {
 	node := tc.a.nodes[int(id)]
@@ -20266,6 +20301,10 @@ fn (mut tc TypeChecker) push_array_dsl_scope(node flat.Node, name string) {
 	tc.push_scope()
 	arr := tc.call_receiver_array_type(node) or { return }
 	if is_array_sort_dsl_call_name(name) {
+		// `.sort()` and `.sorted()` alike: `*a` and `*b` mean the elements themselves here
+		for i in 1 .. node.children_count {
+			tc.sort_strip_derefs(tc.a.child(&node, i))
+		}
 		tc.cur_scope.insert('a', arr.elem_type)
 		tc.cur_scope.insert('b', arr.elem_type)
 		return
@@ -23180,5 +23219,25 @@ fn (tc &TypeChecker) type_expr_name_bytes(id flat.NodeId) string {
 		else {
 			return ''
 		}
+	}
+}
+
+// sort_strip_derefs rewrites `*a` and `*b` in a comparator to `a` and `b`. In this checker the two
+// names are the elements themselves, reachable as plain values, so the explicit dereference of the
+// classic spelling (`arr.sort(sq(*a) < sq(*b))`) would be an error on them; it means the same thing.
+fn (mut tc TypeChecker) sort_strip_derefs(id flat.NodeId) {
+	node := tc.a.nodes[int(id)]
+	for i in 0 .. node.children_count {
+		child_id := tc.a.child(&node, i)
+		child := tc.a.nodes[int(child_id)]
+		if child.kind == .prefix && child.op == .mul && child.children_count == 1 {
+			inner_id := tc.a.child(&child, 0)
+			inner := tc.a.nodes[int(inner_id)]
+			if inner.kind == .ident && inner.value in ['a', 'b'] {
+				tc.a.children[int(node.children_start) + i] = inner_id
+				continue
+			}
+		}
+		tc.sort_strip_derefs(child_id)
 	}
 }

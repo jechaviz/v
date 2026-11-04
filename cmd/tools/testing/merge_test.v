@@ -102,3 +102,37 @@ fn test_stale_merged_files_from_an_interrupted_run_are_removed() {
 	assert stale !in out
 	assert !os.exists(stale)
 }
+
+fn test_a_test_that_waits_on_another_process_is_not_merged() {
+	dir := merge_test_dir('heavy')
+	defer { os.rmdir_all(dir) or {} }
+	mut light := []string{}
+	for name in ['a', 'b', 'c'] {
+		light << write_test_file(dir, '${name}_test.v', 'module foo\n\nfn test_${name}() {}\n')
+	}
+	heavy := write_test_file(dir, 'slow_test.v', 'module foo\n\nimport os\n\nfn test_slow() {\n\t_ := os.execute("echo")\n}\n')
+	assert test_file_is_heavy(heavy)
+	assert !test_file_is_heavy(light[0])
+	out, plan := plan_module_merging([heavy, ...light], [])
+	merged := os.join_path(dir, 'zz_vmerged_foo_test.v')
+	assert plan.merged[merged].len == 3
+	assert heavy in out // it still runs, on its own, beside the merged program
+	assert heavy !in plan.merged[merged]
+	plan.remove_merged_files()
+}
+
+fn test_merging_heavy_tests_can_be_asked_for() {
+	dir := merge_test_dir('heavyopt')
+	defer { os.rmdir_all(dir) or {} }
+	heavy := write_test_file(dir, 'slow_test.v', 'module foo\n\nimport os\n\nfn test_slow() {\n\t_ := os.exec(["echo"])\n}\n')
+	previous := os.getenv_opt('VTEST_MERGE_HEAVY')
+	defer {
+		if value := previous {
+			os.setenv('VTEST_MERGE_HEAVY', value, true)
+		} else {
+			os.unsetenv('VTEST_MERGE_HEAVY')
+		}
+	}
+	os.setenv('VTEST_MERGE_HEAVY', '1', true)
+	assert !test_file_is_heavy(heavy)
+}
