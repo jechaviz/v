@@ -3417,6 +3417,12 @@ fn (mut t Transformer) lower_map_index_compound_with_info(info MapIndexInfo, map
 // for a plain variable, so an operator declared on an alias wins over its
 // parent's.
 fn (mut t Transformer) map_value_operator_method(info MapIndexInfo, op flat.Op) ?string {
+	// `m[k] += other` on a map of dynamic arrays is `m[k] = m[k] + other`: the builtin `array.+`
+	if op == .plus && flat.source_type_shape(info.value_type).has(.array_type)
+		&& !t.is_fixed_array_type(info.value_type) {
+		t.mark_struct_operator_used_name('array.+')
+		return 'array.+'
+	}
 	op_name := struct_operator_symbol(op) or { return none }
 	for candidate in t.map_value_alias_candidates(info) {
 		if candidate == 0 || flat.source_type_shape(candidate).has(.pointer) {

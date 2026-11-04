@@ -22090,6 +22090,15 @@ fn (tc &TypeChecker) c_struct_infix_operator_call_info(op flat.Op, lhs Type) ?Ca
 fn (tc &TypeChecker) infix_operator_signature(op flat.Op, lhs Type) ?InfixOperatorSignature {
 	op_name := infix_operator_name(op) or { return none }
 	underlying := unalias_and_unwrap_pointer_type(lhs)
+	if op == .plus && unwrap_pointer(lhs) is Array {
+		// `[]T + []T` is `[]T`: the builtin `array.+` concatenates (see vlib/builtin/array.v). An alias of an
+		// array is not handled here: it takes the operator its own declaration gives it.
+		return InfixOperatorSignature{
+			return_type: lhs
+			param_type:  lhs
+			param_count: 2
+		}
+	}
 	if underlying is Struct && underlying.name().starts_with('C.') {
 		info := tc.c_struct_infix_operator_call_info(op, lhs) or { return none }
 		return InfixOperatorSignature{

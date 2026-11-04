@@ -1814,3 +1814,67 @@ fn panic_on_negative_cap(cap int) {
 		panic_n('negative .cap:', cap)
 	}
 }
+
+// + returns a new array with the elements of `a` followed by the elements of `b`.
+// Both operands must have the same element type and neither is modified. The result is
+// allocated once with its exact size, so the cost is O(a.len + b.len) with no regrowth.
+// Like `<<`, the elements are copied shallowly.
+// Example: assert [1, 2] + [3] == [1, 2, 3]
+pub fn (a array) + (b array) array {
+	return array_concat_parts(a, b, array{}, array{}, 2)
+}
+
+// array_plus3 is `a + b + c` in one allocation: O(a.len + b.len + c.len), instead of the
+// intermediate copy of `(a + b) + c`.
+pub fn array_plus3(a array, b array, c array) array {
+	return array_concat_parts(a, b, c, array{}, 3)
+}
+
+// array_plus4 is `a + b + c + d` in one allocation.
+pub fn array_plus4(a array, b array, c array, d array) array {
+	return array_concat_parts(a, b, c, d, 4)
+}
+
+// array_concat_parts copies the first `count` arrays one after the other into a fresh array
+// whose length and capacity are their total length.
+fn array_concat_parts(a array, b array, c array, d array, count int) array {
+	mut total := i64(a.len) + i64(b.len)
+	if count > 2 {
+		total += i64(c.len)
+	}
+	if count > 3 {
+		total += i64(d.len)
+	}
+	if total > max_int {
+		panic('array concatenation: new len exceeds max_int')
+	}
+	mut result := __new_array(int(total), int(total), a.element_size)
+	unsafe {
+		mut dst := &u8(result.data)
+		dst = array_copy_part(dst, a)
+		dst = array_copy_part(dst, b)
+		if count > 2 {
+			dst = array_copy_part(dst, c)
+		}
+		if count > 3 {
+			dst = array_copy_part(dst, d)
+		}
+	}
+	return result
+}
+
+// array_copy_part copies the elements of `src` to `dst` and returns the address just after them.
+@[unsafe]
+fn array_copy_part(dst &u8, src array) &u8 {
+	bytes := u64(src.len) * u64(src.element_size)
+	if bytes > 0 {
+		vmemcpy(dst, src.data, bytes)
+	}
+	return unsafe { &u8(dst) + bytes }
+}
+
+// append_array appends all elements of `b` to `a` in place: amortized O(b.len), like `<<`.
+// It is what `a += b` means for dynamic arrays.
+pub fn (mut a array) append_array(b array) {
+	a.push_many(b.data, b.len)
+}

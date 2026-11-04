@@ -1327,6 +1327,25 @@ names << 'Sam'
 // names << 10  <-- This will not compile. `names` is an array of strings.
 ```
 
+`a + b` returns a new array with the elements of `a` followed by those of `b`. Both must have the
+same element type, neither is modified, and the result is allocated once with its exact size, so
+the cost is O(`a.len + b.len`). A chain such as `a + b + c + d` is also one allocation.
+`a += b` appends in place, like `a << b` (amortized O(`b.len`)); it works on variables, fields,
+`mut` parameters and map values, but not on an array element (`rows[i] += x`: write
+`rows[i] = rows[i] + x`). An alias of an array that declares its own `+` keeps that operator.
+
+```v
+a := [1, 2]
+b := [3, 4]
+println(a + b) // "[1, 2, 3, 4]"
+println(a) // "[1, 2]", unchanged
+mut all := []int{}
+for i in 0 .. 3 {
+	all += [i]
+}
+println(all) // "[0, 1, 2]"
+```
+
 `val in array` returns true if the array contains `val`. See [`in` operator](#in-operator).
 
 ```v

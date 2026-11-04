@@ -16911,7 +16911,8 @@ fn (mut t Transformer) try_lower_struct_compound_assign(node flat.Node) ?[]flat.
 	if lhs.kind == .ident && lhs.value.len == 0 {
 		return none
 	}
-	if lhs.kind !in [.ident, .selector] || (lhs.kind == .selector && !t.optional_selector_lvalue_source(lhs_id)) {
+	if lhs.kind !in [.ident, .selector, .index]
+		|| (lhs.kind == .selector && !t.optional_selector_lvalue_source(lhs_id)) {
 		return none
 	}
 	mut lhs_type := (if lhs.kind == .ident {
@@ -16922,8 +16923,28 @@ fn (mut t Transformer) try_lower_struct_compound_assign(node flat.Node) ?[]flat.
 	if lhs_type == 0 {
 		lhs_type = t.original_expr_type(lhs_id)
 	}
-	if flat.source_type_shape(lhs_type).has(.pointer) {
-		return none
+	if node.op == .plus_assign
+		&& (t.compound_assign_operator_type(lhs_id, lhs_type, op_name) or { u32(0) }) == u32(0) {
+		// `a += b` on a dynamic array appends in place, amortized O(b.len) like `a << b`; a `mut`
+		// parameter or receiver is already the address of the array.
+		is_pointer := flat.source_type_shape(lhs_type).has(.pointer)
+		array_type := if is_pointer {
+			flat.source_type_id(flat.source_type_name(lhs_type)[1..])
+		} else {
+			lhs_type
+		}
+		if flat.source_type_shape(array_type).has(.array_type) && !t.is_fixed_array_type(array_type) {
+			array_rhs := t.transform_expr_for_type(rhs_id, array_type)
+			t.mark_fn_used_name('array.append_array')
+			receiver := t.make_prefix(.amp, t.transform_lvalue(lhs_id))
+			return [
+				t.make_expr_stmt(t.make_call_typed('array.append_array', [receiver, array_rhs],
+					flat.source_type_void)),
+			]
+		}
+	}
+	if lhs.kind == .index || flat.source_type_shape(lhs_type).has(.pointer) {
+		return none // only the dynamic-array append above is lowered for an index target
 	}
 	operator_type_source_id := t.compound_assign_operator_type(lhs_id, lhs_type, op_name) or { return none }
 
@@ -17623,6 +17644,10 @@ fn (mut t Transformer) try_lower_pointer_value_assign(node flat.Node) ?[]flat.No
 	if node.op != .assign {
 		if !t.pointer_value_lvalues[lhs.value] {
 			return none
+		}
+		if node.op == .plus_assign && flat.source_type_shape(lhs_value_type_raw).has(.array_type)
+			&& !t.is_fixed_array_type(lhs_value_type_raw) {
+			return none // `s += other` on a dynamic array appends: see try_lower_struct_compound_assign
 		}
 		mut new_lhs := t.make_prefix(.mul, t.make_ident(lhs.value))
 		if t.pointer_value_rvalues[lhs.value] && flat.source_type_shape(lhs_type).has(.pointer_chain) {

@@ -21509,6 +21509,16 @@ fn (mut tc TypeChecker) record_compound_assignment_operand_errors(op flat.Op, lh
 				tc.remember_resolved_call(parent_id, info.name)
 			}
 		}
+		lhs_target := tc.a.node(lhs_id)
+		if infix_op == .plus && unalias_and_unwrap_pointer_type(lhs_type) is Array
+			&& lhs_target.kind == .index && lhs_target.children_count > 0 {
+			base_type := unalias_and_unwrap_pointer_type(tc.infix_read_type(tc.a.child(lhs_target, 0)))
+			if base_type !is Map {
+				tc.record_error(.assignment_mismatch, 'operator `+=` on an array element is not supported; write `x[i] = x[i] + y` instead',
+					lhs_id)
+				return
+			}
+		}
 		if signature := tc.infix_operator_signature(infix_op, lhs_type) {
 			lhs_name := unwrap_pointer(lhs_type).name()
 			if signature.param_count < 2 {

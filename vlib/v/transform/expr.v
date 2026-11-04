@@ -201,8 +201,53 @@ fn (t &Transformer) expr_or_selector_base_has_smartcast(id flat.NodeId) bool {
 	return false
 }
 
+// transform_array_concat lowers `a + b`, on two dynamic arrays of the same type, to a call of the
+// builtin `array.+`, which returns a new array holding the elements of `a` and then those of `b`.
+fn (mut t Transformer) transform_array_concat(node flat.Node) ?flat.NodeId {
+	lhs_id := t.a.children[node.children_start]
+	rhs_id := t.a.children[node.children_start + 1]
+	if _ := t.operator_alias_type_for_operand(lhs_id, node.op) {
+		return none // an alias of an array that declares its own `+`
+	}
+	lhs_type := t.membership_container_type(t.node_type(lhs_id))
+	rhs_type := t.membership_container_type(t.node_type(rhs_id))
+	if !flat.source_type_shape(lhs_type).has(.array_type) || t.is_fixed_array_type(lhs_type)
+		|| !flat.source_type_shape(rhs_type).has(.array_type) || t.is_fixed_array_type(rhs_type) {
+		return none
+	}
+	// `a + b + c + d` is one allocation, not a copy per `+`: follow the left spine (at most four
+	// operands; a longer chain is finished by the same lowering of its innermost sums)
+	mut operands := [rhs_id]
+	mut current := lhs_id
+	for operands.len < 3 {
+		current_node := t.a.nodes[int(current)]
+		if current_node.kind != .infix || current_node.op != .plus || current_node.children_count < 2 {
+			break
+		}
+		current_type := t.membership_container_type(t.node_type(current))
+		if !flat.source_type_shape(current_type).has(.array_type) || t.is_fixed_array_type(current_type) {
+			break
+		}
+		operands << t.a.children[current_node.children_start + 1]
+		current = t.a.children[current_node.children_start]
+	}
+	operands << current
+	operands.reverse_in_place()
+	args := operands.map(t.transform_expr_for_type(it, lhs_type))
+	if args.len == 2 {
+		t.mark_struct_operator_used_name('array.+')
+		return t.make_call_typed('array.+', args, lhs_type)
+	}
+	name := 'array_plus${args.len}'
+	t.mark_fn_used_name(name)
+	return t.make_call_typed(name, args, lhs_type)
+}
+
 // transform_infix_array_ops transforms transform infix array ops data for transform.
 fn (mut t Transformer) transform_infix_array_ops(_id flat.NodeId, node flat.Node) ?flat.NodeId {
+	if node.children_count >= 2 && node.op == .plus {
+		return t.transform_array_concat(node)
+	}
 	if node.children_count < 2 || node.op !in [.eq, .ne] {
 		return none
 	}
