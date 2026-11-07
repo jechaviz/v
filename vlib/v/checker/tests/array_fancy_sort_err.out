@@ -1,12 +1,5 @@
-vlib/v/checker/tests/array_fancy_sort_err.vv:6:8: error: `.sort()` can only use `a` or `b` as argument, e.g. `arr.sort(a < b)`
-    4 |     text := os.read_file(os.args[0])!
-    5 |     mut lines := text.split_into_lines()
-    6 |     lines.sort((go a.split('/').last()) < b.split('/').last())
-      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    7 |     println(lines.join('\n'))
-    8 | }
-vlib/v/checker/tests/array_fancy_sort_err.vv:6:8: error: `.sort()` can only use ident, index, selector or call as argument, 
-e.g. `arr.sort(a < b)`, `arr.sort(a.id < b.id)`, `arr.sort(a[0] < b[0])`
+vlib/v/checker/tests/array_fancy_sort_err.vv:6:8: error: `.sort()` comparison must reference `a` on one side and `b` on the other, 
+e.g. `arr.sort(a < b)`, `arr.sort(a.id < b.id)`, `arr.sort(f(a) < f(b))`, `arr.sort(a.x + a.y < b.x + b.y)`
     4 |     text := os.read_file(os.args[0])!
     5 |     mut lines := text.split_into_lines()
     6 |     lines.sort((go a.split('/').last()) < b.split('/').last())
