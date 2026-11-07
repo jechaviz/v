@@ -34,5 +34,5 @@ fn test_value() {
 		eprintln('> failing test cmd: ${cmd}')
 		eprintln('> output:\n${res.output}')
 	}
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
