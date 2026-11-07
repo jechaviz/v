@@ -1353,6 +1353,25 @@ names << 'Sam'
 // names << 10  <-- This will not compile. `names` is an array of strings.
 ```
 
+`a + b` returns a new array with the elements of `a` followed by those of `b`. Both must have the
+same element type, neither is modified, and the result is allocated once with its exact size, so
+the cost is O(`a.len + b.len`). A chain such as `a + b + c + d` is also one allocation.
+`a += b` appends in place, like `a << b` (amortized O(`b.len`)); it works on variables, fields,
+`mut` parameters and map values, but not on an array element (`rows[i] += x`: write
+`rows[i] = rows[i] + x`). An alias of an array that declares its own `+` keeps that operator.
+
+```v
+a := [1, 2]
+b := [3, 4]
+println(a + b) // "[1, 2, 3, 4]"
+println(a) // "[1, 2]", unchanged
+mut all := []int{}
+for i in 0 .. 3 {
+	all += [i]
+}
+println(all) // "[0, 1, 2]"
+```
+
 `val in array` returns true if the array contains `val`. See [`in` operator](#in-operator).
 
 ```v
@@ -1662,6 +1681,21 @@ struct User {
 mut users := [User{21, 'Bob'}, User{20, 'Zarkon'}, User{25, 'Alice'}]
 users.sort(a.age < b.age) // sort by User.age int field
 users.sort(a.name > b.name) // reverse sort by User.name string field
+```
+
+Each side of the comparison can be any expression over `a` (one side) and `b` (the other), in
+either order: arithmetic on fields, casts, and calls to global functions. A comparator cannot use
+local variables of the enclosing function, function values included. `*a` and `*b` are accepted
+and mean the elements themselves. `.sorted()` takes the same comparators.
+
+```v
+fn key(s string) int {
+	return s.len
+}
+
+mut names := ['ccc', 'a', 'bb']
+names.sort(key(a) < key(b)) // ['a', 'bb', 'ccc']
+users.sort(a.age + a.name.len > b.age + b.name.len)
 ```
 
 V also supports custom sorting, through the `sort_with_compare` array method.
@@ -9997,6 +10031,9 @@ performance, memory usage, or size.
 | Tuning Operation         | Benefits                        | Drawbacks                                         |
 |--------------------------|---------------------------------|---------------------------------------------------|
 | `@[inline]`              | Performance                     | Increased executable size                         |
+| `@[hot]`                 | Performance, code locality      | Only a compiler hint; profile first               |
+| `@[cold]`                | Performance, code locality      | Only a compiler hint; profile first               |
+| `@[noalloc]`             | Performance, memory budgets     | Rejects detected allocations in the function      |
 | `@[direct_array_access]` | Performance                     | Safety risks                                      |
 | `@[packed]`              | Memory usage                    | Potential performance loss                        |
 | `@[minify]`              | Performance, Memory usage       | May break binary serialization/reflection         |
@@ -10022,6 +10059,41 @@ cases, may be beneficial for performance, but may impact the size of your execut
 
 - Large functions, as it might cause code bloat and actually decrease performance.
 - Large functions in `if` expressions - may have negative impact on instructions cache.
+
+#### `@[hot]` and `@[cold]`
+
+You can tag functions with `@[hot]` or `@[cold]` to tell supported C compilers that a function is
+expected to be on a hot or cold execution path. V emits portable no-op macros when the backend C
+compiler does not support the hint.
+
+**When to Use**
+
+- `@[hot]` for small, frequently called kernels after profiling confirms they dominate runtime.
+- `@[cold]` for rare diagnostic, error, fallback, or slow-path functions.
+
+**When to Avoid**
+
+- Before measuring. Wrong hot/cold hints can hurt code locality.
+- As a replacement for data-oriented design, preallocation, or simpler algorithms.
+
+#### `@[noalloc]`
+
+You can tag a function with `@[noalloc]` to make detected allocations in that function checker
+errors. This is useful for hot kernels, embedded loops, realtime-ish paths, and functions that must
+stay inside a memory budget. It uses the same allocation diagnostics as `-warn-about-allocs`, but
+promotes them to errors only inside the tagged function.
+
+**When to Use**
+
+- Small hot-path functions after you have moved allocation work to setup code or caller-owned
+buffers.
+- Functions where accidental `.clone()`, array initialization, string interpolation, string
+concatenation, or interface boxing would violate a performance contract.
+
+**When to Avoid**
+
+- APIs that intentionally create owned values for callers.
+- As a substitute for profiling; the attribute checks compiler-detected allocation sites.
 
 #### `@[direct_array_access]`
 
