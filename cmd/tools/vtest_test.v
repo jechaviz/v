@@ -333,3 +333,10 @@ fn test_compilation_completed() {
 		assert forwarded[position + 1] == cflags, hints[0]
 	}
 }
+
+fn test_no_parallel_forces_single_vtest_worker() {
+	res := run_mytest('-no-parallel test ${os.quoted_path(tpath_passing)}')
+	assert_mytest_success(res, @FN)
+	assert res.output.contains('on 1 job'), res.output
+	assert !res.output.contains('parallel jobs'), res.output
+}
