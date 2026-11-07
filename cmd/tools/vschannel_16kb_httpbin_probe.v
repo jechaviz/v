@@ -108,7 +108,13 @@ fn run_parent_mode() {
 		expected_success := expected_success_for_mode(mode, size)
 		status := if success { 'OK' } else { 'FAIL' }
 		expect_text := if expected_success { 'expect=OK' } else { 'expect=FAIL' }
-		println('${status:4} size=${size:6} exit=${exit_code:3} ${expect_text}')
+		reason := if success { 'completed' } else { 'child_exit_nonzero' }
+		println('vschannel_probe.result.status=${status}')
+		println('vschannel_probe.result.reason=${reason}')
+		println('vschannel_probe.result.size=${size}')
+		println('vschannel_probe.result.expected=${expect_text}')
+		println('vschannel_probe.result.exit_code=${exit_code}')
+		println('vschannel_probe.result.exit_code_meaning=${os.process_exit_code_meaning(exit_code)}')
 		if verbose || !success {
 			if stdout.len > 0 {
 				println(stdout)
