@@ -4,6 +4,10 @@ import io
 import orm
 import time
 
+fn pg_report_value(value string) string {
+	return value.replace('\r', '\\r').replace('\n', '\\n')
+}
+
 $if $pkgconfig('libpq') {
 	#pkgconfig --cflags --libs libpq
 } $else {
@@ -191,8 +195,8 @@ pub struct C.PGnotify {
 }
 
 pub enum ConnStatusType {
-	ok  = C.CONNECTION_OK
-	bad = C.CONNECTION_BAD
+	ok                = C.CONNECTION_OK
+	bad               = C.CONNECTION_BAD
 	// Non-blocking mode only below here
 	// The existence of these should never be relied upon - they should only be used for user feedback or similar purposes.
 	started           = C.CONNECTION_STARTED // Waiting for connection to be made.
@@ -293,7 +297,7 @@ fn C.PQconsumeInput(conn &C.PGconn) i32
 
 fn C.PQsocket(conn &C.PGconn) i32
 
-fn C.PQescapeLiteral(conn &C.PGconn, str &char, length uint) &char
+fn C.PQescapeLiteral(conn &C.PGconn, str &char, length usize) &char
 
 fn conninfo_needs_quotes(value string) bool {
 	for ch in value {
@@ -812,14 +816,16 @@ pub fn (mut c Conn) copy_expert(query string, mut file io.ReaderWriter) !int {
 
 			code := C.PQputCopyData(c.conn, buf.data, n)
 			if code == -1 {
-				return error('pg copy error: Failed to send data, code=${code}')
+				copy_error := unsafe { C.PQerrorMessage(c.conn).vstring() }.trim_space()
+				return error('pg.copy.failed=true\npg.copy.reason=send_data_failed\npg.copy.action=abort_copy_and_report_connection_error\npg.copy.message=failed to send COPY data to PostgreSQL\npg.copy.code=${code}\npg.copy.error=${pg_report_value(copy_error)}')
 			}
 		}
 
 		code := C.PQputCopyEnd(c.conn, &char(unsafe { nil }))
 
 		if code != 1 {
-			return error('pg copy error: Failed to finish copy command, code: ${code}')
+			copy_error := unsafe { C.PQerrorMessage(c.conn).vstring() }.trim_space()
+			return error('pg.copy.failed=true\npg.copy.reason=finish_copy_failed\npg.copy.action=abort_copy_and_report_connection_error\npg.copy.message=failed to finish PostgreSQL COPY command\npg.copy.code=${code}\npg.copy.error=${pg_report_value(copy_error)}')
 		}
 	} else if status == .copy_out {
 		for {
@@ -1031,7 +1037,7 @@ pub fn (mut c Conn) unlisten_all() ! {
 // a query. Prefer parameterized queries when they can express the operation.
 pub fn (mut c Conn) escape_literal(value string) !string {
 	c.ensure_active()!
-	escaped := C.PQescapeLiteral(c.conn, &char(value.str), uint(value.len))
+	escaped := C.PQescapeLiteral(c.conn, &char(value.str), usize(value.len))
 	if escaped == unsafe { nil } {
 		e := unsafe { C.PQerrorMessage(c.conn).vstring() }
 		return error('pg escape_literal error: "${e}"')
