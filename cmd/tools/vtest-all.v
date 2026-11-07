@@ -545,6 +545,16 @@ fn (mut cmd Command) run() ? {
 			output_capture: output_capture
 		))
 	}
+	if is_failed && cmd.ecode != 0 {
+		output_capture := if cmd.runcmd == .system { 'inherited_stdio' } else { '' }
+		eprintln(os.process_command_failure_report('vtest_all.command', cmd.ecode,
+			reason:         'command_failed'
+			action:         'inspect_command_output'
+			command:        cmd.line
+			output:         cmd.output
+			output_capture: output_capture
+		))
+	}
 	if is_failed && is_failed_expected {
 		eprintln('> expected:\n${cmd.expect}')
 		eprintln('>   output:\n${cmd.output}')
