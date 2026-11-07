@@ -12,7 +12,7 @@ import strings
 pub struct array {
 pub mut:
 	data   voidptr
-	offset int // in bytes (should be `uint`), to avoid copying data while making slices, unless it starts changing
+	offset int // in bytes (should be `usize`), to avoid copying data while making slices, unless it starts changing
 	len    int // length of the array in elements.
 	cap    int // capacity of the array in elements.
 	flags  ArrayFlags
@@ -59,7 +59,7 @@ fn array_data_allocation_size(total_size u64) u64 {
 @[inline]
 fn init_array_data(raw voidptr) voidptr {
 	// At most 15 bytes of padding keep both the header and element storage aligned.
-	padding := (16 - (uint(raw) + uint(array_data_header_size())) % 16) % 16
+	padding := (16 - (usize(raw) + usize(array_data_header_size())) % 16) % 16
 	unsafe {
 		data := &u8(raw) + array_data_header_size() + padding
 		header := &ArrayDataHeader(data - array_data_header_size())
@@ -462,7 +462,7 @@ pub fn (mut a array) ensure_cap(required int) {
 		if a.flags.has(.noslices) && !a.flags.has(.is_slice) && !a.buffer_has_slices() {
 			unsafe {
 				$if prealloc {
-					prealloc_discard_pages(a.data, uint(a.cap) * uint(a.element_size))
+					prealloc_discard_pages(a.data, usize(a.cap) * usize(a.element_size))
 				}
 				if a.flags.has(.managed) {
 					free_unaliased(a.data_header().allocation)
@@ -1123,6 +1123,100 @@ pub fn (a &array) clone() array {
 	return unsafe { a.clone_to_depth(0) }
 }
 
+// concat returns a new array with the contents of `a` followed by `b`.
+// The result is a detached contiguous array, so non-empty concatenation copies
+// the live elements from both operands.
+// It is used by the compiler for `left + right` array concatenation.
+@[markused]
+pub fn (a &array) concat(b array) array {
+	if a.len < 0 || b.len < 0 {
+		panic('array.concat: negative len')
+	}
+	new_len := i64(a.len) + i64(b.len)
+	if new_len > max_int {
+		panic('array.concat: new len exceeds max_int')
+	}
+	if new_len == 0 {
+		return array{
+			element_size: a.element_size
+			flags:        .managed
+		}
+	}
+	res_len := int(new_len)
+	use_noscan_data := a.uses_noscan_data()
+	total_size := u64(res_len) * u64(a.element_size)
+	mut res := array{
+		element_size: a.element_size
+		data:         a.alloc_array_data_like_uninit(total_size)
+		len:          res_len
+		cap:          res_len
+		flags:        if use_noscan_data { .managed | .noscan_data } else { .managed }
+	}
+	a_size := u64(a.len) * u64(a.element_size)
+	if a.data != unsafe { nil } && a_size > 0 {
+		unsafe { vmemcpy(res.data, a.data, a_size) }
+	}
+	b_size := u64(b.len) * u64(b.element_size)
+	if b.data != unsafe { nil } && b_size > 0 {
+		unsafe { vmemcpy(&u8(res.data) + a_size, b.data, b_size) }
+	}
+	return res
+}
+
+// concat_many returns a new array with the contents of all input arrays in order.
+// It is used by the compiler for chained `a + b + c` array concatenation, so the
+// chain is materialized once instead of creating temporary intermediate arrays.
+@[direct_array_access; markused]
+fn array_concat_many(input_len int, input_base &array) array {
+	if input_len <= 0 {
+		return array{}
+	}
+	if input_base == unsafe { nil } {
+		panic('array.concat_many: nil input base')
+	}
+	first := unsafe { input_base[0] }
+	mut new_len := i64(0)
+	for i := 0; i < input_len; i++ {
+		part := unsafe { input_base[i] }
+		if part.len < 0 {
+			panic('array.concat_many: negative len')
+		}
+		if part.element_size != first.element_size {
+			panic('array.concat_many: mismatched element size')
+		}
+		new_len += i64(part.len)
+		if new_len > max_int {
+			panic('array.concat_many: new len exceeds max_int')
+		}
+	}
+	if new_len == 0 {
+		return array{
+			element_size: first.element_size
+			flags:        .managed
+		}
+	}
+	res_len := int(new_len)
+	use_noscan_data := first.uses_noscan_data()
+	total_size := u64(res_len) * u64(first.element_size)
+	mut res := array{
+		element_size: first.element_size
+		data:         first.alloc_array_data_like_uninit(total_size)
+		len:          res_len
+		cap:          res_len
+		flags:        if use_noscan_data { .managed | .noscan_data } else { .managed }
+	}
+	mut offset := u64(0)
+	for i := 0; i < input_len; i++ {
+		part := unsafe { input_base[i] }
+		part_size := u64(part.len) * u64(part.element_size)
+		if part.data != unsafe { nil } && part_size > 0 {
+			unsafe { vmemcpy(&u8(res.data) + offset, part.data, part_size) }
+		}
+		offset += part_size
+	}
+	return res
+}
+
 // recursively clone given array - `unsafe` when called directly because depth is not checked
 @[unsafe]
 pub fn (a &array) clone_to_depth(depth int) array {
@@ -1199,9 +1293,9 @@ fn (mut a array) set(i int, val voidptr) {
 // with indexes it has already bounded, so it skips the per-element range checks
 // of `array.set`.
 @[inline; markused; unsafe]
-fn array_sort_move(dst voidptr, di int, src voidptr, si int, count int, element_size uint) {
-	vmemcpy(&u8(dst) + uint(di) * element_size, &u8(src) + uint(si) * element_size,
-		int(uint(count) * element_size))
+fn array_sort_move(dst voidptr, di int, src voidptr, si int, count int, element_size usize) {
+	vmemcpy(&u8(dst) + usize(di) * element_size, &u8(src) + usize(si) * element_size,
+		isize(usize(count) * element_size))
 }
 
 $if !v3_backend ? {
@@ -1233,8 +1327,8 @@ $if !v3_backend ? {
 }
 
 // copy_element_to copies a single `element_size` byte element from `src` to `dest`.
-// It dispatches the common small element sizes to `vmemcpy_unchecked` with a *compile time
-// constant* size: since it is inlined and forwards to `C.memcpy`, a literal size lets the C
+// It dispatches the common small element sizes to `vmemcpy` with a *compile time constant*
+// size: since `vmemcpy` is inlined and forwards to `C.memcpy`, a literal size lets the C
 // backend inline the copy as plain loads/stores instead of a `memcpy` library call, which
 // otherwise dominates the cost of single element pushes (`a << x`) in hot loops.
 // The copy semantics stay exactly those of `memcpy`, so it is safe for arbitrary element
@@ -1243,12 +1337,12 @@ $if !v3_backend ? {
 fn copy_element_to(dest voidptr, src voidptr, element_size int) {
 	unsafe {
 		match element_size {
-			1 { vmemcpy_unchecked(dest, src, 1) }
-			2 { vmemcpy_unchecked(dest, src, 2) }
-			4 { vmemcpy_unchecked(dest, src, 4) }
-			8 { vmemcpy_unchecked(dest, src, 8) }
-			16 { vmemcpy_unchecked(dest, src, 16) }
-			else { vmemcpy_unchecked(dest, src, element_size) }
+			1 { vmemcpy(dest, src, 1) }
+			2 { vmemcpy(dest, src, 2) }
+			4 { vmemcpy(dest, src, 4) }
+			8 { vmemcpy(dest, src, 8) }
+			16 { vmemcpy(dest, src, 16) }
+			else { vmemcpy(dest, src, element_size) }
 		}
 	}
 }
@@ -1391,7 +1485,7 @@ pub fn (a array) reverse() array {
 pub fn (a &array) free() {
 	$if prealloc {
 		if !a.flags.has(.is_slice) && !a.flags.has(.nofree) && !a.buffer_has_retained_fixed_views() {
-			unsafe { prealloc_discard_pages(a.data, uint(a.cap) * uint(a.element_size)) }
+			unsafe { prealloc_discard_pages(a.data, usize(a.cap) * usize(a.element_size)) }
 		}
 		return
 	}
@@ -1406,7 +1500,7 @@ pub fn (a &array) free() {
 	if a.flags.has(.nofree) || a.buffer_has_retained_fixed_views() {
 		return
 	}
-	mblock_ptr := &u8(uint(a.data) - uint(a.offset))
+	mblock_ptr := &u8(usize(a.data) - usize(a.offset))
 	if mblock_ptr != unsafe { nil } {
 		unsafe {
 			allocation := if a.flags.has(.managed) {
@@ -1547,7 +1641,7 @@ pub fn (mut a array) sort_with_compare(callback FnSortCB) {
 	$if freestanding {
 		panic('sort_with_compare does not work with -freestanding')
 	} $else {
-		unsafe { vqsort(a.data, uint(a.len), uint(a.element_size), callback) }
+		unsafe { vqsort(a.data, usize(a.len), usize(a.element_size), callback) }
 	}
 }
 
@@ -1557,7 +1651,7 @@ pub fn (mut a array) sort_with_compare(callback FnSortCB) {
 // Equal elements keep their original relative order.
 pub fn (a &array) sorted_with_compare(callback FnSortCB) array {
 	mut r := a.clone()
-	unsafe { vqsort(r.data, uint(r.len), uint(r.element_size), callback) }
+	unsafe { vqsort(r.data, usize(r.len), usize(r.element_size), callback) }
 	return r
 }
 
@@ -1640,7 +1734,7 @@ pub fn (b []u8) hex() string {
 pub fn copy(mut dst []u8, src []u8) int {
 	min := if dst.len < src.len { dst.len } else { src.len }
 	if min > 0 {
-		unsafe { vmemmove(dst.data, src.data, int(min) * int(dst.element_size)) }
+		unsafe { vmemmove(dst.data, src.data, isize(min) * isize(dst.element_size)) }
 	}
 	return min
 }
@@ -1719,4 +1813,68 @@ fn panic_on_negative_cap(cap int) {
 	if cap < 0 {
 		panic_n('negative .cap:', cap)
 	}
+}
+
+// + returns a new array with the elements of `a` followed by the elements of `b`.
+// Both operands must have the same element type and neither is modified. The result is
+// allocated once with its exact size, so the cost is O(a.len + b.len) with no regrowth.
+// Like `<<`, the elements are copied shallowly.
+// Example: assert [1, 2] + [3] == [1, 2, 3]
+pub fn (a array) + (b array) array {
+	return array_concat_parts(a, b, array{}, array{}, 2)
+}
+
+// array_plus3 is `a + b + c` in one allocation: O(a.len + b.len + c.len), instead of the
+// intermediate copy of `(a + b) + c`.
+pub fn array_plus3(a array, b array, c array) array {
+	return array_concat_parts(a, b, c, array{}, 3)
+}
+
+// array_plus4 is `a + b + c + d` in one allocation.
+pub fn array_plus4(a array, b array, c array, d array) array {
+	return array_concat_parts(a, b, c, d, 4)
+}
+
+// array_concat_parts copies the first `count` arrays one after the other into a fresh array
+// whose length and capacity are their total length.
+fn array_concat_parts(a array, b array, c array, d array, count int) array {
+	mut total := i64(a.len) + i64(b.len)
+	if count > 2 {
+		total += i64(c.len)
+	}
+	if count > 3 {
+		total += i64(d.len)
+	}
+	if total > max_int {
+		panic('array concatenation: new len exceeds max_int')
+	}
+	mut result := __new_array(int(total), int(total), a.element_size)
+	unsafe {
+		mut dst := &u8(result.data)
+		dst = array_copy_part(dst, a)
+		dst = array_copy_part(dst, b)
+		if count > 2 {
+			dst = array_copy_part(dst, c)
+		}
+		if count > 3 {
+			dst = array_copy_part(dst, d)
+		}
+	}
+	return result
+}
+
+// array_copy_part copies the elements of `src` to `dst` and returns the address just after them.
+@[unsafe]
+fn array_copy_part(dst &u8, src array) &u8 {
+	bytes := u64(src.len) * u64(src.element_size)
+	if bytes > 0 {
+		vmemcpy(dst, src.data, bytes)
+	}
+	return unsafe { &u8(dst) + bytes }
+}
+
+// append_array appends all elements of `b` to `a` in place: amortized O(b.len), like `<<`.
+// It is what `a += b` means for dynamic arrays.
+pub fn (mut a array) append_array(b array) {
+	a.push_many(b.data, b.len)
 }
