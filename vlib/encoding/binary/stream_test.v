@@ -52,10 +52,10 @@ struct UnsupportedPacket {
 
 fn test_stream_write_and_read_struct() {
 	packet := Packet{
-		flag:    true
-		count:   0x1234
-		values:  [u32(0x11223344), 0x55667788]!
-		sample:  f32(12.5)
+		flag: true
+		count: 0x1234
+		values: [u32(0x11223344), 0x55667788]!
+		sample: f32(12.5)
 		trailer: [u8(1), 2, 3]!
 	}
 	mut writer := ChunkedWriter{
@@ -65,7 +65,7 @@ fn test_stream_write_and_read_struct() {
 	assert size(packet) == writer.data.len
 
 	mut reader := ChunkedReader{
-		data:  writer.data.clone()
+		data: writer.data.clone()
 		chunk: 2
 	}
 	mut decoded := Packet{}
@@ -82,7 +82,7 @@ fn test_stream_read_and_write_slice() {
 	assert size(values) == 6
 
 	mut reader := ChunkedReader{
-		data:  writer.data.clone()
+		data: writer.data.clone()
 		chunk: 1
 	}
 	mut decoded := []u16{len: values.len}
@@ -98,7 +98,7 @@ fn test_stream_read_and_write_bytes() {
 	write(mut writer, little_endian, bytes)!
 
 	mut reader := ChunkedReader{
-		data:  writer.data.clone()
+		data: writer.data.clone()
 		chunk: 2
 	}
 	mut decoded := []u8{len: bytes.len}
@@ -108,7 +108,7 @@ fn test_stream_read_and_write_bytes() {
 
 fn test_stream_short_read_returns_eof() {
 	mut reader := ChunkedReader{
-		data:  [u8(1), 2]
+		data: [u8(1), 2]
 		chunk: 1
 	}
 	mut value := u32(0)
@@ -129,4 +129,43 @@ fn test_stream_reports_unsupported_types() {
 	} else {
 		assert err.msg() == 'binary.write: unsupported type string'
 	}
+}
+
+fn test_stream_read_val() {
+	packet := Packet{
+		flag: true
+		count: 0x1234
+		values: [u32(0x11223344), 0x55667788]!
+		sample: f32(12.5)
+		trailer: [u8(1), 2, 3]!
+	}
+	mut writer := ChunkedWriter{
+		chunk: 3
+	}
+	write(mut writer, big_endian, packet)!
+
+	mut reader := ChunkedReader{
+		data: writer.data.clone()
+		chunk: 2
+	}
+	decoded := read_val[Packet](mut reader, big_endian)!
+	assert decoded == packet
+
+	// test primitive reading without mutable dummy variable
+	mut int_writer := ChunkedWriter{}
+	write(mut int_writer, little_endian, u32(0x12345678))!
+	mut int_reader := ChunkedReader{
+		data: int_writer.data.clone()
+	}
+	val := read_val[u32](mut int_reader, little_endian)!
+	assert val == 0x12345678
+
+	// test u8 reading
+	mut byte_writer := ChunkedWriter{}
+	write(mut byte_writer, little_endian, u8(0xab))!
+	mut byte_reader := ChunkedReader{
+		data: byte_writer.data.clone()
+	}
+	b := read_val[u8](mut byte_reader, little_endian)!
+	assert b == 0xab
 }
