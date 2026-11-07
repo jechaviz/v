@@ -201,7 +201,12 @@ fn compile_shader(opt CompileOptions, shader_file string) ! {
 	res := os.exec([shdc_exe, '--input', shader_file, '--output', out_file, '--slang',
 		slangs.join(':')])
 	if res.exit_code != 0 {
-		eprintln('${tool_name} failed generating shader includes:\n        ${res.output}\n        ${cmd}')
+		eprintln(res.command_failure_report('vshader.command',
+			reason:  'shader_include_generation_failed'
+			action:  'inspect_shader_compiler_output'
+			message: '${tool_name} failed generating shader includes'
+			command: cmd
+		))
 		exit(1)
 	}
 	if opt.verbose {
