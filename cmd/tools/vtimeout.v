@@ -9,6 +9,41 @@ mut:
 	cmd_args []string
 }
 
+fn report_vtimeout_command_failure(cmd_args []string, exit_code int, reason string) {
+	command := cmd_args.join(' ')
+	eprintln(os.process_command_failure_report('vtimeout.command', exit_code,
+		stage:   'start_child'
+		command: command
+		reason:  reason
+		action:  'report_command_start_failure'
+		message: 'cannot execute command before applying timeout'
+	))
+}
+
+fn report_vtimeout_exit(cmd_args []string, exit_code int, reason string) {
+	if exit_code == 0 {
+		return
+	}
+	action := if reason == 'timeout' {
+		'increase_timeout_or_inspect_child_process'
+	} else {
+		'inspect_child_output_or_run_command_directly'
+	}
+	message := if reason == 'timeout' {
+		'command exceeded the configured timeout'
+	} else {
+		'command exited with a non-zero status'
+	}
+	eprintln(os.process_command_failure_report('vtimeout.command', exit_code,
+		stage:          'wait_for_child'
+		command:        cmd_args.join(' ')
+		reason:         reason
+		action:         action
+		message:        message
+		output_capture: 'inherited_stdio'
+	))
+}
+
 fn main() {
 	mut fp := flag.new_flag_parser(os.args[1..])
 	fp.application('v timeout')
@@ -44,8 +79,10 @@ fn main() {
 	p.set_args(ctx.cmd_args[1..])
 	p.run()
 	if p.err != '' {
-		eprintln('Cannot execute: ${ctx.cmd_args.join(' ')}')
-		exit(if os.exists(ctx.cmd_args[0]) { 126 } else { 127 })
+		exit_code := if os.exists(ctx.cmd_args[0]) { 126 } else { 127 }
+		reason := if exit_code == 126 { 'command_not_executable' } else { 'command_not_found' }
+		report_vtimeout_command_failure(ctx.cmd_args, exit_code, reason)
+		exit(exit_code)
 	}
 
 	child_exit := chan int{}
@@ -57,6 +94,7 @@ fn main() {
 	}(mut p, child_exit)
 
 	mut exit_code := 0
+	mut exit_reason := 'completed'
 	select {
 		i64(ctx.timeout * time.second) {
 			p.signal_term()
@@ -66,10 +104,15 @@ fn main() {
 			}
 			p.wait()
 			exit_code = 124 // timeout
+			exit_reason = 'timeout'
 		}
 		code := <-child_exit {
 			exit_code = code
+			if exit_code != 0 {
+				exit_reason = 'child_exit_nonzero'
+			}
 		}
 	}
+	report_vtimeout_exit(ctx.cmd_args, exit_code, exit_reason)
 	exit(exit_code)
 }
