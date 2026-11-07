@@ -46,6 +46,14 @@ pub fn exec_args(arguments []string) {
 			output_capture: 'inherited_stdio'
 		))
 		exit(if result < 0 { 1 } else { result })
+			stage:          'exec'
+			command:        cmd
+			reason:         'ci_command_failed'
+			action:         'inspect_ci_command_output_and_reproduce'
+			message:        'CI command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
+		exit(if result < 0 { 1 } else { result })
 	}
 }
 
@@ -185,6 +193,14 @@ pub fn run(all_tasks map[string]Task) {
 			dt := time.now() - start
 			if result != 0 {
 				log.error('FAILED ${term.colorize(term.red, t.label)} in ${dt.milliseconds()} ms, cmd: `${cmd}`')
+				log.error(os.process_command_failure_report('ci.command', result,
+					stage:          'run_all_task'
+					command:        cmd
+					reason:         'ci_task_failed'
+					action:         'inspect_ci_task_output_and_reproduce'
+					message:        'CI task command exited with a non-zero status'
+					output_capture: 'inherited_stdio'
+				))
 				log.error(os.process_command_failure_report('ci.command', result,
 					stage:          'run_all_task'
 					command:        cmd
