@@ -1,0 +1,2 @@
+builtin__auto_process_memory_guard_init();
+builtin__auto_process_memory_guard_before_alloc(n);
