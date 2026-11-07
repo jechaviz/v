@@ -367,10 +367,6 @@ fn (app App) update_tcc() bool {
 			message: 'updating the bundled TCC compiler failed'
 			command: command
 		))
-			action:  'retry_tcc_update_or_inspect_output'
-			message: 'updating the bundled TCC compiler failed'
-			command: command
-		))
 		return false
 	}
 	app.vprintln(result.output)
@@ -454,12 +450,6 @@ fn (app App) recompile_v() bool {
 		message: 'v self failed; falling back to make'
 		command: vself
 	))
-	eprintln(os.process_command_failure_report('vup.command', self_exit_code,
-		reason:  'v_self_failed'
-		action:  'fall_back_to_make'
-		message: 'v self failed; falling back to make'
-		command: vself
-	))
 	return app.make(vself)
 }
 
@@ -477,10 +467,6 @@ fn (app App) recompile_vup() bool {
 	if vup_result.exit_code != 0 {
 		eprintln(vup_result.command_failure_report('vup.command',
 			reason:  'vup_recompile_failed'
-			action:  'inspect_recompile_output'
-			message: 'Failed recompiling vup.v.'
-			command: '${os.quoted_path(vexe_path)} -g -gc none cmd/tools/vup.v'
-		))
 			action:  'inspect_recompile_output'
 			message: 'Failed recompiling vup.v.'
 			command: '${os.quoted_path(vexe_path)} -g -gc none cmd/tools/vup.v'
@@ -512,9 +498,6 @@ fn (app App) make(_vself string) bool {
 			message: 'building V with make failed'
 			command: make
 		))
-			message: 'building V with make failed'
-			command: make
-		))
 		return false
 	}
 	app.vprintln(make_result.output)
@@ -539,16 +522,6 @@ fn (app App) show_current_v_version() {
 		println('Current V version: unavailable.')
 		return
 	}
-	if vout.exit_code != 0 {
-		eprintln(vout.command_failure_report('vup.command',
-			reason:  'v_version_failed'
-			action:  'skip_current_version_display'
-			message: 'unable to get current V version'
-			command: '${os.quoted_path(vexe_path)} version'
-		))
-		println('Current V version: unavailable.')
-		return
-	}
 	if vout.exit_code >= 0 {
 		mut vversion := vout.output.trim_space()
 		latest_v_commit := vversion.split(' ').last().all_after('.')
@@ -557,11 +530,6 @@ fn (app App) show_current_v_version() {
 			vversion += ', timestamp: ' + latest_v_commit_time.output.trim_space()
 		} else {
 			app.vprintln(latest_v_commit_time.command_failure_report('vup.command',
-				reason:  'git_show_commit_time_failed'
-				action:  'continue_without_current_version_timestamp'
-				message: 'unable to get timestamp for current V commit'
-				command: 'git show -s --format=%ci ${latest_v_commit}'
-			))
 				reason:  'git_show_commit_time_failed'
 				action:  'continue_without_current_version_timestamp'
 				message: 'unable to get timestamp for current V commit'
@@ -662,10 +630,6 @@ fn (app App) git_command(command string) {
 			message: 'Failed git command'
 			command: command
 		))
-			action:  'inspect_git_output'
-			message: 'Failed git command'
-			command: command
-		))
 		exit(1)
 	}
 	app.vprintln(git_result.output)
@@ -689,19 +653,11 @@ fn (app App) install_git() {
 			action:  'install_git_manually_or_retry'
 			command: 'bitsadmin.exe /transfer vgit https://github.com/git-for-windows/git/releases/download/v2.30.0.windows.2/Git-2.30.0.2-32-bit.exe'
 		))
-			reason:  'git_installer_download_failed'
-			action:  'install_git_manually_or_retry'
-			command: 'bitsadmin.exe /transfer vgit https://github.com/git-for-windows/git/releases/download/v2.30.0.windows.2/Git-2.30.0.2-32-bit.exe'
-		))
 	}
 	res_git32 := os.exec([os.join_path_single(os.getwd(), 'git32.exe')])
 	if res_git32.exit_code != 0 {
 		eprintln('Unable to install git automatically: please install git manually')
 		panic(res_git32.command_failure_report('vup.command',
-			reason:  'git_installer_failed'
-			action:  'install_git_manually_or_retry'
-			command: os.quoted_path(os.join_path_single(os.getwd(), 'git32.exe'))
-		))
 			reason:  'git_installer_failed'
 			action:  'install_git_manually_or_retry'
 			command: os.quoted_path(os.join_path_single(os.getwd(), 'git32.exe'))
