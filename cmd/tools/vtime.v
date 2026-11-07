@@ -32,6 +32,17 @@ fn main() {
 	ecode := os.system_args(ctx.cmd_line_opts)
 	elapsed := sw.elapsed()
 	stook_time := '${f64(elapsed.microseconds()) / 1000.0:8.3f} ms'
-	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Exit code: ${ecode:3}. Command: ${term.ecolorize(term.green, cmd)}')
+	if ecode != 0 {
+		eprintln(os.process_command_failure_report('vtime.command', ecode,
+			stage:          'timed_command'
+			command:        cmd
+			reason:         'child_exit_nonzero'
+			action:         'report_timing_and_return_child_status'
+			message:        'timed command exited with a non-zero status'
+			output_capture: 'inherited_stdio'
+		))
+	}
+	eprintln('> ${term.ecolorize(term.bright_yellow, stook_time)}. Status: ${ecode:3} (${os.process_exit_code_meaning(ecode)}). Command: ${term.ecolorize(term.green,
+		cmd)}')
 	exit(ecode)
 }
