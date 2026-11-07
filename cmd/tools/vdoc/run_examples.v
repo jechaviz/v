@@ -82,8 +82,12 @@ fn (mut vd VDoc) run_examples(dn doc.DocNode) {
 			eprintln('${dn_to_location(dn)}:${term.ecolorize(term.red, 'error in documentation example')}')
 			eprintln('          cmd: ${cmd}')
 			eprintln(' example line: ${term.colorize(term.bright_yellow, example)}')
-			eprintln('       result:')
-			eprintln(res.output)
+			eprintln(res.command_failure_report('vdoc.example.command',
+				reason:  'documentation_example_failed'
+				action:  'inspect_example_source_and_compiler_output'
+				message: 'documentation example failed to compile or run'
+				command: cmd
+			))
 			vd.example_failures++
 			continue
 		}
