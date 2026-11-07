@@ -1,0 +1,15 @@
+module main
+
+fn main() {
+	arr := [1, 2, 3]
+	cloned_arr := arr.clone()
+	text := 'abc'
+	cloned_text := text.clone()
+	m := {
+		'a': 1
+	}
+	cloned_map := m.clone()
+	println(cloned_arr.len)
+	println(cloned_text.len)
+	println(cloned_map.len)
+}
