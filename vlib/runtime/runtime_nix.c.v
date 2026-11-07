@@ -22,16 +22,16 @@ pub fn nr_cpus() int {
 }
 
 // total_memory returns total physical memory found on the system.
-pub fn total_memory() !usize {
-	page_size := usize(C.sysconf(C._SC_PAGESIZE))
+pub fn total_memory() !uint {
+	page_size := uint(C.sysconf(C._SC_PAGESIZE))
 	c_errno_1 := C.errno
-	if page_size == usize(-1) {
+	if page_size == uint(-1) {
 		return error(runtime_errno_report('total_memory', 'C.sysconf(C._SC_PAGESIZE)',
 			'sysconf_pagesize_failed', 'return_error_to_caller', c_errno_1))
 	}
-	phys_pages := usize(C.sysconf(C._SC_PHYS_PAGES))
+	phys_pages := uint(C.sysconf(C._SC_PHYS_PAGES))
 	c_errno_2 := C.errno
-	if phys_pages == usize(-1) {
+	if phys_pages == uint(-1) {
 		return error(runtime_errno_report('total_memory', 'C.sysconf(C._SC_PHYS_PAGES)',
 			'sysconf_physical_pages_failed', 'return_error_to_caller', c_errno_2))
 	}
@@ -41,7 +41,7 @@ pub fn total_memory() !usize {
 // free_memory returns free physical memory found on the system.
 // Note: implementation available only on Darwin, FreeBSD, Linux, OpenBSD and
 // Windows. Otherwise, returns 'free_memory: not implemented'.
-pub fn free_memory() !usize {
+pub fn free_memory() !uint {
 	return free_memory_impl()!
 }
 
