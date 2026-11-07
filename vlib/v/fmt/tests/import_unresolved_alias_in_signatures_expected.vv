@@ -1,0 +1,19 @@
+module broker
+
+import vtrade_broker as contracts
+
+pub fn manifest(runtime int) contracts.BrokerManifest {
+	panic('unreachable')
+}
+
+pub fn actions() []contracts.BrokerAction {
+	return []
+}
+
+pub fn action_by_name(name string) !contracts.BrokerAction {
+	return error(name)
+}
+
+fn capability_detail(caps []contracts.BrokerCapability) string {
+	return '${caps.len}'
+}
