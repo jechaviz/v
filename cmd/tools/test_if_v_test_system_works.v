@@ -99,6 +99,10 @@ fn check_ok(cmd string) MyResult {
 			action:  'inspect_command_output'
 			command: cmd
 		))
+			reason:  'check_ok_failed'
+			action:  'inspect_command_output'
+			command: cmd
+		))
 		exit(1)
 	}
 	return res.output
@@ -109,6 +113,11 @@ fn check_fail(cmd string) MyResult {
 	res := run_check(cmd)
 	if res.exit_code == 0 {
 		eprintln(res.command_failure_report('vtest_system_check.command',
+			reason:  'check_fail_unexpected_success'
+			action:  'inspect_command_output'
+			message: 'check_fail succeeded, but it should have failed'
+			command: cmd
+		))
 			reason:  'check_fail_unexpected_success'
 			action:  'inspect_command_output'
 			message: 'check_fail succeeded, but it should have failed'
