@@ -1,0 +1,26 @@
+module factory
+
+pub struct Input {
+pub:
+    enabled bool
+}
+
+// make specializes a value in an imported module.
+pub fn make[T]() T {
+    return T{}
+}
+
+// make_heap specializes a heap value in an imported module.
+pub fn make_heap[T]() &T {
+    return &T{}
+}
+
+pub struct FixedInput {
+pub:
+    enabled bool
+}
+
+// make_fixed exercises the fixed-array initialization path.
+pub fn make_fixed[T]() T {
+    return T{fixed: [11, 22]!}
+}
