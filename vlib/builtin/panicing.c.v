@@ -6,6 +6,13 @@ module builtin
 // inside the panic functions.
 @[markused; noreturn]
 fn panic_debug(line_no int, file string, mod string, fn_name string, s string) {
+	$if !freestanding {
+		// recoverable-panic hook (see panic()): unwind to an active recover_call() guard.
+		if C.v_recover_is_active() != 0 {
+			g_recover_msg = s
+			C.v_recover_longjmp()
+		}
+	}
 	// Note: the order here is important for a stabler test output
 	// module is less likely to change than function, etc...
 	// During edits, the line number will change most frequently,
@@ -45,7 +52,7 @@ fn panic_debug(line_no int, file string, mod string, fn_name string, s string) {
 			C.exit(1)
 		} $else $if no_backtrace ? {
 			C.exit(1)
-		} $else $if tinyc && (!glibc || arm64) {
+		} $else $if tinyc && !glibc {
 			$if panics_break_into_debugger ? {
 				break_if_debugger_attached()
 			} $else {
@@ -92,6 +99,13 @@ pub fn panic_result_not_set(s string) {
 // blocks up the stack, and one of them can stop it (see `recover`).
 @[noreturn]
 pub fn panic(s string) {
+	$if !freestanding {
+		// Keep the allocation-safe recover_call path ahead of defer-based unwinding.
+		if C.v_recover_is_active() != 0 {
+			g_recover_msg = s
+			C.v_recover_longjmp()
+		}
+	}
 	if g_panic_state.top != unsafe { nil } || g_panic_state.len > 0 {
 		panic_unwind(s, PanicDebugInfo{})
 	}
@@ -121,7 +135,7 @@ pub fn panic(s string) {
 			C.exit(1)
 		} $else $if no_backtrace ? {
 			C.exit(1)
-		} $else $if tinyc && (!glibc || arm64) {
+		} $else $if tinyc && !glibc {
 			$if panics_break_into_debugger ? {
 				break_if_debugger_attached()
 			} $else {
