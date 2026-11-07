@@ -1,6 +1,7 @@
 module fasthttp
 
 import net
+import os
 import sync.stdatomic
 import time
 
@@ -30,6 +31,22 @@ enum FlushResult {
 	closed
 	blocked
 	drained
+}
+
+fn fasthttp_report_value(value string) string {
+	return value.trim_space().replace('\r', '\\r').replace('\n', '\\n')
+}
+
+fn log_errno_failure(reason string, action string, message string, errno int, details []string) {
+	eprintln('fasthttp.io.failed=true')
+	eprintln('fasthttp.io.reason=${reason}')
+	eprintln('fasthttp.io.action=${action}')
+	eprintln('fasthttp.io.message=${fasthttp_report_value(message)}')
+	eprintln('fasthttp.io.errno=${errno}')
+	eprintln('fasthttp.io.error=${fasthttp_report_value(os.posix_get_error_msg(errno))}')
+	for detail in details {
+		eprintln('fasthttp.io.${detail}')
+	}
 }
 
 @[heap]
@@ -156,9 +173,8 @@ mut:
 fn close_socket(fd int) bool {
 	ret := C.close(fd)
 	if ret == -1 {
-		// Linux may already have released fd even when close reports EINTR. Retrying
-		// can close an unrelated descriptor that another thread reused.
-		eprintln('ERROR: close(fd=${fd}) failed with errno=${C.errno}')
+		log_errno_failure('close_failed', 'report_and_keep_server_running',
+			'failed to close socket', C.errno, ['fd=${fd}'])
 		return false
 	}
 	return true
@@ -174,7 +190,10 @@ fn create_server_socket(addr net.Addr) !int {
 	server_fd := C.socket(i32(addr.family()), i32(net.SocketType.tcp), 0)
 	if server_fd < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'Socket creation failed')
+		log_errno_failure('socket_create_failed', 'abort_server_start',
+			'failed to create listening socket', C.errno, [
+				'family=${int(addr.family())}',
+			])
 		return error('socket creation failed')
 	}
 
@@ -184,13 +203,19 @@ fn create_server_socket(addr net.Addr) !int {
 	opt := 1
 	if C.setsockopt(server_fd, C.SOL_SOCKET, C.SO_REUSEADDR, &opt, sizeof(opt)) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'setsockopt SO_REUSEADDR failed')
+		log_errno_failure('setsockopt_reuseaddr_failed', 'abort_server_start',
+			'failed to enable SO_REUSEADDR on listening socket', C.errno, [
+				'fd=${server_fd}',
+			])
 		close_socket(server_fd)
 		return error('setsockopt SO_REUSEADDR failed')
 	}
 	if C.setsockopt(server_fd, C.SOL_SOCKET, C.SO_REUSEPORT, &opt, sizeof(opt)) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'setsockopt SO_REUSEPORT failed')
+		log_errno_failure('setsockopt_reuseport_failed', 'abort_server_start',
+			'failed to enable SO_REUSEPORT on listening socket', C.errno, [
+				'fd=${server_fd}',
+			])
 		close_socket(server_fd)
 		return error('setsockopt SO_REUSEPORT failed')
 	}
@@ -198,13 +223,15 @@ fn create_server_socket(addr net.Addr) !int {
 	alen := addr.len()
 	if C.bind(server_fd, voidptr(&addr), alen) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'Bind failed')
+		log_errno_failure('bind_failed', 'abort_server_start', 'failed to bind listening socket',
+			C.errno, ['fd=${server_fd}', 'port=${server.port}'])
 		close_socket(server_fd)
 		return error('socket bind failed')
 	}
 	if C.listen(server_fd, max_connection_size) < 0 {
 		eprintln(@LOCATION)
-		C.perror(c'Listen failed')
+		log_errno_failure('listen_failed', 'abort_server_start',
+			'failed to listen on server socket', C.errno, ['fd=${server_fd}'])
 		close_socket(server_fd)
 		return error('socket listen failed')
 	}
@@ -219,7 +246,8 @@ fn add_fd_to_epoll(epoll_fd int, fd int, events u32) int {
 	ev.data.fd = fd
 	if C.epoll_ctl(epoll_fd, C.EPOLL_CTL_ADD, fd, &ev) == -1 {
 		eprintln(@LOCATION)
-		C.perror(c'epoll_ctl')
+		log_errno_failure('epoll_add_failed', 'close_socket_and_report',
+			'failed to add socket to epoll', C.errno, ['epoll_fd=${epoll_fd}', 'fd=${fd}'])
 		return -1
 	}
 	return 0
@@ -238,7 +266,8 @@ fn mod_fd_in_epoll(epoll_fd int, fd int, events u32) int {
 fn remove_fd_from_epoll(epoll_fd int, fd int) bool {
 	ret := C.epoll_ctl(epoll_fd, C.EPOLL_CTL_DEL, fd, unsafe { nil })
 	if ret == -1 {
-		eprintln('ERROR: epoll_ctl(DEL, fd=${fd}) failed with errno=${C.errno}')
+		log_errno_failure('epoll_delete_failed', 'report_and_continue_closure',
+			'failed to remove socket from epoll', C.errno, ['epoll_fd=${epoll_fd}', 'fd=${fd}'])
 		return false
 	}
 	return true
@@ -428,9 +457,9 @@ fn mark_read_deadline(mut w Worker, mut cs ConnState) {
 fn drain_file(fd int, mut cs ConnState) int {
 	for cs.file_remaining > 0 {
 		want := if cs.file_remaining > sendfile_chunk {
-			uint(sendfile_chunk)
+			usize(sendfile_chunk)
 		} else {
-			uint(cs.file_remaining)
+			usize(cs.file_remaining)
 		}
 		sent := sendfile_without_sigpipe(fd, cs.file_fd, &cs.file_off, want)
 		if sent > 0 {
@@ -438,12 +467,19 @@ fn drain_file(fd int, mut cs ConnState) int {
 			continue
 		}
 		if sent < 0 {
-			if C.errno == C.EAGAIN {
+			errno_val := C.errno
+			if errno_val == C.EAGAIN {
 				return 0
 			}
-			if C.errno == C.EINTR {
+			if errno_val == C.EINTR {
 				continue
 			}
+			log_errno_failure('sendfile_failed', 'close_client_connection',
+				'sendfile failed while streaming a response file', errno_val, [
+					'client_fd=${fd}',
+					'file_fd=${cs.file_fd}',
+					'remaining=${cs.file_remaining}',
+				])
 			return -1
 		}
 		// sent == 0: the file shrank between fstat() and now, or the peer closed.
@@ -461,18 +497,23 @@ fn drain_file(fd int, mut cs ConnState) int {
 fn flush_batch(mut w Worker, fd int, mut cs ConnState) FlushResult {
 	// Phase 1: the buffered response bytes (status lines, headers, small bodies).
 	for cs.write_off < cs.write_buf.len {
-		n := C.send(fd, unsafe { &u8(cs.write_buf.data) + cs.write_off }, uint(cs.write_buf.len - cs.write_off), C.MSG_NOSIGNAL)
+		n := C.send(fd, unsafe { &u8(cs.write_buf.data) + cs.write_off }, usize(cs.write_buf.len - cs.write_off), C.MSG_NOSIGNAL)
 		if n > 0 {
 			cs.write_off += n
 			continue
 		}
 		if n < 0 {
-			if C.errno == C.EAGAIN {
+			errno_val := C.errno
+			if errno_val == C.EAGAIN {
 				return park_write(mut w, fd, mut cs)
 			}
-			if C.errno == C.EINTR {
+			if errno_val == C.EINTR {
 				continue
 			}
+			log_errno_failure('send_failed', 'close_client_connection',
+				'failed to send response bytes to client', errno_val, [
+					'client_fd=${fd}',
+				])
 		}
 		close_conn(mut w, fd)
 		return .closed
@@ -565,7 +606,7 @@ fn compact_read_buf(mut cs ConnState, pos int) {
 		return
 	}
 	if leftover > 0 {
-		unsafe { C.memmove(cs.read_buf.data, &u8(cs.read_buf.data) + pos, uint(leftover)) }
+		unsafe { C.memmove(cs.read_buf.data, &u8(cs.read_buf.data) + pos, usize(leftover)) }
 	}
 	unsafe {
 		cs.read_buf.len = leftover
@@ -658,7 +699,7 @@ fn drain_requests(mut w Worker, fd int, mut cs ConnState) bool {
 				return flush_batch(mut w, fd, mut cs) != .closed
 			}
 			decoded.client_conn_fd = fd
-			decoded.client_conn_handle = uint(fd)
+			decoded.client_conn_handle = usize(fd)
 			decoded.user_data = w.server.user_data
 			decoded.worker_state = w.worker_state
 			mut ctl := ResponseControl{}
@@ -728,7 +769,7 @@ fn drain_requests(mut w Worker, fd int, mut cs ConnState) bool {
 				return flush_batch(mut w, fd, mut cs) != .closed
 			}
 			decoded.client_conn_fd = fd
-			decoded.client_conn_handle = uint(fd)
+			decoded.client_conn_handle = usize(fd)
 			decoded.user_data = w.server.user_data
 			decoded.worker_state = w.worker_state
 			mut resp := w.server.request_handler(decoded) or {
@@ -859,7 +900,7 @@ fn serve_conn(mut w Worker, fd int, mut cs ConnState) {
 			}
 		}
 		spare := cs.read_buf.cap - cs.read_buf.len
-		n := C.recv(fd, unsafe { &u8(cs.read_buf.data) + cs.read_buf.len }, uint(spare), 0)
+		n := C.recv(fd, unsafe { &u8(cs.read_buf.data) + cs.read_buf.len }, usize(spare), 0)
 		if n < 0 {
 			if C.errno == C.EAGAIN {
 				break // socket drained
@@ -867,7 +908,10 @@ fn serve_conn(mut w Worker, fd int, mut cs ConnState) {
 			if C.errno == C.EINTR {
 				continue
 			}
-			eprintln('ERROR: recv() failed with errno=${C.errno}')
+			log_errno_failure('recv_failed', 'close_client_connection',
+				'failed to read request bytes from client socket', C.errno, [
+					'client_fd=${fd}',
+				])
 			C.send(fd, status_444_response.data, status_444_response.len, C.MSG_NOSIGNAL)
 			close_conn(mut w, fd)
 			return
@@ -967,7 +1011,10 @@ fn handle_accept_loop(mut w Worker) {
 				continue
 			}
 			eprintln(@LOCATION)
-			C.perror(c'Accept failed')
+			log_errno_failure('accept_failed', 'continue_accept_loop',
+				'failed to accept incoming connection', C.errno, [
+					'listen_fd=${w.listen_fd}',
+				])
 			break
 		}
 		// Enable TCP_NODELAY for lower latency.
@@ -1056,7 +1103,10 @@ fn process_events(server &Server, epoll_fd int, listen_fd int) {
 			if server.is_shutting_down() {
 				continue
 			}
-			eprintln('ERROR: epoll_wait() failed with errno=${C.errno}')
+			log_errno_failure('epoll_wait_failed', 'continue_event_loop',
+				'epoll_wait failed while polling server events', C.errno, [
+					'epoll_fd=${epoll_fd}',
+				])
 			continue
 		}
 		for i := 0; i < num_events; i++ {
@@ -1156,7 +1206,8 @@ pub fn (mut server Server) run() ! {
 
 		server.epoll_fds[i] = C.epoll_create1(0)
 		if server.epoll_fds[i] < 0 {
-			C.perror(c'epoll_create1 failed')
+			log_errno_failure('epoll_create_failed', 'abort_server_start',
+				'failed to create epoll instance', C.errno, []string{})
 			server.close_setup_fds()
 			return error('epoll_create1 failed')
 		}
