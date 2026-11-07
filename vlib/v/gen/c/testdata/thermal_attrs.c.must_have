@@ -1,0 +1,2 @@
+__VHOT VV_LOC f64 main__close_direction_kernel(Array_f64 close)
+__VCOLD VV_LOC f64 main__cold_error_value(void)
