@@ -157,6 +157,20 @@ fn test_map_init() {
 	assert m['unknown'] == 0
 }
 
+fn test_bool_map_keys() {
+	mut m := {
+		true:  1
+		false: 2
+	}
+	assert m[true] == 1
+	assert m[false] == 2
+	assert true in m
+	assert false in m
+	m[true] = 7
+	assert m[true] == 7
+	assert m.keys().len == 2
+}
+
 fn test_string_map() {
 	// m := map[string]Fn
 }
