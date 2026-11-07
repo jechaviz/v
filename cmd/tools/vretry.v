@@ -10,6 +10,29 @@ mut:
 	retries   int
 }
 
+fn report_vretry_failure(cmd string, exit_code int, reason string, context Context) {
+	action := if reason == 'timeout_exceeded' {
+		'increase_timeout_or_inspect_command'
+	} else {
+		'increase_retries_or_inspect_command'
+	}
+	message := if reason == 'timeout_exceeded' {
+		'command retries exceeded the configured timeout'
+	} else {
+		'command failed after the configured retry count'
+	}
+	eprintln(os.process_command_failure_report('vretry.command', exit_code,
+		stage:          'retry_command'
+		command:        cmd
+		reason:         reason
+		action:         action
+		message:        message
+		output_capture: 'inherited_stdio'
+	))
+	eprintln('vretry.command.retries=${context.retries}')
+	eprintln('vretry.command.timeout_seconds=${context.timeout.seconds()}')
+}
+
 // seconds_to_duration converts a fractional number of seconds, as given on the
 // command line, to a Duration. The scaling is done in floating point so that a
 // value like `--delay 0.5` keeps its sub-second part.
@@ -45,11 +68,12 @@ fn main() {
 	// requests shell syntax and is passed to the selected shell unchanged.
 	cmd := command_args.join(' ')
 
-	spawn fn (context Context) {
+	spawn fn (context Context, cmd string) {
 		time.sleep(context.timeout)
 		eprintln('error: exceeded maximum timeout (${context.timeout.seconds()}s)!')
+		report_vretry_failure(cmd, 1, 'timeout_exceeded', context)
 		exit(1)
-	}(context)
+	}(context, cmd)
 
 	mut res := 0
 	for i in 0 .. context.retries {
@@ -65,6 +89,7 @@ fn main() {
 		}
 		if i == context.retries - 1 {
 			eprintln('error: exceeded maximum number of retries (${context.retries})!')
+			report_vretry_failure(cmd, res, 'retries_exhausted', context)
 			exit(res)
 		}
 		time.sleep(context.delay)
