@@ -62,6 +62,6 @@ fn v_compile(vopts string) os.Result {
 	// dump(cmd)
 	res := os.exec_or_exit([vexe, '-showcc', ...(os.split_args(vopts) or { panic(err) })])
 	// dump(res)
-	assert res.exit_code == 0
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 	return res
 }
