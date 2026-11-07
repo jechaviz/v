@@ -100,6 +100,7 @@ fn main() {
 	if ts.has_failures() {
 		exit(1)
 	}
+	exit(0)
 }
 
 // test_target_arch selects files for the test programs, independently of the
