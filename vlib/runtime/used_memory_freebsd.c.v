@@ -19,10 +19,11 @@ const rlimit_rss = i32(5)
 // used_memory retrieves the current physical memory usage of the process.
 // TinyCC and kernels without kern.proc.rlimit_usage report peak resident memory.
 pub fn used_memory() !u64 {
-	page_size := uint(C.sysconf(C._SC_PAGESIZE))
+	page_size := usize(C.sysconf(C._SC_PAGESIZE))
 	c_errno_1 := C.errno
-	if page_size == uint(-1) {
-		return error('used_memory: C.sysconf() return error code = ${c_errno_1}')
+	if page_size == usize(-1) {
+		return error(runtime_errno_report('used_memory', 'C.sysconf(C._SC_PAGESIZE)',
+			'sysconf_pagesize_failed', 'return_error_to_caller', c_errno_1))
 	}
 	$if tinyc {
 		return used_memory_rusage()
@@ -30,7 +31,7 @@ pub fn used_memory() !u64 {
 		mib := [sysctl_ctl_kern, sysctl_kern_proc, sysctl_kern_proc_rlimit_usage, C.getpid(),
 			rlimit_rss]!
 		mut bytes := u64(0)
-		mut length := uint(sizeof(u64))
+		mut length := usize(sizeof(u64))
 		result := unsafe { C.sysctl(&mib[0], mib.len, &bytes, &length, nil, 0) }
 		c_errno_2 := C.errno
 		if result == 0 && length == sizeof(u64) && bytes != u64(-1) {
@@ -49,7 +50,8 @@ fn used_memory_rusage() !u64 {
 	x := C.getrusage(0, &usage)
 	if x == -1 {
 		c_errno := C.errno
-		return error('used_memory: C.getrusage() return error code = ${c_errno}')
+		return error(runtime_errno_report('used_memory', 'C.getrusage', 'getrusage_failed',
+			'return_error_to_caller', c_errno))
 	}
 	return u64(int_max(1, usage.ru_maxrss)) * 1024
 }
