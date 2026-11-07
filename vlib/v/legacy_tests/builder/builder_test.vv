@@ -169,7 +169,8 @@ pub struct BS{}
 	assert executable !in original_file_list_
 
 	cmd := '${os.quoted_path(vexe)} -o ${executable} filelist/main.v -file-list "filelist/part_a.v,filelist/part_b.v,"'
-	os.exec([vexe, '-o', executable, 'filelist/main.v', '-file-list', 'filelist/part_a.v,filelist/part_b.v,'])
+	os.exec([vexe, '-o', executable, 'filelist/main.v', '-file-list',
+		'filelist/part_a.v,filelist/part_b.v,'])
 	after_compile_file_list := os.ls(test_path)!.filter(os.exists(it))
 	dump(after_compile_file_list)
 	assert executable in after_compile_file_list
@@ -289,8 +290,7 @@ struct Context {}
 ')!
 	}
 
-	res := os.exec([vexe, '-old-compiler', '-check', '${os.join_path(workspace,
-		'fixture_test.v')}'])
+	res := os.exec([vexe, '-old-compiler', '-check', '${os.join_path(workspace, 'fixture_test.v')}'])
 	assert res.exit_code == 0, res.output
 }
 
@@ -313,8 +313,7 @@ fn helper() int {
 }
 ')!
 
-	res := os.exec([vexe, '-old-compiler', '-check', '${os.join_path(workspace,
-		'fixture_test.v')}'])
+	res := os.exec([vexe, '-old-compiler', '-check', '${os.join_path(workspace, 'fixture_test.v')}'])
 	assert res.exit_code == 0, res.output
 }
 
@@ -340,8 +339,7 @@ fn helper() int {
 }
 ')!
 
-	res := os.exec([vexe, '-old-compiler', '-check', '${os.join_path(workspace,
-		'fixture_test.v')}'])
+	res := os.exec([vexe, '-old-compiler', '-check', '${os.join_path(workspace, 'fixture_test.v')}'])
 	assert res.exit_code == 0, res.output
 }
 
@@ -690,4 +688,23 @@ fn test_macos_arch_flag_is_forwarded_to_c_compiler() {
 	flags_output :=
 		run_v_ok('${os.quoted_path(vexe)} -cc clang -gc none -showcc -skip-running -arch amd64 -o ${os.quoted_path(out_file)} ${os.quoted_path(src_file)}')
 	assert flags_output.contains('-arch x86_64')
+}
+
+fn test_local_command_dir_does_not_shadow_vlib_prelude_imports() {
+	os.chdir(test_path)!
+	project_dir := os.join_path(test_path, 'run_stats_local_benchmark_shadow')
+	defer {
+		os.chdir(test_path) or {}
+	}
+	os.mkdir_all(os.join_path(project_dir, 'tools', 'cmd', 'benchmark'))!
+	os.write_file(os.join_path(project_dir, 'main_test.v'),
+		'module main\n\nfn test_shadow_free_stats() {\n\tassert true\n}\n')!
+	os.write_file(os.join_path(project_dir, 'tools', 'cmd', 'benchmark', 'main.v'),
+		'module main\n\nfn main() {}\n')!
+	os.chdir(project_dir)!
+
+	res := os.execute('${os.quoted_path(vexe)} -stats test main_test.v')
+
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
+	assert res.output.contains('test_shadow_free_stats')
 }
