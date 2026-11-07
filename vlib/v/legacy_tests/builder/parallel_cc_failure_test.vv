@@ -62,7 +62,7 @@ fn test_parallel_cc_fails_when_c_compilation_fails() {
 fn main() {}
 '
 	})
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	$if macos || linux {
 		assert res.output.contains('definitely_missing_parallel_cc_header.h'), res.output
 	} $else {
@@ -82,7 +82,7 @@ fn main() {
 }
 '
 	})
-	assert res.exit_code == 1, res.output
+	assert res.exit_code == 1, res.exit_code_diagnostics('1', label: @FN)
 	assert res.output.contains('failed to link after parallel C compilation'), res.output
 }
 
@@ -115,7 +115,7 @@ fn test_parallel_cc_succeeds_with_array_sort_compare_helper() {
 	}
 	'
 	})
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
 
 fn test_parallel_cc_keeps_top_level_comptime_function_guards_together() {
@@ -156,5 +156,5 @@ fn main() {
 	}, {
 		'CC': 'definitely_missing_parallel_cc_compiler_23174'
 	})
-	assert res.exit_code == 0, res.output
+	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
 }
