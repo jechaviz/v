@@ -30,6 +30,7 @@ fn test_native_backend_is_refused_except_for_vfmt() {
 	// Unrelated backends are untouched.
 	assert !native_backend_rejected('run', ['-b', 'c', 'main.v'])
 	assert !native_backend_rejected('run', ['-b', 'fastc', 'main.v'])
+	assert !native_backend_rejected('run', ['-b', 'x64', 'main.v'])
 }
 
 fn test_v1_fallback_drops_private_restart_options() {
@@ -207,7 +208,7 @@ fn test_formatter_backend_options_are_runtime_preferences() {
 			'fmt',
 			'source.v',
 		]
-		assert external_tool_compile_args('vtest', prefix) == prefix
+		assert external_tool_compile_args('vtest', prefix) == ['-cc', 'clang', '-gc', 'none']
 		joined_prefix := ['-cc', 'clang', '${flag}=js', '-gc', 'none']
 		assert external_tool_compile_args('vfmt', joined_prefix) == ['-cc', 'clang', '-gc', 'none']
 		assert external_tool_runtime_args('fmt', joined_prefix, ['fmt', 'source.v']) == [
@@ -215,7 +216,7 @@ fn test_formatter_backend_options_are_runtime_preferences() {
 			'fmt',
 			'source.v',
 		]
-		assert external_tool_compile_args('vtest', joined_prefix) == joined_prefix
+		assert external_tool_compile_args('vtest', joined_prefix) == ['-cc', 'clang', '-gc', 'none']
 	}
 }
 
@@ -628,14 +629,14 @@ fn test_cached_fallback_root_is_preferred_when_installed() {
 	assert os.dir(resolved) == os.read_file(root_file)!.trim_space()
 }
 
-fn test_vls_fallback_installation_preserves_the_protocol() {
+fn test_transparent_fallback_installation_preserves_diagnostics() {
 	$if !windows {
 		base := os.join_path(os.vtmp_dir(), 'vls_fallback_install_${os.getpid()}')
 		os.rmdir_all(base) or {}
 		defer {
 			os.rmdir_all(base) or {}
 		}
-		for mode in ['vls', 'ordinary', 'failed', 'missing'] {
+		for mode in ['vls', 'legacy_fixture', 'ordinary', 'failed', 'missing'] {
 			root := os.join_path(base, mode)
 			bin := os.join_path(root, 'bin')
 			cache := os.join_path(root, 'cache')
@@ -671,8 +672,15 @@ fn test_vls_fallback_installation_preserves_the_protocol() {
 			environment['V1_FALLBACK_TEST_MODE'] = mode
 			environment['V1_FALLBACK_TEST_RELEASE'] = release
 			environment['V1_FALLBACK_TEST_RESPONSE'] = os.join_path(release, 'source.v') + ':10:20'
+			if mode == 'legacy_fixture' {
+				os.write_file(os.join_path(root, 'source.vv'), 'import v.ast\n')!
+				os.write_file(os.join_path(root, 'source.out'), '`old.ast.Type`\n')!
+				environment['V1_FALLBACK_TEST_RESPONSE'] = 'error: cannot use `v.ast.Type`'
+			}
 			args := if mode == 'ordinary' {
 				['-old-compiler', 'source.v']
+			} else if mode == 'legacy_fixture' {
+				['source.vv']
 			} else {
 				['-vls-mode', 'source.v']
 			}
@@ -680,6 +688,9 @@ fn test_vls_fallback_installation_preserves_the_protocol() {
 			if mode == 'vls' {
 				assert result.exit_code == 0, result.output
 				assert result.output.trim_space() == os.join_path(os.real_path(root), 'source.v') + ':10:20', result.output
+			} else if mode == 'legacy_fixture' {
+				assert result.exit_code == 0, result.output
+				assert result.output.trim_space() == 'error: cannot use `old.ast.Type`', result.output
 			} else {
 				assert result.exit_code == if mode == 'ordinary' { 0 } else { 1 }, result.output
 				assert result.output.contains('running `make v1` now'), result.output
@@ -759,6 +770,11 @@ fn test_prod_refuses_tinycc_under_another_name_once_it_resolves() {
 	// The name has no `tcc`, so only the resolved compiler gives it away.
 	alias_path := os.join_path(dir, 'cc_alias.exe')
 	os.cp(bundled, alias_path) or { panic(err) }
+	// Shared TinyCC builds need their adjacent DLL even to print the version.
+	libtcc := os.join_path(os.dir(bundled), 'libtcc.dll')
+	if os.is_file(libtcc) {
+		os.cp(libtcc, os.join_path(dir, 'libtcc.dll')) or { panic(err) }
+	}
 	source := os.join_path(dir, 'main.v')
 	os.write_file(source, 'fn main() {\n\tprintln(1)\n}\n') or { panic(err) }
 	// `-old-compiler` must refuse the alias too, before the compatibility compiler is started.
@@ -1086,55 +1102,6 @@ fn test_cold_formatter_cache_accepts_tinycc_production_environment() {
 	assert !result.output.contains('tcc is not allowed with -prod'), result.output
 }
 
-fn test_windows_v1_fallback_user_cache_is_reused_without_home() {
-	$if windows {
-		keys := ['HOME', 'XDG_CACHE_HOME', 'V1_FALLBACK_CACHE_DIR', 'LOCALAPPDATA']
-		mut previous := map[string]string{}
-		mut present := []string{}
-		for key in keys {
-			if value := os.getenv_opt(key) {
-				previous[key] = value
-				present << key
-			}
-			os.unsetenv(key)
-		}
-		defer {
-			for key in keys {
-				if key in present { os.setenv(key, previous[key], true) } else { os.unsetenv(key) }
-			}
-		}
-		root := os.join_path(os.vtmp_dir(), 'v1_fallback_user_cache_${os.getpid()}')
-		os.mkdir_all(root)!
-		os.setenv('LOCALAPPDATA', root, true)
-		first := v1_fallback_cache_parent()!
-		second := v1_fallback_cache_parent()!
-		assert first == second
-		assert first == os.abs_path(os.join_path(root, 'v', 'v1-fallback-private'))
-		assert tool_cache_root_can_stage(first)
-		assert !os.is_link(first)
-		os.setenv('LOCALAPPDATA', os.join_path(root, 'not_a_directory'), true)
-		os.write_file(os.getenv('LOCALAPPDATA'), 'file')!
-		assert v1_fallback_windows_user_cache_parent() == none
-	}
-}
-
-	]
-}
-
-fn test_cold_formatter_cache_accepts_tinycc_production_environment() {
-	if !os.is_executable(os.join_path(os.dir(@VEXE), 'thirdparty', 'tcc', 'tcc.exe')) { return }
-	root := os.join_path(os.vtmp_dir(), 'launcher_prod_tcc_tool_${os.getpid()}')
-	os.mkdir_all(root)!
-	defer { os.rmdir_all(root) or {} }
-	mut environment := os.environ()
-	environment['VFLAGS'] = '-prod -cc tcc -gc none'
-	environment['VTOOLS_CACHE_DIR'] = os.join_path(root, 'tools')
-	environment['V_MACOS_V3_NO_FALLBACK'] = '1'
-	result := run_launcher_test_process(@VEXE, ['fmt', '--help'], os.getwd(), environment)
-	assert result.exit_code == 0, result.output
-	assert !result.output.contains('tcc is not allowed with -prod'), result.output
-}
-
 fn test_obsolete_skip_unused_cleanup_preserves_option_values_and_execution_boundaries() {
 	for command in ['run', 'crun'] {
 		for input in ['run', 'crun', 'build', 'test'] {
@@ -1189,4 +1156,36 @@ fn test_host_tool_filters_preserve_other_option_operands() {
 	prefix := ['-cc', 'clang', '-cflags', '-arch', '-cflags', 'arm64', '-arch', 'amd64']
 	assert external_tool_compile_args('vtest', prefix) == ['-cc', 'clang', '-cflags', '-arch',
 		'-cflags', 'arm64']
+}
+
+fn test_windows_v1_fallback_user_cache_is_reused_without_home() {
+	$if windows {
+		keys := ['HOME', 'XDG_CACHE_HOME', 'V1_FALLBACK_CACHE_DIR', 'LOCALAPPDATA']
+		mut previous := map[string]string{}
+		mut present := []string{}
+		for key in keys {
+			if value := os.getenv_opt(key) {
+				previous[key] = value
+				present << key
+			}
+			os.unsetenv(key)
+		}
+		defer {
+			for key in keys {
+				if key in present { os.setenv(key, previous[key], true) } else { os.unsetenv(key) }
+			}
+		}
+		root := os.join_path(os.vtmp_dir(), 'v1_fallback_user_cache_${os.getpid()}')
+		os.mkdir_all(root)!
+		os.setenv('LOCALAPPDATA', root, true)
+		first := v1_fallback_cache_parent()!
+		second := v1_fallback_cache_parent()!
+		assert first == second
+		assert first == os.abs_path(os.join_path(root, 'v', 'v1-fallback-private'))
+		assert tool_cache_root_can_stage(first)
+		assert !os.is_link(first)
+		os.setenv('LOCALAPPDATA', os.join_path(root, 'not_a_directory'), true)
+		os.write_file(os.getenv('LOCALAPPDATA'), 'file')!
+		assert v1_fallback_windows_user_cache_parent() == none
+	}
 }
