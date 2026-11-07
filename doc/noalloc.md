@@ -35,9 +35,9 @@ use the C backend. Contracts on function aliases and interface declarations are 
 produce an error. Annotate V or C function declarations instead.
 
 Automatic ownership and cleanup (`-ownership`, `-d ownership`, `-autofree`), profiling
-(`-prof`, `-profile`), call tracing (`-trace-calls`), and coverage (`-coverage`) are rejected
-for annotated functions. These modes can introduce callbacks or instrumentation after the
-allocation checks, so their generated behavior cannot establish this contract.
+(`-prof`, `-profile`), tracing (`-trace-calls`, `-snoop`), and coverage (`-coverage`) are
+rejected for annotated functions. These modes can introduce callbacks or instrumentation after
+the allocation checks, so their generated behavior cannot establish this contract.
 
 ## Reusable output buffers
 
