@@ -74,10 +74,12 @@ pub:
 	fix_slashes bool = true
 }
 
-// if VTEST_ONLY env var is set, returns tests that match the query
+// if VTEST_ONLY env var is set, returns tests that match the query: a comma separated list of
+// substrings of the path. The match ignores the kind of separator, so `tests/array` finds
+// `vlib\v\tests\array_test.v` on Windows too; the returned path is not rewritten.
 pub fn filter_vtest_only(paths []string, config FilterVTestConfig) []string {
 	mut res := []string{}
-	patterns := os.getenv('VTEST_ONLY').split(',')
+	patterns := os.getenv('VTEST_ONLY').split(',').map(it.replace('\\', '/'))
 	for relative_path in paths {
 		mut file := relative_path
 		if config.basepath != '' {
@@ -86,7 +88,8 @@ pub fn filter_vtest_only(paths []string, config FilterVTestConfig) []string {
 		if config.fix_slashes {
 			file = file.replace('\\', '/')
 		}
-		if patterns.len > 0 && patterns.any(file.contains(it)) {
+		candidate := file.replace('\\', '/')
+		if patterns.len > 0 && patterns.any(candidate.contains(it)) {
 			res << file
 		}
 	}
