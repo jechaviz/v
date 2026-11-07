@@ -1,0 +1,111 @@
+import os
+
+fn test_exit_code_diagnostics_reports_empty_output() {
+	message := os.process_exit_code_diagnostics(2, '0',
+		label:   @FN
+		command: 'silent-tool --flag'
+		reason:  'silent_tool_failed'
+		action:  'inspect_silent_tool'
+	)
+
+	assert message.contains('vtest.assert.failed=true')
+	assert message.contains('vtest.assert.reason=silent_tool_failed')
+	assert message.contains('vtest.assert.expected_exit_code=0')
+	assert message.contains('vtest.assert.actual_exit_code=2')
+	assert message.contains('vtest.assert.actual_exit_code_meaning=child_exited_nonzero')
+	assert message.contains('vtest.assert.output_state=empty')
+	assert message.contains('vtest.assert.output_bytes=0')
+	assert message.contains('vtest.assert.output_empty=true')
+	assert message.contains('vtest.assert.command=silent-tool --flag')
+}
+
+fn test_exit_code_diagnostics_reports_sparse_exit_one() {
+	message := os.process_exit_code_diagnostics(1, '0',
+		label:          @FN
+		command:        'silent-tool --flag'
+		output:         '   '
+		output_capture: 'pipe'
+	)
+
+	assert message.contains('vtest.assert.actual_exit_code=1')
+	assert message.contains('vtest.assert.possible_causes=')
+	assert message.contains('generic_child_failure_without_diagnostics')
+	assert message.contains('tool_failed_before_diagnostic_flush')
+	assert message.contains('vtest.assert.output_state=empty')
+	assert message.contains('vtest.assert.output_bytes=3')
+	assert message.contains('vtest.assert.output_empty=true')
+	assert !message.contains('vtest.assert.output=   ')
+}
+
+fn test_command_failure_report_reports_empty_output() {
+	message := os.process_command_failure_report('v.test.command', 17,
+		stage:   'compile'
+		command: 'silent-cc main.c'
+		reason:  'silent_child_failed'
+		action:  'rerun_verbose'
+		message: 'child failed without output'
+	)
+
+	assert message.contains('v.test.command.failed=true')
+	assert message.contains('v.test.command.reason=silent_child_failed')
+	assert message.contains('v.test.command.exit_code=17')
+	assert message.contains('v.test.command.exit_code_meaning=child_exited_nonzero')
+	assert message.contains('v.test.command.output_state=empty')
+	assert message.contains('v.test.command.output_bytes=0')
+	assert message.contains('v.test.command.output_empty=true')
+	assert message.contains('v.test.command.command=silent-cc main.c')
+}
+
+fn test_command_failure_report_reports_process_context_fields() {
+	message := os.process_command_failure_report('v.test.command', -1,
+		stage:            'delegate'
+		command:          'silent-tool --flag'
+		cwd:              'C:\\work\\project'
+		executable:       'C:\\tools\\silent-tool.exe'
+		reason:           'delegated_process_failed'
+		action:           'inspect_delegated_process'
+		message:          'delegated process failed before writing output'
+		output_capture:   'redirected_stdio_echoed'
+		stdout_bytes:     0
+		stderr_bytes:     0
+		parent_exit_code: 1
+		raw_exit_code:    -1
+	)
+
+	assert message.contains('v.test.command.cwd=C:\\work\\project')
+	assert message.contains('v.test.command.executable=C:\\tools\\silent-tool.exe')
+	assert message.contains('v.test.command.stdout_bytes=0')
+	assert message.contains('v.test.command.stderr_bytes=0')
+	assert message.contains('v.test.command.parent_exit_code=1')
+	assert message.contains('v.test.command.raw_exit_code=-1')
+}
+
+fn test_exit_minus_one_diagnostics_explain_process_failure() {
+	message := os.process_command_failure_report('v.test.command', -1,
+		stage:   'spawn'
+		command: 'silent-cc main.c'
+		reason:  'command_failed_without_stdio'
+		action:  'inspect_process_launch_context'
+		message: 'command failed before writing output'
+	)
+
+	assert message.contains('v.test.command.exit_code=-1')
+	assert message.contains('v.test.command.exit_code_meaning=process_start_or_wait_failed')
+	assert message.contains('v.test.command.possible_causes=')
+	assert message.contains('process_spawn_failed')
+	assert message.contains('terminated_before_stdio_flush')
+}
+
+fn test_command_failure_report_distinguishes_inherited_stdio() {
+	message := os.process_command_failure_report('v.test.command', 1,
+		command:        'tool --arg'
+		reason:         'child_exit_nonzero'
+		action:         'inspect_inherited_output'
+		output_capture: 'inherited_stdio'
+	)
+
+	assert message.contains('v.test.command.output_capture=inherited_stdio')
+	assert message.contains('v.test.command.output_state=not_captured_by_parent')
+	assert !message.contains('v.test.command.output_bytes=')
+	assert !message.contains('v.test.command.output_empty=true')
+}
