@@ -2317,27 +2317,3 @@ fn test_fmt_write_preserves_utf8_bom() {
 	assert formatted.starts_with('\xef\xbb\xbf')
 	assert formatted == "\xef\xbb\xbfmodule main\n\nfn main() {\n\tprintln('hi')\n}\n"
 }
-
-fn test_fmt_verify_accepts_formatted_file_with_utf8_bom() {
-	source_path := os.join_path(vfmt_test_tdir, 'formatted_bom.v')
-	original := "\xef\xbb\xbfmodule main\n\nfn main() {\n\tprintln('hi')\n}\n"
-	os.write_file(source_path, original)!
-
-	res := os.execute('${os.quoted_path(vexe)} fmt -verify ${os.quoted_path(source_path)}')
-
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
-	assert os.read_file(source_path)! == original
-}
-
-fn test_fmt_write_preserves_utf8_bom() {
-	source_path := os.join_path(vfmt_test_tdir, 'unformatted_bom.v')
-	original := '\xef\xbb\xbfmodule main\n\nfn main() {\nprintln("hi")\n}\n'
-	os.write_file(source_path, original)!
-
-	res := os.execute('${os.quoted_path(vexe)} fmt -w ${os.quoted_path(source_path)}')
-	formatted := os.read_file(source_path)!
-
-	assert res.exit_code == 0, res.exit_code_diagnostics('0', label: @FN)
-	assert formatted.starts_with('\xef\xbb\xbf')
-	assert formatted == "\xef\xbb\xbfmodule main\n\nfn main() {\n\tprintln('hi')\n}\n"
-}
