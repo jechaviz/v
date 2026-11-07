@@ -1,5 +1,7 @@
 module os
 
+#flag @VEXEROOT/vlib/os/execute_capture_nix.o
+
 // short_path is a Windows-only helper that returns the DOS 8.3 short path.
 // On non-Windows platforms it simply returns the given path unchanged,
 // so that callers guarded by `$if windows { ... }` type-check on other targets.
@@ -26,13 +28,9 @@ const stderr_value = 2
 // (Must be realized in Syscall) (Must be specified)
 // ref: http://www.ccfit.nsu.ru/~deviv/courses/unix/unix/ng7c229.html
 pub const s_ifmt = u32(0xF000) // type of file
-pub const s_ifsock = u32(0xC000) // socket
-pub const s_iflnk = u32(0xa000) // link
-pub const s_ifreg = u32(0x8000) // regular file
-pub const s_ifblk = u32(0x6000) // block device
 pub const s_ifdir = u32(0x4000) // directory
-pub const s_ifchr = u32(0x2000) // character device
-pub const s_ififo = u32(0x1000) // FIFO
+pub const s_ifreg = u32(0x8000) // regular file
+pub const s_iflnk = u32(0xa000) // link
 pub const s_isuid = u32(0o4000) // SUID
 pub const s_isgid = u32(0o2000) // SGID
 pub const s_isvtx = u32(0o1000) // Sticky
@@ -52,11 +50,11 @@ fn C.uname(name &C.utsname) i32
 
 fn C.symlink(&char, &char) i32
 
-fn C.readlink(&char, &char, uint) i32
+fn C.readlink(&char, &char, usize) i32
 
 fn C.link(&char, &char) i32
 
-fn C.gethostname(&char, uint) i32
+fn C.gethostname(&char, usize) i32
 
 // Note: not available on Android fn C.getlogin_r(&char, int) int
 fn C.getlogin() &char
@@ -270,51 +268,22 @@ pub fn utime(path string, actime i64, modtime i64) ! {
 // See also https://pubs.opengroup.org/onlinepubs/7908799/xsh/sysutsname.h.html
 pub fn uname() Uname {
 	mut u := Uname{}
-	$if freestanding || syscalls {
-		// the linux utsname layout: six NUL-gapped 65-byte fields; every
-		// field string clones out of the buffer before it is freed
-		d := unsafe { malloc_noscan(6 * 65) }
-		rc := bf_uname(&u8(d))
-		if rc == 0 {
-			unsafe {
-				u.sysname = (&u8(d)).vstring().clone()
-				u.nodename = (&u8(d + 65)).vstring().clone()
-				u.release = (&u8(d + 130)).vstring().clone()
-				u.version = (&u8(d + 195)).vstring().clone()
-				u.machine = (&u8(d + 260)).vstring().clone()
-			}
+	unsafe {
+		d := &C.utsname(malloc_noscan(int(sizeof(C.utsname))))
+		if C.uname(d) == 0 {
+			u.sysname = cstring_to_vstring(d.sysname)
+			u.nodename = cstring_to_vstring(d.nodename)
+			u.release = cstring_to_vstring(d.release)
+			u.version = cstring_to_vstring(d.version)
+			u.machine = cstring_to_vstring(d.machine)
 		}
 		free(d)
-	} $else {
-		// `$else` keeps libc's uname out of freestanding builds: on FreeBSD the
-		// C preamble's inline uname calls libc's __xuname
-		unsafe {
-			d := &C.utsname(malloc_noscan(int(sizeof(C.utsname))))
-			// illumos returns 1 on success (SysV heritage), Linux and the BSDs
-			// return 0, and both return -1 on error, so anything non-negative
-			// means the struct is filled.
-			if C.uname(d) >= 0 {
-				u.sysname = cstring_to_vstring(d.sysname)
-				u.nodename = cstring_to_vstring(d.nodename)
-				u.release = cstring_to_vstring(d.release)
-				u.version = cstring_to_vstring(d.version)
-				u.machine = cstring_to_vstring(d.machine)
-			}
-			free(d)
-		}
 	}
 	return u
 }
 
 // hostname returns the hostname (system's DNS name) or POSIX error message if the hostname call fails.
 pub fn hostname() !string {
-	$if freestanding || syscalls {
-		name := uname().nodename
-		if name.len == 0 {
-			return error('os.hostname: uname did not report a node name')
-		}
-		return name
-	}
 	mut hstnme := ''
 	size := 256
 	buf := unsafe { &char(malloc_noscan(size)) }
@@ -357,24 +326,20 @@ pub fn ls(path string) ![]string {
 	if path == '' {
 		return error('ls() expects a folder, not an empty string')
 	}
-	$if freestanding || syscalls {
-		return fsys_ls(path)
+	mut res := []string{cap: 50}
+	dir_ptr := unsafe { C.opendir(&char(path.str)) }
+	if isnil(dir_ptr) {
+		return error_posix(msg: 'ls() couldnt open dir "${path}"')
 	}
-	$if !freestanding && !syscalls {
-		mut res := []string{cap: 50}
-		dir_ptr := unsafe { C.opendir(&char(path.str)) }
-		if isnil(dir_ptr) {
-			return error_posix(msg: 'ls() couldnt open dir "${path}"')
+	mut ent := &C.dirent(unsafe { nil })
+	for {
+		ent = C.readdir(dir_ptr)
+		if isnil(ent) {
+			break
 		}
-		mut ent := &C.dirent(unsafe { nil })
-		for {
-			ent = C.readdir(dir_ptr)
-			if isnil(ent) {
-				break
-			}
-			unsafe {
-				bptr := &u8(&ent.d_name[0])
-				// vfmt off
+		unsafe {
+			bptr := &u8(&ent.d_name[0])
+			// vfmt off
 			if bptr[0] == 0 || (bptr[0] == `.` && bptr[1] == 0) || (bptr[0] == `.` && bptr[1] == `.` && bptr[2] == 0) {
 				continue
 			}
@@ -382,9 +347,8 @@ pub fn ls(path string) ![]string {
 			// vfmt on
 		}
 	}
-		C.closedir(dir_ptr)
-		return res
-	}
+	C.closedir(dir_ptr)
+	return res
 }
 
 // mkdir creates a new directory with the specified path.
@@ -393,19 +357,33 @@ pub fn mkdir(path string, params MkdirParams) ! {
 		return
 	}
 	apath := real_path(path)
-	$if freestanding || syscalls {
-		e := bf_mkdir(apath, u64(params.mode))
-		if e != 0 {
-			return error_with_code('mkdir: ' + fsys_errno_message(e), e)
-		}
-		return
+	r := unsafe { C.mkdir(&char(apath.str), params.mode) }
+	if r == -1 {
+		return error_posix()
 	}
-	$if !freestanding && !syscalls {
-		r := unsafe { C.mkdir(&char(apath.str), params.mode) }
-		if r == -1 {
-			return error_posix()
-		}
+}
+
+fn nix_execute_failure_output(reason string, action string, message string, display_cmd string, child_output string, error_num int) string {
+	mut error_code := -1
+	mut error_kind := ''
+	mut error_msg := ''
+	if error_num != 0 {
+		error_code = error_num
+		error_kind = 'posix_errno'
+		error_msg = posix_get_error_msg(error_num)
 	}
+	return process_command_failure_report('os.exec', -1,
+		command:        display_cmd
+		reason:         reason
+		action:         action
+		message:        message
+		output:         child_output
+		output_capture: 'pipe'
+		output_empty:   child_output == ''
+		error_code:     error_code
+		error_kind:     error_kind
+		error:          error_msg
+	)
 }
 
 // execute starts the specified command, waits for it to complete, and returns its output.
@@ -415,46 +393,44 @@ pub fn execute(cmd string) Result {
 }
 
 fn execute_shell(cmd string) Result {
-	$if freestanding || syscalls {
-		// execute_capture_nix.o links pipe/posix_spawn and is not linked in a
-		// freestanding build
+	mut pid := 0
+	mut read_fd := -1
+	v_os_execute_lock()
+	rc := C.v_os_execute_capture_start(&char(cmd.str), &pid, &read_fd)
+	start_errno := int(C.errno)
+	v_os_execute_unlock()
+	if rc != 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec("${cmd}") is not supported in freestanding builds'
+			output:    nix_execute_failure_output('capture_start_failed',
+				'inspect_shell_command_and_process_limits',
+				'failed to start shell command capture (capture_start returned ${rc})', cmd, '',
+				start_errno)
 		}
-	} $else {
-		mut pid := 0
-		mut read_fd := -1
-		v_os_execute_lock()
-		rc := C.v_os_execute_capture_start(&char(cmd.str), &pid, &read_fd)
-		v_os_execute_unlock()
-		if rc != 0 {
-			return Result{
-				exit_code: -1
-				output:    'exec("${cmd}") failed'
-			}
+	}
+	soutput := fd_slurp(read_fd).join('')
+	fd_close(read_fd)
+	mut status := 0
+	for {
+		C.errno = 0
+		if C.waitpid(pid, &status, 0) != -1 {
+			break
 		}
-		soutput := fd_slurp(read_fd).join('')
-		fd_close(read_fd)
-		mut status := 0
-		for {
-			C.errno = 0
-			if C.waitpid(pid, &status, 0) != -1 {
-				break
-			}
-			if C.errno == C.EINTR {
-				continue
-			}
-			return Result{
-				exit_code: -1
-				output:    soutput
-			}
+		if C.errno == C.EINTR {
+			continue
 		}
-		exit_code, _ := posix_wait4_to_exit_status(status)
+		wait_errno := int(C.errno)
 		return Result{
-			exit_code: exit_code
-			output:    soutput
+			exit_code: -1
+			output:    nix_execute_failure_output('waitpid_failed',
+				'inspect_process_lifecycle_and_reap_child',
+				'failed while waiting for shell command to finish', cmd, soutput, wait_errno)
 		}
+	}
+	exit_code, _ := posix_wait4_to_exit_status(status)
+	return Result{
+		exit_code: exit_code
+		output:    soutput
 	}
 }
 
@@ -463,7 +439,9 @@ pub fn exec(args []string) Result {
 	if args.len == 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec requires at least one argument'
+			output:    nix_execute_failure_output('missing_argv',
+				'pass_at_least_one_argument_to_os_exec', 'exec requires at least one argument', '',
+				'', 0)
 		}
 	}
 	mut cargs := []&char{cap: args.len + 1}
@@ -471,46 +449,45 @@ pub fn exec(args []string) Result {
 		cargs << &char(arg.str)
 	}
 	cargs << &char(unsafe { nil })
-	$if freestanding || syscalls {
-		// execute_capture_nix.o links pipe/posix_spawn and is not linked in a
-		// freestanding build
+	display_cmd := args.join(' ')
+	mut pid := 0
+	mut read_fd := -1
+	v_os_execute_lock()
+	rc := C.v_os_exec_capture_start(cargs.data, &pid, &read_fd)
+	start_errno := int(C.errno)
+	v_os_execute_unlock()
+	if rc != 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec("${args[0]}") is not supported in freestanding builds'
+			output:    nix_execute_failure_output('capture_start_failed',
+				'inspect_exec_arguments_and_process_limits',
+				'failed to start argv command capture (capture_start returned ${rc})', display_cmd,
+				'', start_errno)
 		}
-	} $else {
-		mut pid := 0
-		mut read_fd := -1
-		v_os_execute_lock()
-		rc := C.v_os_exec_capture_start(cargs.data, &pid, &read_fd)
-		v_os_execute_unlock()
-		if rc != 0 {
-			return Result{
-				exit_code: -1
-				output:    'exec("${args[0]}") failed'
-			}
+	}
+	soutput := fd_slurp(read_fd).join('')
+	fd_close(read_fd)
+	mut status := 0
+	for {
+		C.errno = 0
+		if C.waitpid(pid, &status, 0) != -1 {
+			break
 		}
-		soutput := fd_slurp(read_fd).join('')
-		fd_close(read_fd)
-		mut status := 0
-		for {
-			C.errno = 0
-			if C.waitpid(pid, &status, 0) != -1 {
-				break
-			}
-			if C.errno == C.EINTR {
-				continue
-			}
-			return Result{
-				exit_code: -1
-				output:    soutput
-			}
+		if C.errno == C.EINTR {
+			continue
 		}
-		exit_code, _ := posix_wait4_to_exit_status(status)
+		wait_errno := int(C.errno)
 		return Result{
-			exit_code: exit_code
-			output:    soutput
+			exit_code: -1
+			output:    nix_execute_failure_output('waitpid_failed',
+				'inspect_process_lifecycle_and_reap_child',
+				'failed while waiting for argv command to finish', display_cmd, soutput, wait_errno)
 		}
+	}
+	exit_code, _ := posix_wait4_to_exit_status(status)
+	return Result{
+		exit_code: exit_code
+		output:    soutput
 	}
 }
 
@@ -542,14 +519,6 @@ pub fn symlink(target string, link_name string) ! {
 // to resolve as a path, nor to point to a path that exists.
 @[manualfree]
 pub fn readlink(path string) !string {
-	$if freestanding || syscalls {
-		mut d := [4096]u8{}
-		nr, e := bf_readlink(path, &d[0], d.len)
-		if e != 0 {
-			return error_with_code(fsys_errno_message(e), e)
-		}
-		return (&d[0]).vstring_with_len(nr).clone()
-	}
 	// Use a region of stack to get information into; we'll return new memory of more precise size later.
 	mut buf := [max_path_buffer_size]u8{}
 	// readlink returns the number of bytes written into buf, or -1 for errors.
@@ -603,24 +572,14 @@ pub fn get_error_msg(code int) string {
 }
 
 pub fn (mut f File) close() {
-	$if freestanding || syscalls {
-		if !f.is_opened {
-			return
-		}
-		f.is_opened = false
-		bf_close(f.fd)
+	if !f.is_opened {
 		return
 	}
-	$if !freestanding && !syscalls {
-		if !f.is_opened {
-			return
-		}
-		f.is_opened = false
-		cfile := f.cfile
-		f.cfile = unsafe { nil }
-		C.fflush(cfile)
-		C.fclose(cfile)
-	}
+	f.is_opened = false
+	cfile := f.cfile
+	f.cfile = unsafe { nil }
+	C.fflush(cfile)
+	C.fclose(cfile)
 }
 
 fn C.mkstemp(stemplate &u8) i32
@@ -652,20 +611,12 @@ pub fn ensure_folder_is_writable(folder string) ! {
 // getpid returns the process ID (PID) of the calling process.
 @[inline]
 pub fn getpid() int {
-	$if freestanding || syscalls {
-		return bf_getpid()
-	}
-	$if !freestanding && !syscalls {
-		return C.getpid()
-	}
+	return C.getpid()
 }
 
 // getppid returns the process ID of the parent of the calling process.
 @[inline]
 pub fn getppid() int {
-	$if freestanding || syscalls {
-		return bf_getppid()
-	}
 	return C.getppid()
 }
 
@@ -717,20 +668,14 @@ fn C.sysconf(name i32) i64
 
 // page_size returns the page size in bytes.
 pub fn page_size() int {
-	$if freestanding || syscalls {
-		// there is no auxv walker to run getauxval(AT_PAGESZ); 4096 is the
-		// kernel default on the supported architectures
-		return 4096
-	}
 	return int(C.sysconf(C._SC_PAGESIZE))
 }
 
 struct C.statvfs {
-	f_bsize  uint
-	f_frsize uint
-	f_blocks uint
-	f_bfree  uint
-	f_bavail uint
+	f_bsize  usize
+	f_blocks usize
+	f_bfree  usize
+	f_bavail usize
 }
 
 // disk_usage returns disk usage of `path`.
@@ -743,19 +688,13 @@ pub fn disk_usage(path string) !DiskUsage {
 	if ret == -1 {
 		return error('cannot get disk usage of path')
 	}
-	// f_blocks counts f_frsize units (POSIX). f_bsize is the preferred I/O size,
-	// which Solaris and FreeBSD report far above the fragment size, so using it
-	// overstated the disk size.
-	mut unit := u64(vfs.f_frsize)
-	if unit == 0 {
-		unit = u64(vfs.f_bsize)
-	}
+	f_bsize := u64(vfs.f_bsize)
 	f_blocks := u64(vfs.f_blocks)
 	f_bavail := u64(vfs.f_bavail)
 	f_bfree := u64(vfs.f_bfree)
 	return DiskUsage{
-		total:     unit * f_blocks
-		available: unit * f_bavail
-		used:      unit * (f_blocks - f_bfree)
+		total:     f_bsize * f_blocks
+		available: f_bsize * f_bavail
+		used:      f_bsize * (f_blocks - f_bfree)
 	}
 }
