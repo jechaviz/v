@@ -10,7 +10,7 @@ module builtin
 __global v_memory_panic = false
 
 @[noreturn]
-fn _memory_panic(fname string, size isize) {
+fn _memory_panic(fname string, size int) {
 	v_memory_panic = true
 	// Note: do not use string interpolation here at all, since string interpolation itself allocates
 	eprint(fname)
@@ -40,13 +40,23 @@ __global total_m = i64(0)
 // no matching hook and they would be reported as permanently live. Reject that
 // combination at C compile time rather than emit misleading stats. The guard is
 // emitted as C preprocessor code so `-cross` can still preserve conditional C.
-#insert "@VEXEROOT/vlib/builtin/track_heap_checks.h"
+#if defined(CUSTOM_DEFINE_track_heap) && (defined(_VGCBOEHM) || defined(CUSTOM_DEFINE_gcboehm))
+#error "-d track_heap requires manual memory management; rebuild with -gc none"
+#endif
+
+#if defined(CUSTOM_DEFINE_track_heap) && defined(CUSTOM_DEFINE_vgc)
+#error "-d track_heap requires manual memory management; rebuild with -gc none"
+#endif
+
+#if defined(CUSTOM_DEFINE_track_heap) && (defined(_VPREALLOC) || defined(CUSTOM_DEFINE_prealloc))
+#error "-d track_heap requires manual memory management; rebuild with -gc none (not -prealloc)"
+#endif
 
 fn C.vheap_alloc(p voidptr, n u64)
 fn C.vheap_free(p voidptr)
 
 @[if track_heap ?]
-fn _ht_alloc(p &u8, n isize) {
+fn _ht_alloc(p &u8, n int) {
 	C.vheap_alloc(p, u64(n))
 }
 
@@ -59,7 +69,7 @@ fn _ht_free(p voidptr) {
 // malloc returns a `byteptr` pointing to the memory address of the allocated space.
 // unlike the `calloc` family of functions - malloc will not zero the memory block.
 @[inline; unsafe]
-pub fn malloc(n isize) &u8 {
+pub fn malloc(n int) &u8 {
 	$if trace_malloc ? {
 		total_m += n
 		C.fprintf(C.stderr, c'_v_malloc %6d total %10d\n', n, total_m)
@@ -86,7 +96,7 @@ pub fn malloc(n isize) &u8 {
 		return unsafe { prealloc_malloc(n) }
 	} $else $if vgc ? {
 		unsafe {
-			res = &u8(vgc_malloc(usize(n)))
+			res = &u8(vgc_malloc(uint(n)))
 		}
 	} $else $if gcboehm ? {
 		unsafe {
@@ -95,7 +105,7 @@ pub fn malloc(n isize) &u8 {
 	} $else $if freestanding {
 		// todo: is this safe to call malloc there? We export __malloc as malloc and it uses dlmalloc behind the scenes
 		// so theoretically it is safe
-		res = unsafe { __malloc(usize(n)) }
+		res = unsafe { __malloc(uint(n)) }
 	} $else {
 		$if windows {
 			// Warning! On windows, we always use _aligned_malloc to allocate memory.
@@ -121,7 +131,7 @@ pub fn malloc(n isize) &u8 {
 
 // malloc_noscan allocates n bytes that do not contain garbage-collected pointers.
 @[inline; unsafe]
-pub fn malloc_noscan(n isize) &u8 {
+pub fn malloc_noscan(n int) &u8 {
 	$if trace_malloc ? {
 		total_m += n
 		C.fprintf(C.stderr, c'malloc_noscan %6d total %10d\n', n, total_m)
@@ -144,7 +154,7 @@ pub fn malloc_noscan(n isize) &u8 {
 		return unsafe { prealloc_malloc(n) }
 	} $else $if vgc ? {
 		unsafe {
-			res = &u8(vgc_malloc_noscan(usize(n)))
+			res = &u8(vgc_malloc_noscan(uint(n)))
 		}
 	} $else $if gcboehm ? {
 		$if gcboehm_opt ? {
@@ -157,7 +167,7 @@ pub fn malloc_noscan(n isize) &u8 {
 			}
 		}
 	} $else $if freestanding {
-		res = unsafe { __malloc(usize(n)) }
+		res = unsafe { __malloc(uint(n)) }
 	} $else {
 		$if windows {
 			// Warning! On windows, we always use _aligned_malloc to allocate memory.
@@ -184,7 +194,7 @@ pub fn malloc_noscan(n isize) &u8 {
 // String contents contain bytes only, including when a string view starts at an
 // unaligned offset. Keep normal allocator hooks and tracing on their existing path.
 @[inline; unsafe]
-fn malloc_string_buffer(n isize) &u8 {
+fn malloc_string_buffer(n int) &u8 {
 	$if prealloc && !builtin_arena ?&& !trace_malloc ? {
 		if n < 0 {
 			_memory_panic('malloc_noscan', n)
@@ -195,7 +205,7 @@ fn malloc_string_buffer(n isize) &u8 {
 }
 
 @[inline; unsafe]
-fn malloc_uninit(n isize) &u8 {
+fn malloc_uninit(n int) &u8 {
 	if n < 0 {
 		_memory_panic(@FN, n)
 	} else if n == 0 {
@@ -203,13 +213,13 @@ fn malloc_uninit(n isize) &u8 {
 	}
 	auto_process_memory_guard_before_alloc(n)
 	$if vgc ? {
-		return unsafe { &u8(vgc_malloc_typed_opts(usize(n), 0, 0, false)) }
+		return unsafe { &u8(vgc_malloc_typed_opts(uint(n), 0, 0, false)) }
 	}
 	return malloc(n)
 }
 
 @[inline; unsafe]
-fn malloc_noscan_uninit(n isize) &u8 {
+fn malloc_noscan_uninit(n int) &u8 {
 	if n < 0 {
 		_memory_panic(@FN, n)
 	} else if n == 0 {
@@ -217,7 +227,7 @@ fn malloc_noscan_uninit(n isize) &u8 {
 	}
 	auto_process_memory_guard_before_alloc(n)
 	$if vgc ? {
-		return unsafe { &u8(vgc_malloc_noscan_opts(usize(n), false)) }
+		return unsafe { &u8(vgc_malloc_noscan_opts(uint(n), false)) }
 	}
 	return malloc_noscan(n)
 }
@@ -235,7 +245,7 @@ fn __at_least_one(how_many u64) u64 {
 // malloc_uncollectable dynamically allocates a `n` bytes block of memory
 // on the heap, which will NOT be garbage-collected (but its contents will).
 @[unsafe]
-pub fn malloc_uncollectable(n isize) &u8 {
+pub fn malloc_uncollectable(n int) &u8 {
 	$if trace_malloc ? {
 		total_m += n
 		C.fprintf(C.stderr, c'malloc_uncollectable %6d total %10d\n', n, total_m)
@@ -260,14 +270,14 @@ pub fn malloc_uncollectable(n isize) &u8 {
 		return unsafe { prealloc_malloc(n) }
 	} $else $if vgc ? {
 		unsafe {
-			res = &u8(vgc_malloc(usize(n)))
+			res = &u8(vgc_malloc(uint(n)))
 		}
 	} $else $if gcboehm ? {
 		unsafe {
 			res = C.GC_MALLOC_UNCOLLECTABLE(n)
 		}
 	} $else $if freestanding {
-		res = unsafe { __malloc(usize(n)) }
+		res = unsafe { __malloc(uint(n)) }
 	} $else {
 		$if windows {
 			// Warning! On windows, we always use _aligned_malloc to allocate memory.
@@ -296,7 +306,7 @@ pub fn malloc_uncollectable(n isize) &u8 {
 // previously allocated with `malloc` or `vcalloc`.
 // Please, see also realloc_data, and use it instead if possible.
 @[unsafe]
-pub fn v_realloc(b &u8, n isize) &u8 {
+pub fn v_realloc(b &u8, n int) &u8 {
 	$if trace_realloc ? {
 		C.fprintf(C.stderr, c'v_realloc %6d\n', n)
 	}
@@ -321,7 +331,7 @@ pub fn v_realloc(b &u8, n isize) &u8 {
 		}
 		return new_ptr
 	} $else $if vgc ? {
-		new_ptr = unsafe { &u8(vgc_realloc(b, usize(n))) }
+		new_ptr = unsafe { &u8(vgc_realloc(b, uint(n))) }
 	} $else $if gcboehm ? {
 		new_ptr = unsafe { C.GC_REALLOC(b, n) }
 	} $else {
@@ -397,9 +407,13 @@ pub fn realloc_data(old_data &u8, old_size int, new_size int) &u8 {
 	}
 	mut nptr := &u8(unsafe { nil })
 	$if vgc ? {
-		nptr = unsafe { &u8(vgc_realloc(old_data, usize(new_size))) }
+		nptr = unsafe { &u8(vgc_realloc(old_data, uint(new_size))) }
 	} $else $if gcboehm ? {
 		nptr = unsafe { C.GC_REALLOC(old_data, new_size) }
+	} $else $if freestanding {
+		// the freestanding runtime (builtin/freestanding.c.v or linux_bare)
+		// provides realloc/1 in place of the libc call
+		nptr = unsafe { &u8(realloc(old_data, uint(new_size))) }
 	} $else {
 		$if windows {
 			// Warning! On windows, we always use _aligned_realloc to reallocate memory.
@@ -412,13 +426,13 @@ pub fn realloc_data(old_data &u8, old_size int, new_size int) &u8 {
 		}
 	}
 	if nptr == 0 {
-		_memory_panic(@FN, isize(new_size))
+		_memory_panic(@FN, int(new_size))
 	}
 	// realloc(nil, …) means "allocate"; don't report a free with no prior block.
 	if old_data != unsafe { nil } {
 		_ht_free(old_data)
 	}
-	_ht_alloc(nptr, isize(new_size))
+	_ht_alloc(nptr, int(new_size))
 	return nptr
 }
 
@@ -426,7 +440,7 @@ pub fn realloc_data(old_data &u8, old_size int, new_size int) &u8 {
 // vcalloc returns a `byteptr` pointing to the memory address of the allocated space.
 // vcalloc checks for negative values given in `n`.
 @[inline]
-pub fn vcalloc(n isize) &u8 {
+pub fn vcalloc(n int) &u8 {
 	$if trace_vcalloc ? {
 		total_m += n
 		C.fprintf(C.stderr, c'vcalloc %6d total %10d\n', n, total_m)
@@ -450,7 +464,7 @@ pub fn vcalloc(n isize) &u8 {
 	$if prealloc {
 		return unsafe { prealloc_calloc(n) }
 	} $else $if vgc ? {
-		return unsafe { &u8(vgc_calloc(usize(n))) }
+		return unsafe { &u8(vgc_calloc(uint(n))) }
 	} $else $if gcboehm ? {
 		return unsafe { &u8(C.GC_MALLOC(n)) }
 	} $else {
@@ -465,6 +479,11 @@ pub fn vcalloc(n isize) &u8 {
 			}
 			_ht_alloc(ptr, n)
 			return ptr
+		} $else $if freestanding {
+			// route through the freestanding runtime instead of the libc calloc
+			r := unsafe { __calloc(1, uint(n)) }
+			_ht_alloc(r, n)
+			return &u8(r)
 		} $else {
 			r := unsafe { C.calloc(1, n) }
 			_ht_alloc(r, n)
@@ -477,7 +496,7 @@ pub fn vcalloc(n isize) &u8 {
 // special versions of the above that allocate memory which is not scanned
 // for pointers (but is collected) when the Boehm garbage collection is used
 @[inline]
-pub fn vcalloc_noscan(n isize) &u8 {
+pub fn vcalloc_noscan(n int) &u8 {
 	$if trace_vcalloc ? {
 		total_m += n
 		C.fprintf(C.stderr, c'vcalloc_noscan %6d total %10d\n', n, total_m)
@@ -489,7 +508,7 @@ pub fn vcalloc_noscan(n isize) &u8 {
 	$if prealloc {
 		return unsafe { prealloc_calloc(n) }
 	} $else $if vgc ? {
-		return unsafe { &u8(vgc_calloc(usize(n))) }
+		return unsafe { &u8(vgc_calloc(uint(n))) }
 	} $else $if gcboehm ? {
 		if n < 0 {
 			_memory_panic(@FN, n)
@@ -573,6 +592,10 @@ pub fn free(ptr voidptr) {
 			}
 			unsafe { C.GC_FREE(ptr) }
 		}
+	} $else $if freestanding {
+		// route through the freestanding runtime instead of the libc free
+		unsafe { __free(ptr) }
+		return
 	} $else {
 		$if builtin_arena ? {
 			// Arena memory is released in bulk by its arena.
@@ -615,7 +638,7 @@ fn free_unaliased(ptr voidptr) {
 // memdup then copies the contents of `src` into the allocated space and
 // returns a pointer to the newly allocated space.
 @[inline; unsafe]
-pub fn memdup(src voidptr, sz isize) voidptr {
+pub fn memdup(src voidptr, sz int) voidptr {
 	$if trace_memdup ? {
 		C.fprintf(C.stderr, c'memdup size: %10d\n', sz)
 	}
@@ -633,7 +656,7 @@ pub fn memdup(src voidptr, sz isize) voidptr {
 
 // memdup_noscan copies `sz` bytes into newly allocated pointer-free storage.
 @[inline; unsafe]
-pub fn memdup_noscan(src voidptr, sz isize) voidptr {
+pub fn memdup_noscan(src voidptr, sz int) voidptr {
 	$if trace_memdup ? {
 		C.fprintf(C.stderr, c'memdup_noscan size: %10d\n', sz)
 	}
@@ -654,7 +677,7 @@ pub fn memdup_noscan(src voidptr, sz isize) voidptr {
 // memdup_uncollectable then copies the contents of `src` into the allocated
 // space and returns a pointer to the newly allocated space.
 @[unsafe]
-pub fn memdup_uncollectable(src voidptr, sz isize) voidptr {
+pub fn memdup_uncollectable(src voidptr, sz int) voidptr {
 	$if trace_memdup ? {
 		C.fprintf(C.stderr, c'memdup_uncollectable size: %10d\n', sz)
 	}
@@ -675,7 +698,7 @@ pub fn memdup_uncollectable(src voidptr, sz isize) voidptr {
 //   - `sz` must be non-negative
 //   - The memory regions should not overlap
 @[unsafe]
-pub fn memdup_align(src voidptr, sz isize, align isize) voidptr {
+pub fn memdup_align(src voidptr, sz int, align int) voidptr {
 	$if trace_memdup ? {
 		C.fprintf(C.stderr, c'memdup_align size: %10d align: %10d\n', sz, align)
 	}
@@ -704,10 +727,10 @@ pub fn memdup_align(src voidptr, sz isize, align isize) voidptr {
 		res = prealloc_malloc_align(n, align)
 	} $else $if vgc ? {
 		// VGC traces and frees interior pointers within the scanned allocation.
-		alignment := usize(align)
-		base := vgc_malloc(usize(n) + alignment - 1)
+		alignment := uint(align)
+		base := vgc_malloc(uint(n) + alignment - 1)
 		if base != unsafe { nil } {
-			res = unsafe { &u8((usize(base) + alignment - 1) & ~(alignment - 1)) }
+			res = unsafe { &u8((uint(base) + alignment - 1) & ~(alignment - 1)) }
 		}
 	} $else $if gcboehm ? {
 		unsafe {
@@ -721,7 +744,7 @@ pub fn memdup_align(src voidptr, sz isize, align isize) voidptr {
 		// todo: is this safe to call malloc there? We export __malloc as malloc and it uses dlmalloc behind the scenes
 		// so theoretically it is safe
 		panic('memdup_align is not implemented with -freestanding')
-		res = unsafe { __malloc(usize(n)) }
+		res = unsafe { __malloc(uint(n)) }
 	} $else {
 		$if windows {
 			// Warning! On windows, we always use _aligned_malloc to allocate memory.
@@ -752,11 +775,11 @@ pub fn memdup_align(src voidptr, sz isize, align isize) voidptr {
 // the same with `-gc boehm` and `-gc vgc`; they are 0 with `-gc none`.
 pub struct GCHeapUsage {
 pub:
-	heap_size      usize // the heap memory obtained from the OS, without the part returned to it
-	free_bytes     usize // the part of heap_size in free blocks
-	total_bytes    usize // the bytes allocated since the program started
-	unmapped_bytes usize // free heap memory that was returned to the OS
-	bytes_since_gc usize // the bytes allocated since the last collection
+	heap_size      uint // the heap memory obtained from the OS, without the part returned to it
+	free_bytes     uint // the part of heap_size in free blocks
+	total_bytes    uint // the bytes allocated since the program started
+	unmapped_bytes uint // free heap memory that was returned to the OS
+	bytes_since_gc uint // the bytes allocated since the last collection
 }
 
 // gc_heap_usage returns the info about heap usage.
@@ -782,7 +805,7 @@ pub fn gc_heap_usage() GCHeapUsage {
 
 // gc_memory_use returns the total memory use in bytes by all allocated blocks: the heap_size
 // of gc_heap_usage() without its free_bytes.
-pub fn gc_memory_use() usize {
+pub fn gc_memory_use() uint {
 	$if vgc ? {
 		return vgc_memory_use()
 	} $else $if gcboehm ? {
