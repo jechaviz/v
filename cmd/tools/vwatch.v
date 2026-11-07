@@ -586,16 +586,6 @@ fn (mut context Context) run_before_cmd() {
 				output_capture: 'inherited_stdio'
 			))
 		}
-		if exit_code != 0 {
-			eprintln(os.process_command_failure_report('vwatch.command', exit_code,
-				stage:          'before_run'
-				command:        context.cmd_before_run
-				reason:         'before_run_command_failed'
-				action:         'inspect_before_run_command'
-				message:        'the command configured with --before failed'
-				output_capture: 'inherited_stdio'
-			))
-		}
 	}
 }
 
@@ -607,16 +597,6 @@ fn (mut context Context) run_after_cmd() {
 		} else {
 			['sh', '-c', context.cmd_after_run]
 		})
-		if exit_code != 0 {
-			eprintln(os.process_command_failure_report('vwatch.command', exit_code,
-				stage:          'after_run'
-				command:        context.cmd_after_run
-				reason:         'after_run_command_failed'
-				action:         'inspect_after_run_command'
-				message:        'the command configured with --after failed'
-				output_capture: 'inherited_stdio'
-			))
-		}
 		if exit_code != 0 {
 			eprintln(os.process_command_failure_report('vwatch.command', exit_code,
 				stage:          'after_run'
