@@ -313,3 +313,20 @@ or inside the modules that it depends on (like markdown).
 After such changes, just run this command *2 times*, and commit the
 resulting changes in `cmd/tools/vdoc/testdata` as well:
 `VAUTOFIX=1 ./v cmd/tools/vdoc/vdoc_file_test.v`
+
+## Merged compilation of the test files of a module
+
+`v test dir/` compiles every `_test.v` file as its own program, and each program re-parses and
+re-checks the whole module under test. For a directory with several test files of the same
+non-`main` module, the runner writes one `zz_vmerged_<module>_test.v` next to them (imports hoisted
+and deduplicated, bodies concatenated), compiles and runs it once, and deletes it afterwards.
+
+* Only plain `_test.v` files of a named module are merged: no attributes before the `module` line,
+  no `// vtest` directives, not `_test.c.v`/`_test.js.v`, and at least three files in the directory
+  (`VTEST_MERGE_MIN` changes the threshold).
+* The merge never changes a verdict. If the merged program does not compile (for instance a helper
+  with the same name in two files) or one of its tests fails, its files are run one by one, so the
+  report names the real file.
+* `VTEST_NO_MERGE=1` turns it off; it is also off with `VTEST_ONLY`, `fmt`, `vet` and `-check`.
+* A merged file shares one process: tests that depend on process-wide state (environment
+  variables, the working directory) should not rely on running alone.
