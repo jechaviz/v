@@ -35,14 +35,10 @@ fn C._getpid() i32
 // cmd.exe uses when two programs differ only by extension.
 const executable_suffixes = ['.com', '.exe', '.bat', '.cmd', '']
 
-// Windows CRT file type and permission bits, also exposed for parity with Unix.
+// these consts are declared for parity with the nix version, their values are not used, except for -cross
 const s_ifmt = 0xF000 // type of file
-const s_ifsock = 0xC000 // socket
 const s_ifdir = 0x4000 // directory
 const s_ifreg = 0x8000 // regular file
-const s_ifblk = 0x6000 // block device
-const s_ifchr = 0x2000 // character device
-const s_ififo = 0x1000 // FIFO
 const s_iflnk = 0xa000 // link
 const s_isuid = 0o4000 // SUID
 const s_isgid = 0o2000 // SGID
@@ -524,8 +520,14 @@ fn execute_shell(cmd string) Result {
 	if windows_execute_has_forbidden_shell_operator(cmd) {
 		return Result{
 			exit_code: -1
-			output:    '&&, || and \\n are not allowed in shell commands'
+			output:    windows_execute_validation_failure_output('forbidden_shell_operator',
+				'use_os_raw_execute_or_pass_argv_to_os_exec',
+				'&&, || and \\n are not allowed in shell commands', cmd,
+				'command_rejected_before_start;unsupported_shell_operator')
 		}
+	}
+	if args := windows_direct_execute_args(cmd) {
+		return exec(args)
 	}
 	return unsafe { raw_execute_shell(cmd) }
 }
@@ -541,12 +543,92 @@ fn win_exec_application_name(exe string) string {
 	return exe
 }
 
+fn windows_execute_validation_failure_output(reason string, action string, message string, display_cmd string, possible_causes string) string {
+	return process_command_failure_report('os.exec', -1,
+		command:         display_cmd
+		reason:          reason
+		action:          action
+		message:         message
+		output_capture:  'not_started'
+		output_empty:    true
+		possible_causes: possible_causes
+		error_kind:      'validation_error'
+		error:           message
+	)
+}
+
+fn windows_execute_failure_output(reason string, action string, message string, error_num int, error_msg string, display_cmd string) string {
+	return process_command_failure_report('os.exec', error_num,
+		command:           display_cmd
+		reason:            reason
+		action:            action
+		message:           message
+		output_capture:    'pipe'
+		output_empty:      true
+		exit_code_meaning: 'host_api_error_before_child_start'
+		error_code:        error_num
+		error_kind:        'win32_api_error'
+		error:             error_msg
+	)
+}
+
+fn windows_direct_execute_args(cmd string) ?[]string {
+	mut direct_args := []string{}
+	mut current := []u8{cap: cmd.len}
+	mut in_double_quotes := false
+	mut token_started := false
+	for i := 0; i < cmd.len; i++ {
+		ch := cmd[i]
+		if ch == `"` {
+			in_double_quotes = !in_double_quotes
+			token_started = true
+			continue
+		}
+		if !in_double_quotes {
+			if ch == ` ` || ch == `\t` {
+				if token_started {
+					direct_args << current.bytestr().clone()
+					current.clear()
+					token_started = false
+				}
+				continue
+			}
+			if ch in [`|`, `<`, `>`, `&`, `\n`, `\r`, `%`, `!`] {
+				return none
+			}
+		}
+		current << ch
+		token_started = true
+	}
+	if in_double_quotes {
+		return none
+	}
+	if token_started {
+		direct_args << current.bytestr().clone()
+	}
+	if direct_args.len == 0 || !windows_can_direct_execute_program(direct_args[0]) {
+		return none
+	}
+	return direct_args
+}
+
+fn windows_can_direct_execute_program(program string) bool {
+	program_lc := program.to_lower_ascii()
+	if program_lc.ends_with('.bat') || program_lc.ends_with('.cmd') {
+		return false
+	}
+	return is_abs_path(program) || program.contains('\\') || program.contains('/')
+		|| (program_lc.ends_with('.exe') && exists(program))
+}
+
 // exec starts the specified command with arguments, waits for it to complete, and returns its output.
 pub fn exec(args []string) Result {
 	if args.len == 0 {
 		return Result{
 			exit_code: -1
-			output:    'exec requires at least one argument'
+			output:    windows_execute_validation_failure_output('missing_argv',
+				'pass_at_least_one_argument_to_os_exec', 'exec requires at least one argument', '',
+				'command_rejected_before_start;missing_arguments')
 		}
 	}
 	mut command_line := requote_arg(args[0])
@@ -602,10 +684,12 @@ fn raw_execute_shell(cmd string) Result {
 	if cmd.contains('./') {
 		pcmd = pcmd.replace('./', '.\\')
 	}
-	// Both standard handles already point to the capture pipe. Appending a
-	// redirection changes echo output and overrides the caller's stdout redirection.
-	// /s removes only this wrapper's outer quotes, preserving the command inside.
-	return windows_execute_command_line('cmd /s /c "${pcmd}"', '', cmd, true)
+	if cmd.contains('2>') {
+		pcmd = 'cmd /c "${pcmd}"'
+	} else {
+		pcmd = 'cmd /c "${pcmd} 2>&1"'
+	}
+	return windows_execute_command_line(pcmd, '', cmd, true)
 }
 
 fn windows_execute_command_line(command_line_text string, application_name string, display_cmd string, expand_environment bool) Result {
@@ -622,21 +706,24 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 		error_msg := get_error_msg(error_num)
 		return Result{
 			exit_code: error_num
-			output:    'exec failed (CreatePipe): ${error_msg}'
+			output:    windows_execute_failure_output('create_pipe_failed',
+				'abort_before_child_start',
+				'failed to create stdout capture pipe for child process', error_num, error_msg,
+				display_cmd)
 		}
-	}
-	defer {
-		// Setup failures still leave both pipe handles owned by this process.
-		close_valid_handle(&child_stdout_read)
-		close_valid_handle(&child_stdout_write)
 	}
 	set_handle_info_ok := C.SetHandleInformation(child_stdout_read, C.HANDLE_FLAG_INHERIT, 0)
 	if !set_handle_info_ok {
 		error_num := int(C.GetLastError())
 		error_msg := get_error_msg(error_num)
+		C.CloseHandle(child_stdout_read)
+		C.CloseHandle(child_stdout_write)
 		return Result{
 			exit_code: error_num
-			output:    'exec failed (SetHandleInformation): ${error_msg}'
+			output:    windows_execute_failure_output('set_handle_information_failed',
+				'abort_before_child_start',
+				'failed to mark stdout capture handle as non-inheritable', error_num, error_msg,
+				display_cmd)
 		}
 	}
 	proc_info := ProcessInformation{}
@@ -668,12 +755,17 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 	if !create_process_ok {
 		error_num := int(C.GetLastError())
 		error_msg := get_error_msg(error_num)
+		C.CloseHandle(child_stdout_read)
+		C.CloseHandle(child_stdout_write)
 		return Result{
 			exit_code: error_num
-			output:    'exec failed (CreateProcess) with code ${error_num}: ${error_msg} cmd: ${display_cmd}'
+			output:    windows_execute_failure_output('create_process_failed',
+				'abort_before_child_start', 'failed to start child process with CreateProcessW',
+				error_num, error_msg, display_cmd)
 		}
 	}
-	close_valid_handle(&child_stdout_write)
+	C.CloseHandle(child_stdin)
+	C.CloseHandle(child_stdout_write)
 	buf := [4096]u8{}
 	mut read_data := strings.new_builder(1024)
 	for {
@@ -697,6 +789,7 @@ fn windows_execute_command_line(command_line_text string, application_name strin
 	unsafe {
 		C.GetExitCodeProcess(proc_info.h_process, &C.DWORD(&exit_code))
 	}
+	C.CloseHandle(child_stdout_read)
 	C.CloseHandle(proc_info.h_process)
 	C.CloseHandle(proc_info.h_thread)
 	return Result{
