@@ -42,7 +42,7 @@ fn test_shared_library_links_with_system_cc() {
 	run_cmd('cc ${os.quoted_path(host_src)} -L${os.quoted_path(workdir)} -lfoo -o ${os.quoted_path(host_bin)}') or {
 		panic(err)
 	}
-	res := run_cmd('env LD_LIBRARY_PATH=${os.quoted_path(workdir)} ${os.quoted_path(host_bin)}') or {
+	res := run_cmd('LD_LIBRARY_PATH=${os.quoted_path(workdir)} ${os.quoted_path(host_bin)}') or {
 		panic(err)
 	}
 	assert res.output.trim_space() == '4'
@@ -105,7 +105,7 @@ fn test_shared_library_only_exports_tagged_symbols() {
 fn run_cmd(cmd string) !os.Result {
 	res := os.exec(os.split_args(cmd) or { panic(err) })
 	if res.exit_code != 0 {
-		return error('command failed:\n${cmd}\n${res.output}')
+		return error(res.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 	return res
 }
