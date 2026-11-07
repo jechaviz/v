@@ -618,7 +618,9 @@ pub fn user_names() ![]string {
 	$if windows {
 		result := exec(['wmic', 'useraccount', 'get', 'name'])
 		if result.exit_code != 0 {
-			return error('Failed to get user names. Exited with code ${result.exit_code}: ${result.output}')
+			return error(execute_failure_report('os.user_names', 'user_query_failed',
+				'report_wmic_failure', 'failed to get Windows user names with wmic',
+				'wmic useraccount get name', result))
 		}
 		mut users := result.output.split_into_lines()
 		// windows command prints an empty line at the end of output
@@ -665,27 +667,11 @@ pub fn expand_tilde_to_home(path string) string {
 // write_file writes `text` data to a file with the given `path`.
 // If `path` already exists, it will be overwritten.
 pub fn write_file(path string, text string) ! {
-	$if freestanding || syscalls {
-		// The synchronous write borrows the immutable string buffer.
-		fsys_write_file(path, unsafe { text.str.vbytes(text.len) })!
-		return
+	mut f := create(path)!
+	defer {
+		f.close()
 	}
-	$if !freestanding && !syscalls {
-		$if vlibc ? {
-			// The synchronous write borrows the immutable string buffer.
-			e := vlibc_write_file(path, unsafe { text.str.vbytes(text.len) })
-			if e != .enoerror {
-				return error_with_code('write_file failed: ${e}', int(e))
-			}
-			return
-		} $else {
-			mut f := create(path)!
-			defer {
-				f.close()
-			}
-			unsafe { f.write_full_buffer(text.str, uint(text.len))! }
-		}
-	}
+	unsafe { f.write_full_buffer(text.str, usize(text.len))! }
 }
 
 pub struct ExecutableNotFoundError {
@@ -1041,7 +1027,7 @@ pub fn walk_dir(root string, cb WalkDirFn) ! {
 		// Filled through locals and handed over in a single struct literal, so
 		// that the public fields can stay read-only for callers.
 		mut typ := FileType.unknown
-		mut is_directory := false
+		mut is_dir := false
 		mut entry_err := ?IError(none)
 		if attr := lstat(cpath) {
 			typ = attr.get_filetype()
@@ -1052,7 +1038,7 @@ pub fn walk_dir(root string, cb WalkDirFn) ! {
 					typ = .symbolic_link
 				}
 			}
-			is_directory = typ == .directory
+			is_dir = typ == .directory
 		} else {
 			// The entry could not be read, so is_dir stays false and a directory
 			// is not descended into.
@@ -1061,7 +1047,7 @@ pub fn walk_dir(root string, cb WalkDirFn) ! {
 		entry := WalkDirEntry{
 			name:   file_name(cpath)
 			typ:    typ
-			is_dir: is_directory
+			is_dir: is_dir
 			err:    entry_err
 		}
 		// Whether to descend into cpath, which a .skip_dir reply can veto.
@@ -1406,14 +1392,24 @@ pub mut:
 	machine  string
 }
 
+fn execute_failure_report(prefix string, reason string, action string, message string, cmd string, res Result) string {
+	return res.command_failure_report(prefix,
+		reason:  reason
+		action:  action
+		message: message
+		command: cmd
+	)
+}
+
 // execute_or_panic returns the os.Result of executing `cmd`, or panic with its output on failure.
 @[deprecated: 'use os.exec_or_panic with an argument array; command strings can allow shell injection']
 pub fn execute_or_panic(cmd string) Result {
 	res := execute_shell(cmd)
 	if res.exit_code != 0 {
-		eprintln('failed    cmd: ${cmd}')
-		eprintln('failed   code: ${res.exit_code}')
-		panic(res.output)
+		report := execute_failure_report('os.execute', 'child_exit_nonzero',
+			'panic_with_child_output', 'command exited with a non-zero status', cmd, res)
+		eprintln(report)
+		panic(report)
 	}
 	return res
 }
@@ -1423,9 +1419,8 @@ pub fn execute_or_panic(cmd string) Result {
 pub fn execute_or_exit(cmd string) Result {
 	res := execute_shell(cmd)
 	if res.exit_code != 0 {
-		eprintln('failed    cmd: ${cmd}')
-		eprintln('failed   code: ${res.exit_code}')
-		eprintln(res.output)
+		eprintln(execute_failure_report('os.execute', 'child_exit_nonzero',
+			'exit_after_reporting_child_failure', 'command exited with a non-zero status', cmd, res))
 		exit(1)
 	}
 	return res
@@ -1468,7 +1463,8 @@ pub fn exec_or_exit(args []string) Result {
 pub fn exec_opt(args []string) !Result {
 	res := exec(args)
 	if res.exit_code != 0 {
-		return error(res.output)
+		return error(execute_failure_report('os.execute', 'child_exit_nonzero',
+			'return_error_with_exit_code', 'command exited with a non-zero status', cmd, res))
 	}
 	return res
 }
