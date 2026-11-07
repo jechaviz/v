@@ -11,8 +11,6 @@ import sync.pool
 import v.pref
 import v.util
 import v.util.vflags
-import v.util
-import v.util.vflags
 import v.scanner
 import v.token
 import v.util.vtest
@@ -299,16 +297,6 @@ fn get_all_processes() []string {
 			return []
 		}
 		return ps_result.output.split_any('\r\n')
-		if ps_result.exit_code != 0 {
-			eprintln(ps_result.command_failure_report('vtest.process_list',
-				reason:  'process_listing_failed'
-				action:  'continue_without_process_snapshot'
-				message: 'unable to list host processes'
-				command: 'ps ax'
-			))
-			return []
-		}
-		return ps_result.output.split_any('\r\n')
 	}
 }
 
@@ -553,9 +541,6 @@ pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Res
 			exit_code: -1
 			output:    err.msg()
 		}
-			exit_code: -1
-			output:    err.msg()
-		}
 	}
 	return ts.exec(args, mtc)
 }
@@ -587,26 +572,6 @@ pub fn (mut ts TestSession) exec(args []string, mtc MessageThreadContext) os.Res
 		}
 	}
 	return process_guard_with_silent_diagnostics(cmd, process_singleton_exec_args(args, cmd))
-		return os.Result{
-			exit_code: -1
-			output:    'empty command'
-		}
-	}
-	if process_guard_compile_enabled() {
-		return process_guard_with_silent_diagnostics(cmd,
-			process_guard_execute(args[0], args[1..], cmd))
-	}
-	if pressure_result := process_guard_wait_for_host_memory('vtest_compile', cmd) {
-		if pressure_result != '' && show_cmd {
-			ts.append_message(.info, pressure_result, mtc)
-		}
-	} else {
-		return os.Result{
-			exit_code: process_guard_host_pressure_exit_code
-			output:    err.msg()
-		}
-	}
-	return process_guard_with_silent_diagnostics(cmd, process_singleton_exec_args(args, cmd))
 }
 
 // system runs a legacy command string.
@@ -616,10 +581,6 @@ pub fn (mut ts TestSession) system(cmd string, mtc MessageThreadContext) int {
 		ts.append_message(.info, '> system cmd: ${cmd}', mtc)
 	}
 	args := os.split_args(cmd) or {
-		eprintln(err.msg())
-		return -1
-	}
-	return ts.system_args(args, mtc)
 		eprintln(err.msg())
 		return -1
 	}
@@ -722,10 +683,8 @@ fn (mut ts TestSession) handle_test_runner_option() {
 	if test_runner_name !in pref.supported_test_runners {
 		eprintln('v test: `-test-runner ${test_runner_name}` is not using one of the supported test runners: ${pref.supported_test_runners_list()}')
 		exit(1)
-		exit(1)
 	}
 	test_runner_implementation_file := os.join_path(ts.vroot,
-		'cmd/tools/testing/output_${test_runner_name}.v')
 		'cmd/tools/testing/output_${test_runner_name}.v')
 	if !os.exists(test_runner_implementation_file) {
 		eprintln('v test: using `-test-runner ${test_runner_name}` needs ${test_runner_implementation_file} to exist, and contain a valid testing.Reporter implementation for that runner. See `cmd/tools/testing/output_dump.v` for an example.')
@@ -806,14 +765,6 @@ pub fn (mut ts TestSession) test() {
 		remaining_files, merge_plan = plan_module_merging_for(remaining_files, ts.skip_files,
 			process_singleton_jobs(memory_plan.jobs))
 	}
-	default_jobs := test_runner_jobs(ts.will_compile)
-	memory_plan := util.memory_backpressure_plan('vtest', default_jobs)
-	mut merge_plan := MergePlan{}
-	if ts.exec_mode == .compile_and_run && ts.will_compile && os.getenv('VTEST_ONLY') == ''
-		&& !merging_disabled(ts.vargs) {
-		remaining_files, merge_plan = plan_module_merging_for(remaining_files, ts.skip_files,
-			process_singleton_jobs(memory_plan.jobs))
-	}
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
 	mut njobs := if vtest_no_parallel_requested(ts.vargs) {
@@ -821,14 +772,9 @@ pub fn (mut ts TestSession) test() {
 	} else {
 		process_singleton_jobs(memory_plan.jobs)
 	}
-		1
-	} else {
-		process_singleton_jobs(memory_plan.jobs)
-	}
 	if remaining_files.len < njobs {
 		njobs = remaining_files.len
 	}
-	util.memory_backpressure_apply_plan(util.memory_backpressure_plan_with_jobs(memory_plan, njobs))
 	util.memory_backpressure_apply_plan(util.memory_backpressure_plan_with_jobs(memory_plan, njobs))
 	ts.benchmark.njobs = njobs
 	mut pool_of_test_runners := pool.new_pool_processor(
@@ -846,10 +792,6 @@ pub fn (mut ts TestSession) test() {
 
 	// all the testing happens here:
 	pool_of_test_runners.work_on_pointers(unsafe { remaining_files.pointers() })
-	if !merge_plan.is_empty() {
-		ts.rerun_failed_merges(merge_plan, njobs)
-		merge_plan.remove_merged_files()
-	}
 	if !merge_plan.is_empty() {
 		ts.rerun_failed_merges(merge_plan, njobs)
 		merge_plan.remove_merged_files()
@@ -872,10 +814,6 @@ pub fn (mut ts TestSession) test() {
 	if os.ls(ts.vtmp_dir) or { [] }.len == 0 {
 		os.rmdir_all(ts.vtmp_dir) or {}
 	}
-}
-
-fn vtest_no_parallel_requested(vargs string) bool {
-	return '-no-parallel' in vflags.tokenize_to_args(vargs)
 }
 
 fn vtest_no_parallel_requested(vargs string) bool {
@@ -1118,8 +1056,6 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		// a merged file that does not compile is not flaky: it is rerun file by file instead
 		compile_attempts := if fname.starts_with(merged_prefix) { 1 } else { max_compilation_retries }
 		for cretry in 0 .. compile_attempts {
-		compile_attempts := if fname.starts_with(merged_prefix) { 1 } else { max_compilation_retries }
-		for cretry in 0 .. compile_attempts {
 			compile_r = ts.exec(compile_argv, mtc)
 			compile_cmd_duration = compile_d_cmd.elapsed()
 			// eprintln('>>>> cretry: ${cretry} | compile_r.exit_code: ${compile_r.exit_code} | compile_cmd_duration: ${compile_cmd_duration:8} | file: ${normalised_relative_file}')
@@ -1138,14 +1074,9 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				reason:  'test_compilation_failed'
 				action:  'inspect_compiler_output_and_reproduce'
 			)
-			compile_failure_report := compile_r.exit_code_diagnostics('0',
-				label:   @FN
-				command: cmd
-				reason:  'test_compilation_failed'
-				action:  'inspect_compiler_output_and_reproduce'
-			)
 			ts.append_message_with_duration(.fail, tls_bench.step_message_with_label_and_duration(benchmark.b_fail,
 				'${normalised_relative_file}\n${compile_failure_report}', cmd_duration,
+				preparation: compile_cmd_duration
 			), cmd_duration, mtc)
 			ts.add_failed_cmd(reproduce_cmd)
 			return pool.no_result
@@ -1175,7 +1106,6 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				failure_output.write_string(separator)
 				failure_output.writeln(test_run_failure_attempt_report(0, details.retry,
 					r.exit_code, trimmed_output.len))
-					r.exit_code, trimmed_output.len))
 			}
 			failure_output.writeln(trimmed_output)
 			os.setenv('VTEST_RETRY_MAX', '${details.retry}', true)
@@ -1198,7 +1128,6 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				trimmed_output = r.output.trim_space()
 				failure_output.write_string(separator)
 				failure_output.writeln(test_run_failure_attempt_report(retry, details.retry,
-					r.exit_code, trimmed_output.len))
 					r.exit_code, trimmed_output.len))
 				failure_output.writeln(trimmed_output)
 				time.sleep(fail_retry_delay_ms)
@@ -1244,20 +1173,6 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		), cmd_duration, mtc)
 	}
 	return pool.no_result
-}
-
-fn test_run_failure_attempt_report(retry int, max_retry int, exit_code int, output_len int) string {
-	return [
-		'vtest.run.failure=true',
-		'vtest.run.reason=child_exit_nonzero',
-		'vtest.run.action=retry_or_report_failure',
-		'vtest.run.message=The generated test process exited with a non-zero status.',
-		'vtest.run.retry=${retry}',
-		'vtest.run.max_retry=${max_retry}',
-		'vtest.run.exit_code=${exit_code}',
-		'vtest.run.exit_code_meaning=${os.process_exit_code_meaning(exit_code)}',
-		'vtest.run.output_len=${output_len}',
-	].join('\n')
 }
 
 fn test_run_failure_attempt_report(retry int, max_retry int, exit_code int, output_len int) string {
@@ -1405,20 +1320,11 @@ pub fn build_v_args_failed(args []string) bool {
 			command: args.join(' ')
 			reason:  'build_command_start_failed'
 		))
-		eprintln(res.exit_code_diagnostics('0',
-			label:   @FN
-			command: args.join(' ')
-			reason:  'build_command_start_failed'
-		))
 		return true
 	}
 	if res.exit_code != 0 {
 		eprintln('')
 		eprintln(res.exit_code_diagnostics('0',
-			label:   @FN
-			command: args.join(' ')
-			reason:  'build_command_failed'
-		))
 			label:   @FN
 			command: args.join(' ')
 			reason:  'build_command_failed'
