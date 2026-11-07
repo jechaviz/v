@@ -1,5 +1,17 @@
 module builtin
 
+#include "@VEXEROOT/vlib/builtin/v_recover.h"
+
+fn C.v_recover_setjmp() int
+fn C.v_recover_is_active() int
+fn C.v_recover_clear()
+
+@[noreturn]
+fn C.v_recover_longjmp()
+
+// g_recover_msg holds the message of the most recently recovered panic.
+__global g_recover_msg = ''
+
 // Panic recovery, the way Go does it.
 //
 // Once a program calls `recover()`, V3 cgen gives every `defer` a frame. The
@@ -78,6 +90,40 @@ __global g_panic_state = PanicState{}
 // ```
 pub fn recover() ?string {
 	return none
+}
+
+// recover_call runs `cb` and returns true if it completed normally, or false if it panicked.
+// It uses one shared jump buffer, so calls must not be nested. A recovered panic skips defer
+// blocks and manual frees in the unwound frames; it is intended for the default GC build.
+pub fn recover_call(cb fn ()) bool {
+	if C.v_recover_setjmp() == 0 {
+		cb()
+		C.v_recover_clear()
+		return true
+	}
+	C.v_recover_clear()
+	return false
+}
+
+// recover_value returns the callback result, or none when it panics.
+pub fn recover_value[T](cb fn () T) ?T {
+	if C.v_recover_setjmp() == 0 {
+		res := cb()
+		C.v_recover_clear()
+		return res
+	}
+	C.v_recover_clear()
+	return none
+}
+
+// recover_message returns the text of the most recently recovered panic.
+pub fn recover_message() string {
+	return g_recover_msg
+}
+
+// recover_active reports whether execution is currently inside a recover_call guard.
+pub fn recover_active() bool {
+	return C.v_recover_is_active() != 0
 }
 
 // panic_frame_push links the frame of a `defer` that was just reached.
@@ -200,7 +246,7 @@ fn panic_unwind(msg string, debug PanicDebugInfo) {
 	if g_panic_state.len == g_panic_state.cap {
 		new_cap := if g_panic_state.cap == 0 { 4 } else { g_panic_state.cap * 2 }
 		records := unsafe {
-			&PanicRecord(C.realloc(g_panic_state.records, uint(new_cap) * uint(sizeof(PanicRecord))))
+			&PanicRecord(C.realloc(g_panic_state.records, usize(new_cap) * usize(sizeof(PanicRecord))))
 		}
 		if records == unsafe { nil } {
 			panic_frames_reset()
@@ -209,13 +255,13 @@ fn panic_unwind(msg string, debug PanicDebugInfo) {
 		g_panic_state.records = records
 		g_panic_state.cap = new_cap
 	}
-	msg_copy := unsafe { &u8(C.malloc(uint(msg.len + 1))) }
+	msg_copy := unsafe { &u8(C.malloc(usize(msg.len + 1))) }
 	if msg_copy == unsafe { nil } {
 		panic_frames_reset()
 		panic(msg)
 	}
 	unsafe {
-		C.memcpy(msg_copy, msg.str, uint(msg.len))
+		C.memcpy(msg_copy, msg.str, usize(msg.len))
 		msg_copy[msg.len] = 0
 	}
 	mut rec := panic_record(g_panic_state.len)
