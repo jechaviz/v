@@ -9,6 +9,8 @@ import benchmark
 import sync
 import sync.pool
 import v.pref
+import v.util
+import v.util.vflags
 import v.scanner
 import v.token
 import v.util.vtest
@@ -284,7 +286,17 @@ fn get_all_processes() []string {
 		// TODO
 		return []
 	} $else {
-		return os.exec(['ps', 'ax']).output.split_any('\r\n')
+		ps_result := os.exec(['ps', 'ax'])
+		if ps_result.exit_code != 0 {
+			eprintln(ps_result.command_failure_report('vtest.process_list',
+				reason:  'process_listing_failed'
+				action:  'continue_without_process_snapshot'
+				message: 'unable to list host processes'
+				command: 'ps ax'
+			))
+			return []
+		}
+		return ps_result.output.split_any('\r\n')
 	}
 }
 
@@ -524,10 +536,13 @@ pub fn (mut ts TestSession) print_messages() {
 // execute runs a legacy command string.
 @[deprecated: 'use TestSession.exec with an argument array to avoid shell injection']
 pub fn (mut ts TestSession) execute(cmd string, mtc MessageThreadContext) os.Result {
-	if show_cmd {
-		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
+	args := os.split_args(cmd) or {
+		return os.Result{
+			exit_code: -1
+			output:    err.msg()
+		}
 	}
-	return os.exec(os.split_args(cmd) or { panic(err) })
+	return ts.exec(args, mtc)
 }
 
 // exec runs literal arguments without invoking a shell.
@@ -536,7 +551,27 @@ pub fn (mut ts TestSession) exec(args []string, mtc MessageThreadContext) os.Res
 	if show_cmd {
 		ts.append_message(.info, '> execute cmd: ${cmd}', mtc)
 	}
-	return os.exec(args)
+	if args.len == 0 {
+		return os.Result{
+			exit_code: -1
+			output:    'empty command'
+		}
+	}
+	if process_guard_compile_enabled() {
+		return process_guard_with_silent_diagnostics(cmd,
+			process_guard_execute(args[0], args[1..], cmd))
+	}
+	if pressure_result := process_guard_wait_for_host_memory('vtest_compile', cmd) {
+		if pressure_result != '' && show_cmd {
+			ts.append_message(.info, pressure_result, mtc)
+		}
+	} else {
+		return os.Result{
+			exit_code: process_guard_host_pressure_exit_code
+			output:    err.msg()
+		}
+	}
+	return process_guard_with_silent_diagnostics(cmd, process_singleton_exec_args(args, cmd))
 }
 
 // system runs a legacy command string.
@@ -545,7 +580,11 @@ pub fn (mut ts TestSession) system(cmd string, mtc MessageThreadContext) int {
 	if show_cmd {
 		ts.append_message(.info, '> system cmd: ${cmd}', mtc)
 	}
-	return os.system_args(os.split_args(cmd) or { panic(err) })
+	args := os.split_args(cmd) or {
+		eprintln(err.msg())
+		return -1
+	}
+	return ts.system_args(args, mtc)
 }
 
 // system_args runs literal arguments without invoking a shell.
@@ -554,7 +593,7 @@ pub fn (mut ts TestSession) system_args(args []string, mtc MessageThreadContext)
 	if show_cmd {
 		ts.append_message(.info, '> system cmd: ${cmd}', mtc)
 	}
-	return os.system_args(args)
+	return process_singleton_system_args(args, cmd)
 }
 
 fn should_retry_execution(result os.Result) bool {
@@ -640,16 +679,18 @@ fn windows_disabled_fasthttp_veb_tests(vroot string) []string {
 }
 
 fn (mut ts TestSession) handle_test_runner_option() {
-	test_runner := cmdline.option(os.args, '-test-runner', 'normal')
-	if test_runner !in pref.supported_test_runners {
-		eprintln('v test: `-test-runner ${test_runner}` is not using one of the supported test runners: ${pref.supported_test_runners_list()}')
-	}
-	test_runner_implementation_file := os.join_path(ts.vroot, 'cmd/tools/testing/output_${test_runner}.v')
-	if !os.exists(test_runner_implementation_file) {
-		eprintln('v test: using `-test-runner ${test_runner}` needs ${test_runner_implementation_file} to exist, and contain a valid testing.Reporter implementation for that runner. See `cmd/tools/testing/output_dump.v` for an example.')
+	test_runner_name := cmdline.option(os.args, '-test-runner', 'normal')
+	if test_runner_name !in pref.supported_test_runners {
+		eprintln('v test: `-test-runner ${test_runner_name}` is not using one of the supported test runners: ${pref.supported_test_runners_list()}')
 		exit(1)
 	}
-	match test_runner {
+	test_runner_implementation_file := os.join_path(ts.vroot,
+		'cmd/tools/testing/output_${test_runner_name}.v')
+	if !os.exists(test_runner_implementation_file) {
+		eprintln('v test: using `-test-runner ${test_runner_name}` needs ${test_runner_implementation_file} to exist, and contain a valid testing.Reporter implementation for that runner. See `cmd/tools/testing/output_dump.v` for an example.')
+		exit(1)
+	}
+	match test_runner_name {
 		'normal' {
 			// default, nothing to do
 		}
@@ -716,12 +757,25 @@ pub fn (mut ts TestSession) test() {
 		remaining_files << dot_relative_file
 	}
 	remaining_files = vtest.filter_vtest_only(remaining_files, fix_slashes: false)
+	default_jobs := test_runner_jobs(ts.will_compile)
+	memory_plan := util.memory_backpressure_plan('vtest', default_jobs)
+	mut merge_plan := MergePlan{}
+	if ts.exec_mode == .compile_and_run && ts.will_compile && os.getenv('VTEST_ONLY') == ''
+		&& !merging_disabled(ts.vargs) {
+		remaining_files, merge_plan = plan_module_merging_for(remaining_files, ts.skip_files,
+			process_singleton_jobs(memory_plan.jobs))
+	}
 	ts.files = remaining_files
 	ts.benchmark.set_total_expected_steps(remaining_files.len)
-	mut njobs := test_runner_jobs(ts.will_compile)
+	mut njobs := if vtest_no_parallel_requested(ts.vargs) {
+		1
+	} else {
+		process_singleton_jobs(memory_plan.jobs)
+	}
 	if remaining_files.len < njobs {
 		njobs = remaining_files.len
 	}
+	util.memory_backpressure_apply_plan(util.memory_backpressure_plan_with_jobs(memory_plan, njobs))
 	ts.benchmark.njobs = njobs
 	mut pool_of_test_runners := pool.new_pool_processor(
 		callback: worker_trunner
@@ -738,6 +792,10 @@ pub fn (mut ts TestSession) test() {
 
 	// all the testing happens here:
 	pool_of_test_runners.work_on_pointers(unsafe { remaining_files.pointers() })
+	if !merge_plan.is_empty() {
+		ts.rerun_failed_merges(merge_plan, njobs)
+		merge_plan.remove_merged_files()
+	}
 
 	ts.benchmark_stop()
 	ts.append_message(.sentinel, '', MessageThreadContext{ flow_id: '-1' }) // send the sentinel
@@ -756,6 +814,10 @@ pub fn (mut ts TestSession) test() {
 	if os.ls(ts.vtmp_dir) or { [] }.len == 0 {
 		os.rmdir_all(ts.vtmp_dir) or {}
 	}
+}
+
+fn vtest_no_parallel_requested(vargs string) bool {
+	return '-no-parallel' in vflags.tokenize_to_args(vargs)
 }
 
 fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
@@ -991,7 +1053,9 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		ts.append_message(.compile_begin, cmd, mtc)
 		compile_d_cmd := time.new_stopwatch()
 		mut compile_r := os.Result{}
-		for cretry in 0 .. max_compilation_retries {
+		// a merged file that does not compile is not flaky: it is rerun file by file instead
+		compile_attempts := if fname.starts_with(merged_prefix) { 1 } else { max_compilation_retries }
+		for cretry in 0 .. compile_attempts {
 			compile_r = ts.exec(compile_argv, mtc)
 			compile_cmd_duration = compile_d_cmd.elapsed()
 			// eprintln('>>>> cretry: ${cretry} | compile_r.exit_code: ${compile_r.exit_code} | compile_cmd_duration: ${compile_cmd_duration:8} | file: ${normalised_relative_file}')
@@ -1004,9 +1068,14 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		if compile_r.exit_code != 0 {
 			ts.benchmark_fail()
 			tls_bench.fail()
+			compile_failure_report := compile_r.exit_code_diagnostics('0',
+				label:   @FN
+				command: cmd
+				reason:  'test_compilation_failed'
+				action:  'inspect_compiler_output_and_reproduce'
+			)
 			ts.append_message_with_duration(.fail, tls_bench.step_message_with_label_and_duration(benchmark.b_fail,
-				'${normalised_relative_file}\n>> compilation failed:\n${compile_r.output}',
-				cmd_duration,
+				'${normalised_relative_file}\n${compile_failure_report}', cmd_duration,
 				preparation: compile_cmd_duration
 			), cmd_duration, mtc)
 			ts.add_failed_cmd(reproduce_cmd)
@@ -1024,7 +1093,7 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		mut failure_output := strings.new_builder(1024)
 		ts.append_message(.cmd_begin, run_cmd, mtc)
 		d_cmd := time.new_stopwatch()
-		mut r := ts.exec(os.split_args(run_cmd) or { panic(err) }, mtc)
+		mut r := execute_test_binary(generated_binary_fpath, run_js, run_cmd)
 		cmd_duration = d_cmd.elapsed()
 		ts.append_message_with_duration(.cmd_end, r.output, cmd_duration, mtc)
 		if ts.show_asserts && r.exit_code == 0 {
@@ -1035,7 +1104,8 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 			add_automatic_execution_retry(mut details, r)
 			if details.retry != 0 {
 				failure_output.write_string(separator)
-				failure_output.writeln(' retry: 0 ; max_retry: ${details.retry} ; r.exit_code: ${r.exit_code} ; trimmed_output.len: ${trimmed_output.len}')
+				failure_output.writeln(test_run_failure_attempt_report(0, details.retry,
+					r.exit_code, trimmed_output.len))
 			}
 			failure_output.writeln(trimmed_output)
 			os.setenv('VTEST_RETRY_MAX', '${details.retry}', true)
@@ -1046,7 +1116,7 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				os.setenv('VTEST_RETRY', '${retry}', true)
 				ts.append_message(.cmd_begin, run_cmd, mtc)
 				d_cmd_2 := time.new_stopwatch()
-				r = ts.exec(os.split_args(run_cmd) or { panic(err) }, mtc)
+				r = execute_test_binary(generated_binary_fpath, run_js, run_cmd)
 				cmd_duration = d_cmd_2.elapsed()
 				ts.append_message_with_duration(.cmd_end, r.output, cmd_duration, mtc)
 
@@ -1057,7 +1127,8 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 				}
 				trimmed_output = r.output.trim_space()
 				failure_output.write_string(separator)
-				failure_output.writeln(' retry: ${retry} ; max_retry: ${details.retry} ; r.exit_code: ${r.exit_code} ; trimmed_output.len: ${trimmed_output.len}')
+				failure_output.writeln(test_run_failure_attempt_report(retry, details.retry,
+					r.exit_code, trimmed_output.len))
 				failure_output.writeln(trimmed_output)
 				time.sleep(fail_retry_delay_ms)
 			}
@@ -1102,6 +1173,20 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		), cmd_duration, mtc)
 	}
 	return pool.no_result
+}
+
+fn test_run_failure_attempt_report(retry int, max_retry int, exit_code int, output_len int) string {
+	return [
+		'vtest.run.failure=true',
+		'vtest.run.reason=child_exit_nonzero',
+		'vtest.run.action=retry_or_report_failure',
+		'vtest.run.message=The generated test process exited with a non-zero status.',
+		'vtest.run.retry=${retry}',
+		'vtest.run.max_retry=${max_retry}',
+		'vtest.run.exit_code=${exit_code}',
+		'vtest.run.exit_code_meaning=${os.process_exit_code_meaning(exit_code)}',
+		'vtest.run.output_len=${output_len}',
+	].join('\n')
 }
 
 pub fn vlib_should_be_present(parent_dir string) {
@@ -1230,11 +1315,20 @@ pub fn build_v_cmd_failed(cmd string) bool {
 pub fn build_v_args_failed(args []string) bool {
 	res := os.exec(args)
 	if res.exit_code < 0 {
+		eprintln(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: args.join(' ')
+			reason:  'build_command_start_failed'
+		))
 		return true
 	}
 	if res.exit_code != 0 {
 		eprintln('')
-		eprintln(res.output)
+		eprintln(res.exit_code_diagnostics('0',
+			label:   @FN
+			command: args.join(' ')
+			reason:  'build_command_failed'
+		))
 		return true
 	}
 	return false
