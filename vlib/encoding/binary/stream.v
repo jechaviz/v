@@ -86,6 +86,13 @@ pub fn read[T](mut reader io.Reader, order ByteOrder, mut data T) ! {
 	read_value(mut reader, order, mut data)!
 }
 
+// read_val decodes a fixed-size value of type T from reader using order and returns it.
+pub fn read_val[T](mut reader io.Reader, order ByteOrder) !T {
+	mut data := T{}
+	read_value(mut reader, order, mut data)!
+	return data
+}
+
 // write encodes fixed-size values to writer using order.
 pub fn write[T](mut writer io.Writer, order ByteOrder, data T) ! {
 	write_value(mut writer, order, data)!
