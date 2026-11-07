@@ -1,0 +1,32 @@
+struct FilterItem {
+	active bool
+}
+
+struct FilterReport {
+	name         string
+	a            f64
+	b            f64
+	c            f64
+	d            f64
+	e            int
+	active_items int
+	items        []FilterItem
+	complete     bool
+}
+
+fn main() {
+	mut reports := []FilterReport{}
+	items := [FilterItem{ active: true }, FilterItem{}]
+	reports << FilterReport{
+		name:         'month'
+		a:            1.0
+		b:            2.0
+		c:            3.0
+		d:            4.0
+		e:            5
+		active_items: items.filter(it.active).len
+		items:        items
+		complete:     true
+	}
+	assert reports[0].active_items == 1
+}
