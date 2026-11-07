@@ -8,6 +8,7 @@ fn builtin_init() {
 	$if prealloc && v3_backend ? {
 		unsafe { prealloc_vinit() }
 	}
+	auto_process_memory_guard_init()
 	$if gcboehm ? {
 		$if !gc_warn_on_stderr ? {
 			gc_set_warn_proc(internal_gc_warn_proc_none)
