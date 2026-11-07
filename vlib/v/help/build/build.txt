@@ -186,6 +186,12 @@ NB: the build flags are shared with the run command too:
     Allow ordinary variables and mutable call arguments in user code to omit explicit `mut`.
     `mut`/`shared`/`atomic` in function and method signatures remain unchanged.
 
+  -snoop
+    Trace function entries, executed source statements, and changed local values to stderr
+    (C backend only). Statement records include the file, source line, function, and source
+    text. Use -trace-fns to restrict tracing. Tracing disables the module cache.
+    Example: v -snoop -trace-fns 'main.*' run examples/hello_world.v
+
   -trace-calls
     Log entries to generated V functions on stderr (C backend only).
     Each record contains the thread id, elapsed timer value, stack delta in bytes,
@@ -197,7 +203,7 @@ NB: the build flags are shared with the run command too:
     Example: v -trace-calls run examples/hello_world.v
 
   -trace-fns <patterns>
-    Restrict -trace-calls to comma-separated function or module names/glob patterns.
+    Restrict -snoop and -trace-calls to comma-separated function or module patterns.
     This selects entries, not their callees. The trace header is still printed
     when no function matches. Quote wildcard patterns to avoid shell expansion.
     Example: v -trace-calls -trace-fns 'main.*,println,_vcleanup' run program.v
