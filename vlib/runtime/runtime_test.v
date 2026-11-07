@@ -5,9 +5,14 @@ fn test_physical_memory() {
 	$if windows || linux || darwin || freebsd || openbsd {
 		total := runtime.total_memory()!
 		free := runtime.free_memory()!
+		total_virtual := runtime.total_virtual_memory()!
+		free_virtual := runtime.free_virtual_memory()!
 		println('total memory: ${total}')
 		println('free  memory: ${free}')
+		println('total virtual memory: ${total_virtual}')
+		println('free  virtual memory: ${free_virtual}')
 		assert total > 0 && free > 0
+		assert total_virtual > 0 && free_virtual > 0
 	} $else {
 		total := runtime.total_memory()!
 		_ := runtime.free_memory() or { assert err.msg().contains('not implemented') }
