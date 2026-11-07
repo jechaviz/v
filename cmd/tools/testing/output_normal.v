@@ -31,8 +31,8 @@ mut:
 	//
 	running   map[string]LogMessage
 	compiling map[string]LogMessage
-	rtimes    []TaskDuration
-	ctimes    []TaskDuration
+	rtimes    shared []TaskDuration
+	ctimes    shared []TaskDuration
 	active_mu &sync.RwMutex = sync.new_rwmutex()
 }
 
@@ -86,19 +86,38 @@ fn (r &NormalReporter) show_longest(label string, limit int, kind TaskKind) {
 	mut tasks := []TaskDuration{cap: r.nfiles}
 	match kind {
 		.comptime {
-			tasks << r.ctimes
+			rlock r.ctimes {
+				tasks << r.ctimes
+			}
 		}
 		.runtime {
-			tasks << r.rtimes
+			rlock r.rtimes {
+				tasks << r.rtimes
+			}
 		}
 		.totaltime {
 			mut tall := []TaskDuration{}
-			tall << r.rtimes
-			tall << r.ctimes
+			rlock r.rtimes {
+				tall << r.rtimes
+			}
+			rlock r.ctimes {
+				tall << r.ctimes
+			}
 			mut mall := map[string]TaskDuration{}
 			for task in tall {
 				if current := mall[task.path] {
-					mall[task.path].duration = current.duration + task.duration
+					mut merged := current
+					merged.duration += task.duration
+					merged.kind = 'total'
+					if task.command != ''
+						&& (merged.command == '' || !merged.command.contains(task.command)) {
+						if merged.command == '' {
+							merged.command = task.command
+						} else {
+							merged.command += ' && ' + task.command
+						}
+					}
+					mall[task.path] = merged
 					continue
 				}
 				mall[task.path] = task
@@ -110,7 +129,9 @@ fn (r &NormalReporter) show_longest(label string, limit int, kind TaskKind) {
 	tasks.sort(a.duration > b.duration)
 	for tidx, task in tasks {
 		npath := task.path.replace('\\', '/').replace(r.vroot, '')
-		println('  ${tidx + 1:3} | ${task.duration:10s} | ${npath}')
+		phase := if task.kind == '' { 'task' } else { task.kind }
+		command_suffix := if task.command == '' { '' } else { ' | ${task.command}' }
+		println('  ${tidx + 1:3} | ${task.duration:10s} | ${phase:8s} | ${npath}${command_suffix}')
 		if tidx + 1 >= limit {
 			break
 		}
@@ -134,24 +155,44 @@ pub fn (mut r NormalReporter) report(index int, message LogMessage) {
 		r.active_mu.unlock()
 	}
 	if message.kind == .compile_end {
-		r.comptime += message.took
-		r.ctimes << TaskDuration{message.file, message.took}
+		mut compile_cmd := ''
 		r.active_mu.lock()
+		if start_message := r.compiling[message.file] {
+			compile_cmd = start_message.message
+		}
 		r.compiling.delete(message.file)
 		r.active_mu.unlock()
+		r.comptime += message.took
+		lock r.ctimes {
+			r.ctimes << TaskDuration{
+				path:     message.file
+				duration: message.took
+				command:  compile_cmd
+				kind:     'compile'
+			}
+		}
 	}
 	if message.kind == .cmd_end {
-		r.rtimes << TaskDuration{message.file, message.took}
+		mut run_cmd := ''
+		r.active_mu.lock()
+		if start_message := r.running[message.file] {
+			run_cmd = start_message.message
+		}
+		r.running.delete(message.file)
+		r.active_mu.unlock()
+		lock r.rtimes {
+			r.rtimes << TaskDuration{
+				path:     message.file
+				duration: message.took
+				command:  run_cmd
+				kind:     'run'
+			}
+		}
 		r.runtime += message.took
 	}
 	if message.kind == .cmd_begin {
 		r.active_mu.lock()
 		r.running[message.file] = message
-		r.active_mu.unlock()
-	}
-	if message.kind == .cmd_end {
-		r.active_mu.lock()
-		r.running.delete(message.file)
 		r.active_mu.unlock()
 	}
 }
@@ -220,4 +261,6 @@ struct TaskDuration {
 mut:
 	path     string
 	duration time.Duration
+	command  string
+	kind     string
 }
