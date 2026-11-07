@@ -650,6 +650,11 @@ fn (mut seen PreseedTypeSeen) insert(typ &types.Type) bool {
 	return true
 }
 
+struct TraceSourceLines {
+	lines  []string
+	starts []int
+}
+
 // FlatGen emits flat gen output used by c.
 pub struct FlatGen {
 mut:
@@ -933,7 +938,9 @@ mut:
 	c99_mode                        bool
 	trace_calls                     bool // -d trace: custom call-site hooks
 	is_trace_calls                  bool // -trace-calls: function-entry logging
+	is_trace_lines                  bool // -snoop: executed source-statement logging
 	trace_fns                       []string
+	trace_source_lines              map[int]TraceSourceLines
 	track_heap                      bool
 	inside_trace_call               bool
 	skip_generics                   bool
@@ -1687,6 +1694,7 @@ pub fn FlatGen.new() FlatGen {
 		test_files:                         map[string]bool{}
 		profile_counters:                   []ProfileCounterMeta{}
 		coverage_files:                     map[string]&CoverageInfo{}
+		trace_source_lines:                 map[int]TraceSourceLines{}
 		cache_program_files:                map[string]bool{}
 		incremental_fn_names:               map[string]bool{}
 		str_lit_ids:                        map[string]int{}

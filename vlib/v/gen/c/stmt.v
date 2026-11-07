@@ -2806,6 +2806,10 @@ fn (mut g FlatGen) gen_node(id flat.NodeId) {
 		g.pending_loop_label = ''
 	}
 	g.in_return = false
+	g.gen_trace_line(node)
+	defer {
+		g.gen_trace_values(node)
+	}
 	g.write_coverage_point(node)
 	g.write_line_directive(node)
 	match node.kind {

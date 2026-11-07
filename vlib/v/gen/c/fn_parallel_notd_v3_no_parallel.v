@@ -3336,7 +3336,9 @@ fn (g &FlatGen) new_parallel_worker_config(worker_id int, result_only bool) &Fla
 		compile_values:                     g.compile_values
 		trace_calls:                        g.trace_calls
 		is_trace_calls:                     g.is_trace_calls
+		is_trace_lines:                     g.is_trace_lines
 		trace_fns:                          g.trace_fns
+		trace_source_lines:                 map[int]TraceSourceLines{}
 		skip_generics:                      g.skip_generics
 		tmp_count:                          (worker_id + 1) * 100_000
 		line_start:                         true
