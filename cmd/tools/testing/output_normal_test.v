@@ -34,6 +34,10 @@ fn test_normal_reporter_keeps_active_messages_through_gc() {
 	}
 	assert reporter.compiling.len == 0
 	assert reporter.running.len == 0
-	assert reporter.ctimes.len == 256
-	assert reporter.rtimes.len == 256
+	rlock reporter.ctimes {
+		assert reporter.ctimes.len == 256
+	}
+	rlock reporter.rtimes {
+		assert reporter.rtimes.len == 256
+	}
 }
