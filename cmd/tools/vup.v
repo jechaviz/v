@@ -361,8 +361,12 @@ fn (app App) update_tcc() bool {
 		os.split_args(command) or { panic(err) }
 	})
 	if result.exit_code != 0 {
-		eprintln('> `${command}` failed:')
-		eprintln(result.output)
+		eprintln(result.command_failure_report('vup.command',
+			reason:  'tcc_update_failed'
+			action:  'retry_tcc_update_or_inspect_output'
+			message: 'updating the bundled TCC compiler failed'
+			command: command
+		))
 		return false
 	}
 	app.vprintln(result.output)
@@ -440,6 +444,12 @@ fn (app App) recompile_v() bool {
 		return true
 	}
 	println('> `${vself}` failed, running `make`...')
+	eprintln(os.process_command_failure_report('vup.command', self_exit_code,
+		reason:  'v_self_failed'
+		action:  'fall_back_to_make'
+		message: 'v self failed; falling back to make'
+		command: vself
+	))
 	return app.make(vself)
 }
 
@@ -455,8 +465,12 @@ fn (app App) recompile_vup() bool {
 	// libgc-linked one (which could fail to start in the dynamic loader). See #27148.
 	vup_result := os.exec([vexe_path, '-g', '-gc', 'none', 'cmd/tools/vup.v'])
 	if vup_result.exit_code != 0 {
-		eprintln('> Failed recompiling vup.v .')
-		eprintln(vup_result.output)
+		eprintln(vup_result.command_failure_report('vup.command',
+			reason:  'vup_recompile_failed'
+			action:  'inspect_recompile_output'
+			message: 'Failed recompiling vup.v.'
+			command: '${os.quoted_path(vexe_path)} -g -gc none cmd/tools/vup.v'
+		))
 		return false
 	}
 	return true
@@ -478,9 +492,12 @@ fn (app App) make(_vself string) bool {
 	}
 	make_result := os.exec(command)
 	if make_result.exit_code != 0 {
-		eprintln('> ${make} failed:')
-		eprintln('> make output:')
-		eprintln(make_result.output)
+		eprintln(make_result.command_failure_report('vup.command',
+			reason:  'make_failed'
+			action:  'inspect_make_output'
+			message: 'building V with make failed'
+			command: make
+		))
 		return false
 	}
 	app.vprintln(make_result.output)
@@ -495,14 +512,29 @@ fn (app App) show_current_v_version() {
 		return
 	}
 	vout := os.exec([vexe_path, 'version'])
+	if vout.exit_code != 0 {
+		eprintln(vout.command_failure_report('vup.command',
+			reason:  'v_version_failed'
+			action:  'skip_current_version_display'
+			message: 'unable to get current V version'
+			command: '${os.quoted_path(vexe_path)} version'
+		))
+		println('Current V version: unavailable.')
+		return
+	}
 	if vout.exit_code >= 0 {
 		mut vversion := vout.output.trim_space()
-		if vout.exit_code == 0 {
-			latest_v_commit := vversion.split(' ').last().all_after('.')
-			latest_v_commit_time := os.exec(['git', 'show', '-s', '--format=%ci', '${latest_v_commit}'])
-			if latest_v_commit_time.exit_code == 0 {
-				vversion += ', timestamp: ' + latest_v_commit_time.output.trim_space()
-			}
+		latest_v_commit := vversion.split(' ').last().all_after('.')
+		latest_v_commit_time := os.exec(['git', 'show', '-s', '--format=%ci', '${latest_v_commit}'])
+		if latest_v_commit_time.exit_code == 0 {
+			vversion += ', timestamp: ' + latest_v_commit_time.output.trim_space()
+		} else {
+			app.vprintln(latest_v_commit_time.command_failure_report('vup.command',
+				reason:  'git_show_commit_time_failed'
+				action:  'continue_without_current_version_timestamp'
+				message: 'unable to get timestamp for current V commit'
+				command: 'git show -s --format=%ci ${latest_v_commit}'
+			))
 		}
 		println('Current V version: ${vversion}')
 	}
@@ -592,8 +624,12 @@ fn (app App) git_command(command string) {
 		os.exec_or_exit(os.split_args(command) or { panic(err) })
 	}
 	if git_result.exit_code != 0 {
-		eprintln('Failed git command: ${command}')
-		eprintln(git_result.output)
+		eprintln(git_result.command_failure_report('vup.command',
+			reason:  'git_command_failed'
+			action:  'inspect_git_output'
+			message: 'Failed git command'
+			command: command
+		))
 		exit(1)
 	}
 	app.vprintln(git_result.output)
@@ -612,12 +648,20 @@ fn (app App) install_git() {
 			'${os.getwd()}' + '/git32.exe'])
 	if res_download.exit_code != 0 {
 		eprintln('Unable to install git automatically: please install git manually')
-		panic(res_download.output)
+		panic(res_download.command_failure_report('vup.command',
+			reason:  'git_installer_download_failed'
+			action:  'install_git_manually_or_retry'
+			command: 'bitsadmin.exe /transfer vgit https://github.com/git-for-windows/git/releases/download/v2.30.0.windows.2/Git-2.30.0.2-32-bit.exe'
+		))
 	}
 	res_git32 := os.exec([os.join_path_single(os.getwd(), 'git32.exe')])
 	if res_git32.exit_code != 0 {
 		eprintln('Unable to install git automatically: please install git manually')
-		panic(res_git32.output)
+		panic(res_git32.command_failure_report('vup.command',
+			reason:  'git_installer_failed'
+			action:  'install_git_manually_or_retry'
+			command: os.quoted_path(os.join_path_single(os.getwd(), 'git32.exe'))
+		))
 	}
 }
 
