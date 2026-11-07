@@ -47,5 +47,5 @@ pub fn exec_with_timeout(args []string, timeout i64) ?os.Result {
 			return none
 		}
 	}
-	return os.Result{}
+	return none
 }
