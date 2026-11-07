@@ -1485,9 +1485,6 @@ fn v1_fallback_cache_parent() !string {
 		if user_cache := v1_fallback_windows_user_cache_parent() {
 			return user_cache
 		}
-		if user_cache := v1_fallback_windows_user_cache_parent() {
-			return user_cache
-		}
 		local_app_data := os.getenv('LOCALAPPDATA')
 		if local_app_data != '' {
 			return os.abs_path(os.join_path(local_app_data, 'v', 'v1-fallback'))
