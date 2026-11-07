@@ -703,3 +703,44 @@ fn test_issue_27281_bare_keyword_module_names_resolve() {
 	res := os.exec([issue_20147_vexe, 'run', main_file])
 	assert res.exit_code == 0, res.output
 }
+
+fn test_local_vmod_root_module_preferred_over_stale_vmodules_from_nested_test() {
+	workspace := os.join_path(issue_20147_workspace(), 'local_precedence')
+	local_root := os.join_path(workspace, 'local_pkg')
+	stale_root := os.join_path(workspace, '.vmodules', 'local_pkg')
+	old_wd := os.getwd()
+	old_vmodules, had_vmodules := issue_20147_env_snapshot('VMODULES')
+	os.rmdir_all(workspace) or {}
+	os.mkdir_all(os.join_path(local_root, 'tests')) or { panic(err) }
+	os.mkdir_all(stale_root) or { panic(err) }
+	issue_20147_write_vmod(local_root, 'local_pkg')
+	issue_20147_write_vmod(stale_root, 'local_pkg')
+	issue_20147_write_file(os.join_path(local_root, 'local_pkg.v'),
+		"module local_pkg\n\npub fn origin() string {\n\treturn 'local'\n}\n")
+	issue_20147_write_file(os.join_path(stale_root, 'local_pkg.v'),
+		"module local_pkg\n\npub fn origin() string {\n\treturn 'stale'\n}\n")
+	issue_20147_write_file(os.join_path(local_root, 'tests', 'origin_test.v'),
+		"module main\n\nimport local_pkg\n\nfn test_local_root_module_wins() {\n\tassert local_pkg.origin() == 'local'\n}\n")
+	os.setenv('VMODULES', os.join_path(workspace, '.vmodules'), true)
+	os.chdir(workspace) or { panic(err) }
+	defer {
+		os.chdir(old_wd) or { panic(err) }
+		issue_20147_restore_env('VMODULES', old_vmodules, had_vmodules)
+		os.rmdir_all(workspace) or {}
+	}
+
+	args := ['test', os.join_path('local_pkg', 'tests', 'origin_test.v')]
+	res := issue_20147_execute_v(args, workspace)
+	assert res.exit_code == 0, res.exit_code_diagnostics('0',
+		label:   @FN
+		command: '${os.quoted_path(issue_20147_vexe)} ${args.map(os.quoted_path(it)).join(' ')}'
+		reason:  'nested local module test should prefer the local v.mod root over VMODULES'
+		action:  'inspect module lookup order'
+	)
+}
+
+// Regression test for https://github.com/vlang/v/issues/27391 :
+// modules installed as symlinks inside a `.vmodules` namespace folder
+// (e.g. `.vmodules/einar_hjortdal/luuid -> /real/luuid`) were resolved to
+// their real path via os.real_path and then rejected as belonging to a
+// different v.mod project, so `import einar_hjortdal.luuid` could not be found.
