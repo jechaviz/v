@@ -667,11 +667,27 @@ pub fn expand_tilde_to_home(path string) string {
 // write_file writes `text` data to a file with the given `path`.
 // If `path` already exists, it will be overwritten.
 pub fn write_file(path string, text string) ! {
-	mut f := create(path)!
-	defer {
-		f.close()
+	$if freestanding || syscalls {
+		// The synchronous write borrows the immutable string buffer.
+		fsys_write_file(path, unsafe { text.str.vbytes(text.len) })!
+		return
 	}
-	unsafe { f.write_full_buffer(text.str, usize(text.len))! }
+	$if !freestanding && !syscalls {
+		$if vlibc ? {
+			// The synchronous write borrows the immutable string buffer.
+			e := vlibc_write_file(path, unsafe { text.str.vbytes(text.len) })
+			if e != .enoerror {
+				return error_with_code('write_file failed: ${e}', int(e))
+			}
+			return
+		} $else {
+			mut f := create(path)!
+			defer {
+				f.close()
+			}
+			unsafe { f.write_full_buffer(text.str, uint(text.len))! }
+		}
+	}
 }
 
 pub struct ExecutableNotFoundError {
@@ -1027,7 +1043,7 @@ pub fn walk_dir(root string, cb WalkDirFn) ! {
 		// Filled through locals and handed over in a single struct literal, so
 		// that the public fields can stay read-only for callers.
 		mut typ := FileType.unknown
-		mut is_dir := false
+		mut is_directory := false
 		mut entry_err := ?IError(none)
 		if attr := lstat(cpath) {
 			typ = attr.get_filetype()
@@ -1038,7 +1054,7 @@ pub fn walk_dir(root string, cb WalkDirFn) ! {
 					typ = .symbolic_link
 				}
 			}
-			is_dir = typ == .directory
+			is_directory = typ == .directory
 		} else {
 			// The entry could not be read, so is_dir stays false and a directory
 			// is not descended into.
@@ -1047,7 +1063,7 @@ pub fn walk_dir(root string, cb WalkDirFn) ! {
 		entry := WalkDirEntry{
 			name:   file_name(cpath)
 			typ:    typ
-			is_dir: is_dir
+			is_dir: is_directory
 			err:    entry_err
 		}
 		// Whether to descend into cpath, which a .skip_dir reply can veto.
