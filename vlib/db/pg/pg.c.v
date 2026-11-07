@@ -195,8 +195,8 @@ pub struct C.PGnotify {
 }
 
 pub enum ConnStatusType {
-	ok                = C.CONNECTION_OK
-	bad               = C.CONNECTION_BAD
+	ok  = C.CONNECTION_OK
+	bad = C.CONNECTION_BAD
 	// Non-blocking mode only below here
 	// The existence of these should never be relied upon - they should only be used for user feedback or similar purposes.
 	started           = C.CONNECTION_STARTED // Waiting for connection to be made.
@@ -297,7 +297,7 @@ fn C.PQconsumeInput(conn &C.PGconn) i32
 
 fn C.PQsocket(conn &C.PGconn) i32
 
-fn C.PQescapeLiteral(conn &C.PGconn, str &char, length usize) &char
+fn C.PQescapeLiteral(conn &C.PGconn, str &char, length uint) &char
 
 fn conninfo_needs_quotes(value string) bool {
 	for ch in value {
@@ -1037,7 +1037,7 @@ pub fn (mut c Conn) unlisten_all() ! {
 // a query. Prefer parameterized queries when they can express the operation.
 pub fn (mut c Conn) escape_literal(value string) !string {
 	c.ensure_active()!
-	escaped := C.PQescapeLiteral(c.conn, &char(value.str), usize(value.len))
+	escaped := C.PQescapeLiteral(c.conn, &char(value.str), uint(value.len))
 	if escaped == unsafe { nil } {
 		e := unsafe { C.PQerrorMessage(c.conn).vstring() }
 		return error('pg escape_literal error: "${e}"')
