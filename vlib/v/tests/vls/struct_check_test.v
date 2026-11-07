@@ -36,7 +36,7 @@ fn test_main() {
 		res := os.exec(os.split_args(t.cmd) or { panic(err) })
 		if res.exit_code < 0 {
 			println('fail execute ${t.cmd}')
-			panic(res.output)
+			panic(res.exit_code_diagnostics('>= 0', label: @FN, command: t.cmd))
 		}
 		res_output := $if windows { res.output.replace('\r\n', '\n') } $else { res.output }
 		if t.output != res_output {
