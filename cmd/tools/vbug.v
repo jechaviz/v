@@ -13,7 +13,17 @@ fn olog(msg string) {
 
 fn vversion() string {
 	vexe := os.getenv('VEXE')
-	return os.exec([vexe, 'version']).output.trim_space()
+	result := os.exec([vexe, 'version'])
+	if result.exit_code != 0 {
+		elog(result.command_failure_report('vbug.command',
+			reason:  'v_version_failed'
+			action:  'continue_with_unavailable_version'
+			message: 'unable to get `v version` output'
+			command: '${os.quoted_path(vexe)} version'
+		))
+		return '<unavailable>'
+	}
+	return result.output.trim_space()
 }
 
 // get output from `v doctor`
@@ -22,7 +32,12 @@ fn get_vdoctor_output(is_verbose bool) string {
 	verbose_flag := if is_verbose { '-v' } else { '' }
 	result := os.exec([vexe, ...(os.split_args(verbose_flag) or { panic(err) }), 'doctor'])
 	if result.exit_code != 0 {
-		elog('> unable to get `v doctor` output: ${result.output}')
+		elog(result.command_failure_report('vbug.command',
+			reason:  'v_doctor_failed'
+			action:  'continue_without_v_doctor_output'
+			message: 'unable to get `v doctor` output'
+			command: '${os.quoted_path(vexe)} ${verbose_flag} doctor'
+		))
 		return ''
 	}
 	return result.output
@@ -33,6 +48,15 @@ fn runv(label string, user_cmd string) os.Result {
 	elog('> ${label} using: ${term.ecolorize(term.magenta, user_cmd)}')
 	result = os.exec(os.split_args(user_cmd) or { panic(err) })
 	print(result.output)
+	if result.exit_code != 0 {
+		elog(result.command_failure_report('vbug.command',
+			stage:   label
+			reason:  'command_failed'
+			action:  'include_failure_in_bug_report_context'
+			message: 'v bug diagnostic command exited with a non-zero status'
+			command: user_cmd
+		))
+	}
 	return result
 }
 
@@ -54,7 +78,12 @@ fn get_v_build_output(is_verbose bool, is_yes bool, file_path string, user_args 
 	if result.exit_code == 0 {
 		vexe = vdbg_path
 	} else {
-		elog('> unable to compile V in debug mode: ${result.output}\ncommand: ${vdbg_compilation_cmd}\n')
+		elog(result.command_failure_report('vbug.command',
+			reason:  'debug_compiler_build_failed'
+			action:  'continue_with_current_compiler'
+			message: 'unable to compile V in debug mode'
+			command: vdbg_compilation_cmd
+		))
 	}
 
 	result = runv('Compile',
