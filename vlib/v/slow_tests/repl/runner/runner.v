@@ -61,7 +61,7 @@ pub fn run_repl_file(wd string, vexec string, file string) !string {
 	input_process.close()
 	if r.exit_code != 0 {
 		os.rm(input_temporary_filename)!
-		return error('Could not execute: ${rcmd}')
+		return error(r.exit_code_diagnostics('0', label: @FN, command: rcmd))
 	}
 	result := r.output.replace_each(['\r', '', '>>> ', '', '>>>', '', '... ', '',
 		wd + os.path_separator, '', vexec_folder, '']).trim_right('\n\r')
@@ -92,10 +92,10 @@ pub fn run_prod_file(wd string, vexec string, file string) !string {
 	cmd := '${os.quoted_path(vexec)} -silent -prod run ${os.quoted_path(file)}'
 	r := os.exec([vexec, '-silent', '-prod', 'run', file])
 	if r.exit_code < 0 {
-		return error('Could not execute: ${cmd}')
+		return error(r.exit_code_diagnostics('>= 0', label: @FN, command: cmd))
 	}
 	if r.exit_code != 0 {
-		return error('${cmd} return exit code: ${r.exit_code}')
+		return error(r.exit_code_diagnostics('0', label: @FN, command: cmd))
 	}
 	result := r.output.replace('\r', '')
 	if result != expected_content {
