@@ -43,8 +43,7 @@ fn run_helper_process() {
 			}
 			println('locked')
 			os.flush()
-			// Keep the lock until the parent finishes its probes or closes stdin.
-			_ = os.get_line()
+			time.sleep(300 * time.millisecond)
 			file_lock.release()
 			exit(0)
 		}
@@ -93,12 +92,8 @@ fn wait_for_lock(mut p os.Process) {
 		}
 		time.sleep(10 * time.millisecond)
 	}
-	if p.is_alive() {
-		p.signal_kill()
-	}
 	p.wait()
 	stderr := p.stderr_slurp().trim_space()
-	p.close()
 	assert false, os.process_exit_code_diagnostics(p.code, '0',
 		label:  @FN
 		stdout: output
@@ -106,25 +101,15 @@ fn wait_for_lock(mut p os.Process) {
 	)
 }
 
-fn finish_holder(mut p os.Process) {
-	if p.is_alive() {
-		p.stdin_write('release\n')
-	}
-	p.wait()
-	p.close()
-}
-
-fn try_lock_from_helper(path string, lock_mode filelock.LockMode, start u64, len u64) os.Result {
+fn try_lock_from_helper(path string, lock_mode filelock.LockMode, start u64, len u64) int {
 	mut p := new_helper_process(path, lock_mode, start, len, 'try')
 	p.run()
 	p.wait()
 	stderr := p.stderr_slurp().trim_space()
 	code := p.code
 	p.close()
-	return os.Result{
-		exit_code: code
-		output:    stderr
-	}
+	assert stderr == ''
+	return code
 }
 
 fn test_flock() {
@@ -159,16 +144,15 @@ fn test_existing_file_lock_range() {
 	mut holder := new_helper_process(target, .exclusive, 0, 5, 'hold')
 	holder.run()
 	defer {
-		finish_holder(mut holder)
+		if holder.status == .running || holder.is_alive() {
+			holder.wait()
+		}
+		holder.close()
 	}
 	wait_for_lock(mut holder)
-	overlapping_probe := try_lock_from_helper(target, .exclusive, 0, 5)
-	assert overlapping_probe.output == ''
-	assert overlapping_probe.exit_code == 1
-	disjoint_probe := try_lock_from_helper(target, .exclusive, 6, 5)
-	assert disjoint_probe.output == ''
-	assert disjoint_probe.exit_code == 0
-	finish_holder(mut holder)
+	assert try_lock_from_helper(target, .exclusive, 0, 5) == 1
+	assert try_lock_from_helper(target, .exclusive, 6, 5) == 0
+	holder.wait()
 	assert holder.code == 0, os.process_exit_code_diagnostics(holder.code, '0', label: @FN)
 	assert os.exists(target)
 	assert os.read_file(target)! == '0123456789abcdef'
@@ -180,16 +164,15 @@ fn test_existing_file_lock_shared_mode() {
 	mut holder := new_helper_process(target, .shared, 0, 5, 'hold')
 	holder.run()
 	defer {
-		finish_holder(mut holder)
+		if holder.status == .running || holder.is_alive() {
+			holder.wait()
+		}
+		holder.close()
 	}
 	wait_for_lock(mut holder)
-	shared_probe := try_lock_from_helper(target, .shared, 0, 5)
-	assert shared_probe.output == ''
-	assert shared_probe.exit_code == 0
-	exclusive_probe := try_lock_from_helper(target, .exclusive, 0, 5)
-	assert exclusive_probe.output == ''
-	assert exclusive_probe.exit_code == 1
-	finish_holder(mut holder)
+	assert try_lock_from_helper(target, .shared, 0, 5) == 0
+	assert try_lock_from_helper(target, .exclusive, 0, 5) == 1
+	holder.wait()
 	assert holder.code == 0, os.process_exit_code_diagnostics(holder.code, '0', label: @FN)
 	assert os.exists(target)
 }
