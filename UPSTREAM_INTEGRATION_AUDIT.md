@@ -2,85 +2,67 @@
 
 Date: 2026-11-07
 
-## Scope and immutable references
+## Repositories and commits
 
 - Fork: `jechaviz/v`
 - Upstream: `vlang/v`
 - Fork baseline: `fb309a9c506de1f30630d1163565e113dd0e487a`
-- Upstream head inspected: `1f87cae6cdb56e86a1446f507acada5707b1232b`
+- Original upstream base used for the candidate: `1f87cae6cdb56e86a1446f507acada5707b1232b`
+- Latest upstream head inspected: `e48d9c1f0623520b3a3434d64c0b088635274e13`
 - Common ancestor: `d1df2de5377098c11f7326c1155f3ce32cfa0340`
-- Preservation branch: `integration/upstream-2026-11-07`
+- Active candidate branch: `integration/upstream-base-2026-11-07`
 
-## Divergence
+## Exact divergence
 
-GitHub compare reports 670 upstream-only commits and 108 fork-only commits. From the common ancestor, GitHub exposes 300 changed paths on upstream and 197 changed paths on the fork. The fork-side net delta is 9,183 additions and 350 deletions. The fork's 108 commits are not 108 independent features: the history includes upstream merge commits, local merge commits and explicit revert commits.
+The initial REST compare listing was capped at 300 upstream paths, which understated the number of overlaps. A complete recursive Git tree/blob comparison corrected the counts:
 
-The fork-side changed paths cluster in:
-- `vlib/`: 146 paths
-- `cmd/tools/`: 35 paths
-- `cmd/v/`: 5 paths
-- `doc/`: 5 paths
-- Other root, CI, examples and third-party paths: 6 paths
+- Fork changed blob paths: 197
+- Upstream changed blob paths from the common ancestor: 2,632
+- True overlaps: 52
+- Fork-only paths: 145
 
-## True path-level overlaps
+All 145 fork-only paths are represented in the active candidate. The candidate has also retained fork versions for the 38 unresolved overlaps, but those paths still need upstream changes merged in. They are not considered integrated.
 
-Only 12 paths appear in both the upstream and fork changed-path sets from the common ancestor. These are the actual path-level reconciliation hotspots:
+## Overlap status
 
-- `TESTS.md`: upstream changes test/build guidance; fork adds merged test-file behavior and its constraints.
-- `ci/common/runner.v`: upstream resolves compiler invocation through valgrind; fork adds structured command-failure reporting.
-- `cmd/tools/test_if_v_test_system_works.v`: upstream streams child output while retaining it; fork adds structured failure diagnostics.
-- `cmd/tools/testing/common.v`: upstream adjusts self-build and production compiler selection; fork adds process guard and memory-pressure handling.
-- `cmd/tools/vfmt_test.v`: upstream updates formatter expectations; fork adds UTF-8 BOM preservation tests.
-- `cmd/tools/vtest-all.v`: upstream adjusts cross-target test behavior; fork adds structured failure reports.
-- `cmd/tools/vtest.v`: upstream makes test discovery target-architecture aware; fork adds an explicit successful exit.
-- `cmd/tools/vup.v`: upstream changes updater/TCC/cache behavior; fork adds structured failure diagnostics.
-- `cmd/tools/vwatch.v`: upstream handles replacement of generated manifests; fork reports failures from before/after commands.
-- `cmd/v/launcher_test.v`: upstream updates launcher/fallback expectations; fork adds Windows fallback-cache coverage.
-- `cmd/v/v.v`: upstream changes launcher/compiler dispatch; fork adds Windows user-cache fallback selection.
-- `doc/docs.md`: upstream changes updater documentation; fork documents array concatenation and `+=`.
+Thirteen overlap files have both fork and upstream changes represented:
+`TESTS.md`, `ci/common/runner.v`, `cmd/tools/test_if_v_test_system_works.v`,
+`cmd/tools/testing/common.v`, `cmd/tools/vfmt_test.v`, `cmd/tools/vtest-all.v`,
+`cmd/tools/vtest.v`, `cmd/tools/vup.v`, `cmd/tools/vwatch.v`,
+`cmd/v/launcher_test.v`, `cmd/v/v.v`, `doc/docs.md`, and
+`vlib/v/driver/driver.v`.
 
-These 12 files require deliberate reconciliation. The upstream and fork patches are functionally distinct in several cases; blindly choosing either side would discard useful behavior.
+`vlib/v/transform/transform.v` is empty on both sides. Its blob IDs differ, but both fetched contents are zero bytes.
 
-## Fork-only additions and changes to preserve
+Thirty-eight overlap files still contain the fork's exact blob and need three-way reconciliation. They span builtin arrays/allocation, OS and runtime implementations, database/network libraries, compiler C/ARM64 generation, scanner, transform and type-checker code, plus related tests and build documentation. See `UPSTREAM_INTEGRATION_STATUS.md` on the active candidate branch for the complete path list.
 
-The fork has 185 changed paths not changed by upstream since the common ancestor. Important feature groups include:
+## Latest upstream delta
 
-- Runtime memory/pressure telemetry: `vlib/runtime/telemetry.v`, `telemetry_memory.v`, and tests.
-- Compiler memory backpressure: `vlib/v/util/memory_backpressure.v` and tests.
-- Process coordination: `vlib/os/process_singleton/`.
-- Structured process/exit diagnostics: `vlib/os/result_diagnostics.v` and tests.
-- Statement/value tracing and bounded profiling: `vlib/snoop/`.
-- Test child-process resource guard: `cmd/tools/testing/process_resource_guard*`.
-- Test-runner merge optimization: `cmd/tools/testing/merge.v` and tests.
-- V1 fallback cache Windows helpers: `cmd/v/v1_fallback_cache_windows*`.
-- Regression/architecture research notes: `doc/qes_compiler_regression_audit_2026-10-01.md`, `doc/memory_runtime_cross_language_review.md`, and `doc/mojo_v_ownership_convergence.md`.
+Upstream advanced 12 commits and changed 27 files after the original candidate base. Twenty-four non-overlapping files were copied from current upstream. Three overlapping files received targeted additions:
+- `cmd/v/v.v`: project test dispatch and project backend selection.
+- `doc/docs.md`: FastC project backend and MSVC/clang-cl 128-bit ABI documentation.
+- `vlib/v/driver/driver.v`: generated-source recognition for inline and stdin compilation.
 
-These features are not present as path changes in upstream's 300-path delta from the common ancestor. Their APIs, callers and platform assumptions still need compatibility review against the updated upstream tree.
+These file updates do not add upstream commits to the candidate's Git ancestry. Compare against current upstream still reports the candidate as 406 commits ahead and 11 behind; the ahead count is inflated by individual file-edit commits.
 
-## Fork-only compiler changes
+## Candidate features retained
 
-The fork also changes core compiler files that upstream has not changed from the common ancestor in this comparison. These are not path-level merge conflicts, but they are high-impact fork behavior and must be preserved while taking upstream's other compiler improvements:
+The fork-only path set includes:
+- Runtime telemetry and memory accounting.
+- Compiler memory backpressure.
+- Process singleton coordination and process-resource guards.
+- Structured process/exit diagnostics.
+- `snoop` tracing and profiling.
+- Test-runner merge/output improvements.
+- Windows V1 fallback-cache support.
+- Compiler, builtin, OS/runtime changes, tests and research documentation.
 
-- `vlib/v/gen/c/trace_calls.v` (fork 6,983 bytes; upstream 2,946 bytes): extended tracing/code generation.
-- `vlib/v/gen/c/stmt.v` (fork 369,141 bytes; upstream 384,024 bytes): fork-specific code-generation changes.
-- `vlib/v/types/checker_tail.v` (fork 832,796 bytes; upstream 871,282 bytes): fork-specific type-checker changes.
-- `vlib/builtin/array.v` (fork 57,988 bytes; upstream 53,024 bytes): array semantics/performance changes.
+## Validation and promotion gate
 
-`cmd/v/v.v` is different: it is one of the 12 true overlaps and contains both upstream launcher changes and the fork's Windows fallback-cache change.
+- No compiler build or test suite has been run.
+- No GitHub Actions result is claimed.
+- No local Windows/Linux/macOS runtime validation has been performed.
+- The active candidate is not merged into `master`; fork `master` remains unchanged.
+- A real Git merge/rebase and three-way reconciliation of the 38 remaining overlaps are required before validation and promotion.
 
-## Latest upstream commit inspected
-
-The upstream head is `1f87cae6cdb56e86a1446f507acada5707b1232b`, titled `ci: fix macOS Brotli module-cache link and vfmt failures`. Its latest commit changes the Brotli MemorySanitizer helper into a separate native C object, adds a module-cache regression test, and formats a Windows Clang test command. This should be included with the upstream update; it is not a fork-specific feature.
-
-## Suggested integration order
-
-1. Reconcile the 12 true overlapping paths, starting with `cmd/tools/testing/common.v`, `cmd/v/v.v`, `cmd/tools/vup.v`, and `doc/docs.md`.
-2. Bring in upstream-only paths and compiler/runtime improvements without replacing fork-only compiler files.
-3. Reconcile fork-only compiler changes against upstream's current compiler interfaces and tests.
-4. Integrate runtime/process coordination, telemetry, memory backpressure, diagnostics and test-runner features as coherent groups.
-5. Integrate `snoop` last across CLI, transform/codegen, runtime helpers, docs and tests.
-6. Re-run the compare, inspect the complete diff, then validate locally before promoting anything to `master`.
-
-## Current status
-
-This audit is committed only to `integration/upstream-2026-11-07`. No upstream source files have been merged or overwritten. No build or test suite has been run. The fork's `master` remains unchanged.
+This audit is a structural/content-preservation report, not a claim that the fork is fully integrated or buildable.
