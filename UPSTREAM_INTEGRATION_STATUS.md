@@ -7,61 +7,81 @@ Date: 2026-11-07
 - Repository: `jechaviz/v`
 - Upstream: `vlang/v`
 - Fork baseline: `fb309a9c506de1f30630d1163565e113dd0e487a`
-- Upstream base used for this candidate: `1f87cae6cdb56e86a1446f507acada5707b1232b`
+- Upstream base used to create the candidate: `1f87cae6cdb56e86a1446f507acada5707b1232b`
+- Latest upstream head inspected: `e48d9c1f0623520b3a3434d64c0b088635274e13`
 - Original common ancestor: `d1df2de5377098c11f7326c1155f3ce32cfa0340`
 - Working branch: `integration/upstream-base-2026-11-07`
-- Working branch head at this update: `790b32189297bbefd3e31a270361aa6ac1e3e095`
+- Candidate head at this update: `2bf4bd655747b278db7080c09cd49efcb7a270a3`
 - Fork `master` has not been modified.
 
-## What has been preserved
+## Exact path divergence
 
-A path-set comparison from the common ancestor identifies 197 fork-changed paths, of which 12 are also changed upstream and 185 are fork-only paths.
+A recursive Git tree/blob comparison against the common ancestor avoids the GitHub compare API's 300-file listing limit.
 
-All 185 fork-only paths are now represented in the upstream-based candidate. A tree/blob comparison against fork `master` verified 184 identical Git blob IDs; the remaining path, `vlib/v/transform/transform.v`, is empty on both sides (the Git blob IDs differ, but both fetched contents are zero bytes). This preserves the fork's path-level additions and changes outside the 12 true overlaps.
+- Fork changed blob paths: 197
+- Upstream changed blob paths at the candidate's original base: 2,632
+- True path overlaps: 52
+- Fork-only paths: 145
 
-Preserved groups include:
-- Runtime telemetry and memory accounting.
-- Compiler memory backpressure.
-- Process singleton coordination and process-resource guards.
-- Structured process/exit diagnostics.
-- `snoop` tracing and profiling.
-- Test-runner merge/output improvements.
-- Windows V1 fallback-cache helpers.
-- Fork-specific compiler, builtin, OS/runtime changes, tests and documentation.
+All 145 fork-only paths are represented in the candidate. A prior tree comparison also verified the 185 paths initially treated as fork-only; the 40 additional overlaps discovered by the complete tree comparison are not being counted as fork-only.
 
-## What remains unresolved
+## Overlap reconciliation status
 
-The 12 overlapping paths have not yet been semantically reconciled. They are:
-- `TESTS.md`
-- `ci/common/runner.v`
-- `cmd/tools/test_if_v_test_system_works.v`
-- `cmd/tools/testing/common.v`
-- `cmd/tools/vfmt_test.v`
-- `cmd/tools/vtest-all.v`
-- `cmd/tools/vtest.v`
-- `cmd/tools/vup.v`
-- `cmd/tools/vwatch.v`
-- `cmd/v/launcher_test.v`
-- `cmd/v/v.v`
-- `doc/docs.md`
+Of the 52 true overlaps:
 
-These require three-way review of the common ancestor, upstream version and fork version. In particular, compiler/test-runner behavior and launcher changes must not be resolved by blindly choosing one side.
+- 13 have both sides' changes represented in the candidate:
+  - `TESTS.md`
+  - `ci/common/runner.v`
+  - `cmd/tools/test_if_v_test_system_works.v`
+  - `cmd/tools/testing/common.v`
+  - `cmd/tools/vfmt_test.v`
+  - `cmd/tools/vtest-all.v`
+  - `cmd/tools/vtest.v`
+  - `cmd/tools/vup.v`
+  - `cmd/tools/vwatch.v`
+  - `cmd/v/launcher_test.v`
+  - `cmd/v/v.v`
+  - `doc/docs.md`
+  - `vlib/v/driver/driver.v`
+- `vlib/v/transform/transform.v` is empty on both fork and upstream; its Git blob IDs differ but both fetched contents are zero bytes.
+- 38 remain unresolved: the candidate currently contains the fork's exact blob for these paths, so the upstream-side changes still need a three-way merge.
+
+The 38 unresolved overlap paths are:
+- Builtins: `vlib/builtin/allocation.c.v`, `array.v`, `builtin_windows.c.v`, `cfns.c.v`, `panicing.c.v`, `recover.c.v`
+- Libraries: `vlib/db/pg/pg.c.v`, `vlib/fasthttp/fasthttp_linux.v`, `vlib/hash/crc64/interop/crc64_interop.vsh`
+- OS: `vlib/os/command_test.v`, `filelock/filelock_test.v`, `os.c.v`, `os.v`, `os_nix.c.v`, `os_windows.c.v`
+- Runtime: `vlib/runtime/free_memory_impl_freebsd.c.v`, `free_memory_impl_linux.c.v`, `free_memory_impl_openbsd.c.v`, `runtime_nix.c.v`, `runtime_windows.c.v`, `used_memory_freebsd.c.v`, `used_memory_openbsd.c.v`, `used_memory_windows.c.v`
+- Compiler/toolchain: `vlib/v/gen/arm64/linker.v`, `vlib/v/gen/c/cleanc.v`, `fn_parallel_notd_v3_no_parallel.v`, `stmt.v`, `vlib/v/scanner/scanner.v`, `vlib/v/transform/expr.v`, `map.v`, `vlib/v/types/checker.v`, `checker_comptime.v`, `checker_tail.v`, `checker_tail_stmt.v`
+- Tests/docs: `vlib/v/help/build/build.txt`, `vlib/v/tests/builtin_overflow_test.v`, `concurrency/shared_nested_lock_runtime_test.v`, `shared_library_system_link_test.v`
+
+These 38 are high-risk merge targets. In particular, compiler, builtin, OS and runtime files must not be replaced wholesale by either side.
+
+## Latest upstream delta
+
+Upstream advanced from the original base to `e48d9c1f0623520b3a3434d64c0b088635274e13` (12 commits, 27 changed files).
+
+- 24 upstream-only changed files were copied into the candidate.
+- Three overlapping files received explicit upstream additions while retaining fork behavior:
+  - `cmd/v/v.v`: project test dispatch and project backend selection.
+  - `doc/docs.md`: FastC project backend and MSVC/clang-cl 128-bit ABI documentation.
+  - `vlib/v/driver/driver.v`: generated-source recognition for inline and stdin compilation.
+- The latest upstream changes are represented at file-content level, but the candidate does not yet contain the upstream head in its Git ancestry.
 
 ## Git history and validation
 
-- The candidate was created from upstream commit `1f87cae6cdb56e86a1446f507acada5707b1232b`, then updated through GitHub file operations to preserve fork-only paths.
-- Those file operations create many individual commits; they do not constitute a real Git merge/rebase of the fork history.
-- The candidate has not been built, formatted, or tested.
+- GitHub file operations created individual commits; this is not a real Git merge/rebase.
+- Compare against current upstream reports 406 commits ahead and 11 behind. The large ahead count is inflated by file-by-file commits and must not be interpreted as 406 independent fork features.
+- No compiler build, formatter run, or test suite has been executed.
 - No GitHub Actions result is claimed.
-- No claim is made that the fork is fully synchronized with the current upstream head beyond the inspected base commit.
+- No local Windows/Linux/macOS runtime validation is available in this workflow.
 
 ## Next sequence
 
-1. Reconcile the 12 overlapping paths with explicit three-way patches.
-2. Review compiler and runtime integration groups, especially `vlib/v/gen/c`, `vlib/v/types`, `vlib/v/transform`, `vlib/runtime`, and `vlib/os`.
-3. Compare against the latest upstream head again and incorporate newer upstream commits.
-4. Perform a real Git merge/rebase or equivalent history-preserving integration when a Git-capable environment is available.
-5. Build and run focused and broad tests locally on supported platforms.
-6. Only after validation, propose promotion to `master`.
+1. Three-way merge the 38 unresolved overlap paths using common ancestor, fork and latest upstream versions.
+2. Recompute tree/blob coverage after each group; inspect the complete candidate diff.
+3. Perform a real Git merge/rebase so upstream's current head is in the candidate ancestry.
+4. Build the compiler/bootstrap and run focused tests for compiler, builtin, OS/runtime, telemetry, memory backpressure, diagnostics, process coordination, `snoop`, test merging and Windows fallback cache.
+5. Run broader tests on Windows and at least one Unix platform.
+6. Promote to `master` only after review and validation.
 
-Current status: fork-only path preservation is complete; semantic overlap reconciliation, history synchronization and validation are still pending.
+Current status: 145 fork-only paths preserved; 13 overlapping paths reconciled, one empty overlap confirmed content-identical, 38 overlap paths still require three-way reconciliation; latest upstream file changes applied, but Git ancestry and all tests remain pending.
