@@ -2,51 +2,66 @@
 
 Date: 2026-11-07
 
-## Candidate
+## Candidate and immutable references
 
 - Repository: `jechaviz/v`
-- Target branch: `master` (not modified)
-- Working branch: `integration/upstream-base-2026-11-07`
-- Upstream: `vlang/v:master`
-- Upstream head last inspected: `b3e1e85f7062da68a8072c169256951ef9d29760`
-- Candidate head before this status update: `ea508bec2a35382e0360660f10b5f9a12364b3c6`
+- Upstream: `vlang/v`
+- Fork baseline: `fb309a9c506de1f30630d1163565e113dd0e487a`
+- Upstream base used for this candidate: `1f87cae6cdb56e86a1446f507acada5707b1232b`
 - Original common ancestor: `d1df2de5377098c11f7326c1155f3ce32cfa0340`
+- Working branch: `integration/upstream-base-2026-11-07`
+- Working branch head at this update: `790b32189297bbefd3e31a270361aa6ac1e3e095`
+- Fork `master` has not been modified.
 
-## Integration work completed
+## What has been preserved
 
-The working branch was assembled on the upstream tree and preserves all 197 paths changed by the fork since the common ancestor:
+A path-set comparison from the common ancestor identifies 197 fork-changed paths, of which 12 are also changed upstream and 185 are fork-only paths.
 
-- 185 fork-only paths copied onto the upstream-based tree. This includes runtime telemetry, memory backpressure, process coordination and resource guards, structured diagnostics, `snoop`, test-runner improvements, Windows fallback-cache support, compiler changes, tests and documentation.
-- All 12 path-level overlaps between upstream and fork were reconciled:
-  - Three-way, non-overlapping edits were applied to `TESTS.md`, `ci/common/runner.v`, `cmd/tools/test_if_v_test_system_works.v`, `cmd/tools/testing/common.v`, `cmd/tools/vfmt_test.v`, `cmd/tools/vtest-all.v`, `cmd/tools/vtest.v`, `cmd/tools/vup.v`, `cmd/tools/vwatch.v`, and `cmd/v/v.v`.
-  - `cmd/v/launcher_test.v`: the fork's Windows fallback-cache test is already identical to the upstream-based copy; no duplicate was added.
-  - `doc/docs.md`: the fork's array concatenation, comparator-expression, and `@[hot]`/`@[cold]`/`@[noalloc]` documentation was carried into the upstream version.
-- The latest upstream changes inspected after the original base were applied to `vlib/math/bits/div_64_cross_test.v`, `vlib/v/gen/c/headerless_program_test.v`, and `vlib/v/gen/c/literal_output_test.v`.
+All 185 fork-only paths are now represented in the upstream-based candidate. A tree/blob comparison against fork `master` verified 184 identical Git blob IDs; the remaining path, `vlib/v/transform/transform.v`, is empty on both sides (the Git blob IDs differ, but both fetched contents are zero bytes). This preserves the fork's path-level additions and changes outside the 12 true overlaps.
 
-A path-set check against the common ancestor found all 185 fork-only paths represented in the candidate; none were missing.
+Preserved groups include:
+- Runtime telemetry and memory accounting.
+- Compiler memory backpressure.
+- Process singleton coordination and process-resource guards.
+- Structured process/exit diagnostics.
+- `snoop` tracing and profiling.
+- Test-runner merge/output improvements.
+- Windows V1 fallback-cache helpers.
+- Fork-specific compiler, builtin, OS/runtime changes, tests and documentation.
 
-## Current upstream relationship
+## What remains unresolved
 
-The last compare against `vlang/v:master` (`b3e1e85f7062da68a8072c169256951ef9d29760`) reported:
-- Candidate ahead: 254 commits
-- Candidate behind: 1 commit
-- Changed paths: 200
+The 12 overlapping paths have not yet been semantically reconciled. They are:
+- `TESTS.md`
+- `ci/common/runner.v`
+- `cmd/tools/test_if_v_test_system_works.v`
+- `cmd/tools/testing/common.v`
+- `cmd/tools/vfmt_test.v`
+- `cmd/tools/vtest-all.v`
+- `cmd/tools/vtest.v`
+- `cmd/tools/vup.v`
+- `cmd/tools/vwatch.v`
+- `cmd/v/launcher_test.v`
+- `cmd/v/v.v`
+- `doc/docs.md`
 
-The latest upstream file changes have been applied to the candidate tree, but the branch still lacks the latest upstream commit in its Git ancestry. This is a Git-history limitation of the available GitHub file-edit workflow; it is not being represented as a completed ancestry merge. A proper Git merge/rebase or merge commit is still required to make the branch fully synchronized by ancestry.
+These require three-way review of the common ancestor, upstream version and fork version. In particular, compiler/test-runner behavior and launcher changes must not be resolved by blindly choosing one side.
 
-## Validation status and limitations
+## Git history and validation
 
-- No compiler build or test suite has been run.
-- No local Windows/Linux/macOS execution was available in this workflow.
-- No GitHub Actions result is being claimed.
-- Textual three-way reconciliation is not a substitute for compilation, formatting, runtime testing, or a full semantic review.
-- The working branch is not merged into `master`; `master` remains unchanged.
+- The candidate was created from upstream commit `1f87cae6cdb56e86a1446f507acada5707b1232b`, then updated through GitHub file operations to preserve fork-only paths.
+- Those file operations create many individual commits; they do not constitute a real Git merge/rebase of the fork history.
+- The candidate has not been built, formatted, or tested.
+- No GitHub Actions result is claimed.
+- No claim is made that the fork is fully synchronized with the current upstream head beyond the inspected base commit.
 
-## Required before promotion
+## Next sequence
 
-1. Perform a real Git merge/rebase from the current upstream head so the latest upstream commit is in the candidate's ancestry.
-2. Build the compiler/bootstrap on the supported host.
-3. Run formatter and focused compiler/runtime tests for array semantics, tracing/`snoop`, process memory guard, telemetry, backpressure, diagnostics, process singleton, test merging, and Windows fallback cache.
-4. Run the broader test suite on Windows and at least one Unix platform.
-5. Review the final PR diff for generated files, test assumptions, API changes, platform-specific regressions, and any accidental overwrites.
-6. Only then promote the candidate into `master`.
+1. Reconcile the 12 overlapping paths with explicit three-way patches.
+2. Review compiler and runtime integration groups, especially `vlib/v/gen/c`, `vlib/v/types`, `vlib/v/transform`, `vlib/runtime`, and `vlib/os`.
+3. Compare against the latest upstream head again and incorporate newer upstream commits.
+4. Perform a real Git merge/rebase or equivalent history-preserving integration when a Git-capable environment is available.
+5. Build and run focused and broad tests locally on supported platforms.
+6. Only after validation, propose promotion to `master`.
+
+Current status: fork-only path preservation is complete; semantic overlap reconciliation, history synchronization and validation are still pending.
