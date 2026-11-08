@@ -57,9 +57,9 @@ fn C.WriteConsoleW(voidptr, &u16, C.DWORD, &C.DWORD, voidptr) bool
 fn C.WriteFile(voidptr, &u8, C.DWORD, &C.DWORD, voidptr) bool
 fn C.ExitProcess(u32)
 fn C.GetProcessHeap() voidptr
-fn C.HeapAlloc(voidptr, u32, uint) voidptr
+fn C.HeapAlloc(voidptr, u32, usize) voidptr
 fn C.HeapFree(voidptr, u32, voidptr) bool
-fn C.CreateThread(attributes voidptr, stack_size uint, start_routine voidptr, arg voidptr, flags u32, thread_id &u32) voidptr
+fn C.CreateThread(attributes voidptr, stack_size usize, start_routine voidptr, arg voidptr, flags u32, thread_id &u32) voidptr
 fn C.v_builtin_windows_stream(index u32) voidptr
 
 fn C._setmode(int, int) int
@@ -176,7 +176,7 @@ fn write_buf_to_console_kernel32(fd int, buf &u8, buf_len int) bool {
 		if isnil(heap) {
 			return false
 		}
-		wide_size := uint((wide_len + 1) * int(sizeof(u16)))
+		wide_size := usize((wide_len + 1) * int(sizeof(u16)))
 		mut wide_buf := &u16(C.HeapAlloc(heap, 0, wide_size))
 		if isnil(wide_buf) {
 			return false
@@ -259,7 +259,7 @@ fn write_buf_to_fd_windows_non_minimal(fd int, buf &u8, buf_len int) {
 		return
 	}
 	mut ptr := unsafe { buf }
-	mut remaining_bytes := int(buf_len)
+	mut remaining_bytes := isize(buf_len)
 	if write_buf_to_console(fd, ptr, int(remaining_bytes)) {
 		return
 	}
@@ -267,10 +267,10 @@ fn write_buf_to_fd_windows_non_minimal(fd int, buf &u8, buf_len int) {
 	if fd == 2 {
 		stream = voidptr(C.stderr)
 	}
-	mut x := int(0)
+	mut x := isize(0)
 	unsafe {
 		for remaining_bytes > 0 {
-			x = int(C.fwrite(ptr, 1, remaining_bytes, stream))
+			x = isize(C.fwrite(ptr, 1, remaining_bytes, stream))
 			if x <= 0 {
 				// GUI programs on Windows may not have a writable stdout/stderr stream.
 				break
@@ -312,8 +312,7 @@ fn builtin_init() {
 				set_stream_unbuffered(C.stderr)
 			}
 		}
-		$if !no_backtrace ?|| windows_tcc_unhandled_filter ? {
-			// Keep executable fault diagnostics when TCC's traces are unavailable.
+		$if !no_backtrace ? {
 			add_unhandled_exception_handler()
 		}
 		// On windows, the default buffering is block based (~4096bytes), which interferes badly with non cmd shells
@@ -365,13 +364,11 @@ fn unhandled_exception_handler(e &ExceptionPointers) C.LONG {
 			return 0
 		}
 		else {
-			eprintln('Unhandled Exception 0x' + e.exception_record.code.hex() + ' at ' +
+			eprintln('Unhandled Exception 0x' + ptr_str(e.exception_record.code) + ' at ' +
 				ptr_str(e.exception_record.address))
 			flush_stdout()
 			flush_stderr()
-			$if !no_backtrace ? {
-				print_backtrace_skipping_top_frames(5)
-			}
+			print_backtrace_skipping_top_frames(5)
 			flush_stdout()
 			flush_stderr()
 		}
@@ -394,7 +391,7 @@ struct C.MEMORY_BASIC_INFORMATION {
 	AllocationBase voidptr
 }
 
-fn C.VirtualQuery(address voidptr, buffer &C.MEMORY_BASIC_INFORMATION, length uint) uint
+fn C.VirtualQuery(address voidptr, buffer &C.MEMORY_BASIC_INFORMATION, length usize) usize
 
 fn C.GetModuleHandleW(name &u16) voidptr
 
