@@ -1,5 +1,3 @@
-// vtest vflags: -w
-// Exercise the deprecated Command compatibility API, including its shell-string input.
 import os
 
 fn test_command() {
