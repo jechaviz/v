@@ -2223,7 +2223,7 @@ fn run_test_binary(bin_file string) int {
 	return run_binary(bin_file, []string{})
 }
 
- // is_generated_source reports whether `path` is the temporary source that the compiler writes
+// is_generated_source reports whether `path` is the temporary source that the compiler writes
 // for `-e` code or standard input. Such a source belongs to no project, so the launcher does not
 // apply the `backend` of the v.mod in the folder that holds it. Recognizing the name, instead of
 // marking the child command line, keeps the command that a `.vvmrc` forwards to another compiler
@@ -2233,7 +2233,6 @@ pub fn is_generated_source(path string) bool {
 	return (name.starts_with(v3_inline_source_prefix) && name.ends_with('.vsh'))
 		|| (name.starts_with(v3_stdin_source_prefix) && name.ends_with('.v'))
 }
-
 
 fn ignore_run_signal(_ os.Signal) {
 }
