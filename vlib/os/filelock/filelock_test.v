@@ -92,8 +92,12 @@ fn wait_for_lock(mut p os.Process) {
 		}
 		time.sleep(10 * time.millisecond)
 	}
+	if p.is_alive() {
+		p.signal_kill()
+	}
 	p.wait()
 	stderr := p.stderr_slurp().trim_space()
+	p.close()
 	assert false, os.process_exit_code_diagnostics(p.code, '0',
 		label:  @FN
 		stdout: output
